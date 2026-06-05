@@ -1,0 +1,222 @@
+import os
+import sys
+import tempfile
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
+
+from db import TweetDB
+
+
+@pytest.fixture
+def db():
+    """Create a test database in a temp file."""
+    fd, path = tempfile.mkstemp(suffix='.db')
+    os.close(fd)
+    tdb = TweetDB(path)
+    yield tdb
+    tdb.close()
+    os.unlink(path)
+
+
+class TestTweetDB:
+    def test_create_tables(self, db):
+        """Tables should be created on init."""
+        tables = db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        table_names = [t[0] for t in tables]
+        assert 'tweets' in table_names
+        assert 'comments' in table_names
+
+    def test_insert_tweet(self, db):
+        db.insert_tweet({
+            '_id': '123456', 'mblogid': 'Mb123', 'user_id': '1087770692',
+            'content': 'hello world', 'created_at': '2024-01-01 12:00:00',
+            'reposts_count': 0, 'comments_count': 2, 'attitudes_count': 10,
+            'pic_urls': '[]', 'pic_num': 0, 'source': 'iPhone',
+            'ip_location': '北京', 'is_retweet': 0, 'retweet_id': None,
+            'url': 'https://weibo.com/1087770692/Mb123', 'crawl_time': 1700000000,
+        })
+        row = db.conn.execute("SELECT * FROM tweets WHERE id='123456'").fetchone()
+        assert row is not None
+        assert row[2] == 'hello world'
+        assert row[14] == 0  # deleted=0
+
+    def test_insert_tweet_ignore_duplicate(self, db):
+        tweet = {
+            '_id': '123456', 'mblogid': 'Mb123', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 12:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        }
+        db.insert_tweet(tweet)
+        db.insert_tweet(tweet)
+        count = db.conn.execute("SELECT COUNT(*) FROM tweets WHERE id='123456'").fetchone()[0]
+        assert count == 1
+
+    def test_insert_comment(self, db):
+        db.insert_tweet({
+            '_id': '123456', 'mblogid': 'Mb123', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 12:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_comment({
+            '_id': 'c1', 'tweet_id': '123456', 'content': 'nice',
+            'created_at': '2024-01-01 13:00:00', 'like_counts': 5,
+            'ip_location': '上海', 'comment_user': '{"nick_name":"A"}',
+            'reply_comment': None, 'crawl_time': 1700000000,
+        })
+        row = db.conn.execute("SELECT * FROM comments WHERE id='c1'").fetchone()
+        assert row is not None
+        assert row['tweet_id'] == '123456'
+        assert row['content'] == 'nice'
+
+    def test_get_tweets_pagination(self, db):
+        for i in range(5):
+            db.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': f'tweet {i}', 'created_at': f'2024-01-01 0{i}:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        page1 = db.get_tweets(page=1, per_page=2, sort='desc')
+        assert len(page1) == 2
+        assert page1[0]['id'] == '4'  # newest first
+        page2 = db.get_tweets(page=2, per_page=2, sort='desc')
+        assert len(page2) == 2
+        assert page2[0]['id'] == '2'
+        page3 = db.get_tweets(page=3, per_page=2, sort='desc')
+        assert len(page3) == 1
+        assert page3[0]['id'] == '0'
+
+    def test_get_tweets_excludes_deleted(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'kept', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_tweet({
+            '_id': '2', 'mblogid': 'Mb2', 'user_id': '1087770692',
+            'content': 'deleted', 'created_at': '2024-01-01 11:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.batch_delete(['2'])
+        results = db.get_tweets(page=1, per_page=10)
+        assert len(results) == 1
+        assert results[0]['id'] == '1'
+
+    def test_get_tweets_deleted(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'deleted', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.batch_delete(['1'])
+        results = db.get_tweets(page=1, per_page=10, deleted='all')
+        assert len(results) == 1
+        assert results[0]['deleted'] == 1
+
+    def test_get_comments(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        for i in range(3):
+            db.insert_comment({
+                '_id': f'c{i}', 'tweet_id': '1', 'content': f'comment {i}',
+                'created_at': f'2024-01-01 1{i}:00:00', 'like_counts': 0,
+                'ip_location': '', 'comment_user': '{}',
+                'reply_comment': None, 'crawl_time': 0,
+            })
+        comments = db.get_comments('1')
+        assert len(comments) == 3
+
+    def test_batch_delete(self, db):
+        for i in range(3):
+            db.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': f'tweet {i}', 'created_at': '2024-01-01 0{i}:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        count = db.batch_delete(['0', '1'])
+        assert count == 2
+        for id_ in ['0', '1']:
+            row = db.conn.execute(f"SELECT deleted FROM tweets WHERE id='{id_}'").fetchone()
+            assert row[0] == 1
+        row = db.conn.execute("SELECT deleted FROM tweets WHERE id='2'").fetchone()
+        assert row[0] == 0
+
+    def test_restore_tweets(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.batch_delete(['1'])
+        count = db.restore_tweets(['1'])
+        assert count == 1
+        row = db.conn.execute("SELECT deleted FROM tweets WHERE id='1'").fetchone()
+        assert row[0] == 0
+
+    def test_get_tweet(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        tweet = db.get_tweet('1')
+        assert tweet is not None
+        assert tweet['content'] == 'hello'
+
+    def test_get_tweet_ids(self, db):
+        for i in range(3):
+            db.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': f'tweet {i}', 'created_at': '2024-01-01 0{i}:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        ids = db.get_tweet_ids()
+        assert ids == ['Mb0', 'Mb1', 'Mb2']
+
+    def test_stats(self, db):
+        for i in range(5):
+            db.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': f'tweet {i}', 'created_at': '2024-01-01 0{i}:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        db.batch_delete(['0', '1'])
+        db.insert_comment({
+            '_id': 'c1', 'tweet_id': '2', 'content': 'nice',
+            'created_at': '2024-01-01 13:00:00', 'like_counts': 0,
+            'ip_location': '', 'comment_user': '{}',
+            'reply_comment': None, 'crawl_time': 0,
+        })
+        stats = db.stats()
+        assert stats['total_tweets'] == 5
+        assert stats['deleted_tweets'] == 2
+        assert stats['total_comments'] == 1

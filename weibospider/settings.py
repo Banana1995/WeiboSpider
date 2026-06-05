@@ -26,5 +26,5 @@ DOWNLOADER_MIDDLEWARES = {
 }
 
 ITEM_PIPELINES = {
-    'pipelines.JsonWriterPipeline': 300,
+    'pipelines.SqlitePipeline': 300,
 }

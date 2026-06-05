@@ -3,3 +3,6 @@ python_dateutil
 cryptography==36.0.2
 pyOpenSSL==22.0.0
 Twisted==22.10.0
+Flask==2.3.0
+APScheduler==3.10.0
+pytest==7.4.0

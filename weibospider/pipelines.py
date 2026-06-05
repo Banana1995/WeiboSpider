@@ -1,30 +1,25 @@
-# -*- coding: utf-8 -*-
-import datetime
-import json
-import os.path
+# weibospider/pipelines.py
 import time
+from db import TweetDB
 
 
-class JsonWriterPipeline(object):
-    """
-    写入json文件的pipline
-    """
+class SqlitePipeline:
+    """Scrapy pipeline: write items to SQLite."""
 
-    def __init__(self):
-        self.file = None
-        if not os.path.exists('../output'):
-            os.mkdir('../output')
+    db = None
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        pipeline = cls()
+        cls.db = TweetDB()
+        return pipeline
 
     def process_item(self, item, spider):
-        """
-        处理item
-        """
-        if not self.file:
-            now = datetime.datetime.now()
-            file_name = spider.name + "_" + now.strftime("%Y%m%d%H%M%S") + '.jsonl'
-            self.file = open(f'../output/{file_name}', 'wt', encoding='utf-8')
         item['crawl_time'] = int(time.time())
-        line = json.dumps(dict(item), ensure_ascii=False) + "\n"
-        self.file.write(line)
-        self.file.flush()
+
+        if spider.name == 'tweet_spider_by_user_id':
+            self.db.insert_tweet(item)
+        elif spider.name == 'comment':
+            self.db.insert_comment(item)
+
         return item

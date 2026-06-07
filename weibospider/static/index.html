@@ -6,11 +6,11 @@
 <title>微博管理器</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #cdd6f4; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
 #app { max-width: 700px; margin: 0 auto; padding: 0 12px; }
 
 /* Top bar */
-.toolbar { position: sticky; top: 0; z-index: 100; background: #16162a; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a3f; gap: 8px; flex-wrap: wrap; }
+.toolbar { position: sticky; top: 0; z-index: 100; background: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e0e0e0; gap: 8px; flex-wrap: wrap; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .toolbar h1 { font-size: 16px; white-space: nowrap; }
 .stats { font-size: 11px; color: #888; white-space: nowrap; }
 .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: bold; }
@@ -18,74 +18,159 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn-danger { background: #e74c3c; color: #fff; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-ghost { background: transparent; border: 1px solid #555; color: #aaa; }
+.btn-ghost { background: none; border: 1px solid #ccc; color: #666; font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+.btn-ghost:hover { background: #fee; border-color: #e74c3c; color: #e74c3c; }
 .toolbar-actions { display: flex; gap: 6px; align-items: center; }
 
+/* Config row */
+.config-section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+.config-section h3 { font-size: 13px; color: #666; margin-bottom: 8px; font-weight: normal; }
+.uid-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.uid-tag { background: #e8f0fe; color: #1a73e8; padding: 4px 10px; border-radius: 20px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.uid-tag .remove { cursor: pointer; font-weight: bold; opacity: 0.5; }
+.uid-tag .remove:hover { opacity: 1; color: #e74c3c; }
+.uid-input-row { display: flex; gap: 6px; }
+.uid-input-row input { flex: 1; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; outline: none; }
+.uid-input-row input:focus { border-color: #4a9eff; }
+
 /* Tabs */
-.tabs { display: flex; gap: 0; margin: 12px 0 8px; border-bottom: 1px solid #2a2a3f; }
-.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border: none; background: none; color: #888; border-bottom: 2px solid transparent; }
+.tabs { display: flex; margin: 10px 0 6px; border-bottom: 2px solid #e0e0e0; }
+.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border: none; background: none; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
 .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
 
 /* Cards */
-.card { background: #1e1e35; border-radius: 10px; padding: 14px; border: 1px solid #333; display: flex; gap: 10px; }
+.card { background: #fff; border-radius: 10px; padding: 14px; border: 1px solid #e8e8e8; display: flex; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
 .card+.card { margin-top: 10px; }
 .card input[type=checkbox] { margin-top: 3px; accent-color: #4a9eff; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .card-body { flex: 1; min-width: 0; }
-.card-meta { color: #888; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.card-meta { color: #999; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; }
 .card-meta-left { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-meta-right { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
-.btn-del { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 2px; }
-.btn-del:hover { color: #e74c3c; }
-.card-content { line-height: 1.7; margin-bottom: 8px; color: #ddd; font-size: 14px; word-break: break-word; }
+.btn-del { background: #e74c3c; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 4px 12px; border-radius: 4px; font-weight: bold; line-height: 1; }
+.btn-del:hover { background: #c0392b; }
+.card-content { line-height: 1.7; margin-bottom: 8px; color: #333; font-size: 14px; word-break: break-word; }
 .card-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.card-images img { max-width: 180px; max-height: 180px; border-radius: 6px; object-fit: cover; background: #252540; }
-.card-actions { display: flex; gap: 16px; color: #888; font-size: 12px; align-items: center; }
+.card-images img { max-width: 180px; max-height: 180px; border-radius: 6px; object-fit: cover; background: #f0f0f0; }
+.card-actions { display: flex; gap: 16px; color: #999; font-size: 12px; align-items: center; }
 
 /* Comments */
 .comments-toggle { color: #4a9eff; cursor: pointer; font-size: 12px; user-select: none; }
 .comments-toggle:hover { text-decoration: underline; }
-.comments-box { display: none; background: #15152a; border-radius: 8px; padding: 10px; margin-top: 8px; }
+.comments-box { display: none; background: #f8f9fa; border-radius: 8px; margin-top: 8px; max-height: 350px; overflow-y: auto; }
+.comments-box-inner { padding: 10px; }
 .comments-box.open { display: block; }
-.comment { font-size: 12px; padding: 5px 0; line-height: 1.5; border-bottom: 1px solid #1e1e35; }
+.comment { font-size: 12px; padding: 5px 0; line-height: 1.5; border-bottom: 1px solid #eee; }
 .comment:last-child { border-bottom: none; }
-.comment-user { color: #f0a040; }
-.comment-reply { margin-left: 16px; padding-left: 8px; border-left: 2px solid #444; color: #aaa; }
-.comments-more { font-size: 11px; color: #666; text-align: center; padding-top: 4px; }
+.comment-user { color: #e67e22; }
+.comment-reply { margin-left: 16px; padding-left: 8px; border-left: 2px solid #ddd; color: #888; }
+.comment-time { color: #bbb; font-size: 10px; margin-left: 6px; }
 
 /* Loading */
-.loader { text-align: center; padding: 30px; color: #888; font-size: 13px; }
+.loader { text-align: center; padding: 30px; color: #aaa; font-size: 13px; }
 .hidden { display: none; }
 
 /* Toast */
-.toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #2d5a2d; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; opacity: 0; transition: opacity 0.3s; }
+.toast { position: fixed; top: 20px; right: 20px; background: #27ae60; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; opacity: 0; transition: opacity 0.3s; }
 .toast.show { opacity: 1; }
-.toast.error { background: #5a2d2d; }
+.toast.error { background: #e74c3c; }
 
 /* Crawl progress */
-.crawl-banner { background: #1e3a5f; padding: 8px 16px; text-align: center; font-size: 12px; color: #4a9eff; display: none; }
+.crawl-banner { background: #e8f0fe; padding: 8px 16px; text-align: center; font-size: 12px; color: #1a73e8; display: none; border-radius: 6px; margin: 8px 0; }
 .crawl-banner.show { display: block; }
 
 /* Select all */
 .select-all { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #888; padding: 8px 0; }
 .select-all input { accent-color: #4a9eff; }
+
+/* Crawl log */
+.crawl-log { background: #fafafa; border: 1px solid #e0e0e0; border-radius: 8px; margin: 8px 0; font-size: 11px; font-family: monospace; color: #666; }
+.crawl-log.error { border-color: #e74c3c; background: #fff5f5; }
+.crawl-log .line-error { color: #e74c3c; font-weight: bold; }
+.crawl-log-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; font-size: 12px; font-weight: 600; color: #888; cursor: pointer; user-select: none; border-bottom: 1px solid #eee; }
+.crawl-log-header:hover { background: #f0f0f0; border-radius: 8px 8px 0 0; }
+.crawl-log-toggle { font-size: 11px; color: #aaa; }
+.crawl-log-body { padding: 10px 14px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.crawl-log.collapsed .crawl-log-body { display: none; }
+
+/* Export modal */
+.export-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9000; align-items: center; justify-content: center; backdrop-filter: blur(2px); animation: fadeIn 0.2s ease; }
+.export-overlay.show { display: flex; }
+.export-modal { background: #fff; border-radius: 14px; padding: 28px 24px; width: 400px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,0.2); animation: slideUp 0.25s ease; }
+.export-modal h3 { font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 6px; }
+.export-modal .modal-desc { font-size: 12px; color: #999; margin-bottom: 18px; }
+.export-modal .date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.export-modal .date-row input { flex: 1; min-width: 0; padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 13px; color: #333; outline: none; transition: border-color 0.2s; }
+.export-modal .date-row input:focus { border-color: #4a9eff; box-shadow: 0 0 0 3px rgba(74,158,255,0.1); }
+.export-modal .date-row .sep { color: #ccc; font-size: 14px; font-weight: 500; }
+.export-modal .modal-actions { display: flex; gap: 10px; margin-top: 6px; }
+.export-modal .modal-actions .btn { flex: 1; padding: 10px; font-size: 13px; border-radius: 8px; font-weight: 600; transition: all 0.2s; }
+.export-modal .btn-confirm { background: #4a9eff; color: #fff; border: none; }
+.export-modal .btn-confirm:hover { background: #3a8eef; }
+.export-modal .btn-cancel { background: #f5f5f5; color: #666; border: 1px solid #e0e0e0; }
+.export-modal .btn-cancel:hover { background: #eee; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Cookie warning */
+.cookie-warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 11px; color: #856404; }
 </style>
 </head>
 <body>
 <div id="app">
   <div class="toolbar">
-    <h1>&#x1f4e6; 微博管理器</h1>
+    <h1>微博管理器</h1>
     <span class="stats" id="stats-text">加载中...</span>
     <div class="toolbar-actions">
-      <button class="btn btn-primary" id="btn-crawl">&#x1f504; 立即抓取</button>
-      <button class="btn btn-danger" id="btn-batch-delete" disabled>&#x1f5d1; 删除选中</button>
+      <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
+      <div style="position:relative;display:inline-block;">
+        <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
+      </div>
+      <button class="btn btn-danger" id="btn-batch-delete" disabled>删除选中</button>
+      <button class="btn" id="btn-batch-restore" disabled style="display:none;background:#f0a040;color:#fff;">撤回选中</button>
     </div>
   </div>
 
-  <div class="crawl-banner" id="crawl-banner">&#x23f3; 抓取进行中...</div>
+  <div class="crawl-banner" id="crawl-banner">抓取进行中... <a href="#" onclick="event.preventDefault();cancelCrawl()" style="color:#e74c3c;margin-left:8px;">[取消]</a></div>
+
+  <div id="crawl-log" class="crawl-log hidden">
+    <div class="crawl-log-header" onclick="toggleCrawlLog()">
+      <span>抓取日志</span>
+      <span class="crawl-log-toggle" id="crawl-log-toggle">收起 ▲</span>
+    </div>
+    <div class="crawl-log-body" id="crawl-log-body"></div>
+  </div>
+
+  <div class="config-section">
+    <h3>Cookie（从浏览器登录 weibo.com 后复制）</h3>
+    <div id="cookie-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
+    <div class="uid-input-row">
+      <input type="text" id="cookie-input" placeholder="粘贴完整的微博 Cookie 字符串">
+      <button class="btn btn-sm btn-primary" onclick="saveCookie()">保存</button>
+    </div>
+  </div>
+
+  <div class="config-section">
+    <h3>时间范围</h3>
+    <div class="uid-input-row">
+      <input type="date" id="start-date" onchange="saveDates()" style="flex:1;">
+      <span style="color:#888;padding:0 4px;">~</span>
+      <input type="date" id="end-date" onchange="saveDates()" style="flex:1;">
+    </div>
+    <span style="font-size:10px;color:#aaa;">留空 = 抓取全部微博</span>
+  </div>
+
+  <div class="config-section">
+    <h3>监控的博主</h3>
+    <div class="uid-list" id="uid-list"></div>
+    <div class="uid-input-row">
+      <input type="text" id="uid-input" placeholder="输入微博用户 UID，按回车添加">
+      <button class="btn btn-sm btn-primary" onclick="addUid()">添加</button>
+    </div>
+  </div>
 
   <div class="tabs">
-    <button class="tab active" data-tab="active">&#x1f4dd; 微博列表</button>
-    <button class="tab" data-tab="trash">&#x1f5d1; 回收站</button>
+    <button class="tab active" data-tab="active">微博列表</button>
+    <button class="tab" data-tab="trash">回收站</button>
   </div>
 
   <div class="select-all" id="select-all-row">
@@ -95,7 +180,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
   <div id="cards-container"></div>
   <div class="loader" id="loader">加载中...</div>
-  <div class="loader hidden" id="end-marker">— 没有更多了 —</div>
+  <div class="loader hidden" id="end-marker">-- 没有更多了 --</div>
+</div>
+
+<div class="export-overlay" id="export-overlay" onclick="if(event.target===this)closeExportModal()">
+  <div class="export-modal">
+    <h3>导出 PDF</h3>
+    <p class="modal-desc">选择要导出的微博时间范围，留空则导出全部</p>
+    <div class="date-row">
+      <input type="date" id="export-start">
+      <span class="sep">至</span>
+      <input type="date" id="export-end">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeExportModal()">取消</button>
+      <button class="btn btn-confirm" onclick="doExport()">确认导出</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -106,17 +207,115 @@ let currentTab = 'active';
 let selected = new Set();
 let isLoading = false;
 let hasMore = true;
+let userIDs = [];
+let activeUserFilter = '';  // empty = show all
 
-document.getElementById('btn-crawl').addEventListener('click', triggerCrawl);
+document.getElementById('btn-crawl').addEventListener('click', () => triggerCrawl());
+document.getElementById('btn-export').addEventListener('click', exportPDF);
 document.getElementById('btn-batch-delete').addEventListener('click', batchDelete);
+document.getElementById('btn-batch-restore').addEventListener('click', batchRestore);
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', e => switchTab(e.target.dataset.tab)));
+document.getElementById('uid-input').addEventListener('keydown', e => { if (e.key === 'Enter') addUid(); });
 window.addEventListener('scroll', onScroll);
 
+loadConfig();
 loadTweets();
 loadStats();
-checkStatus();
+listenSSE();
 
 function $(id) { return document.getElementById(id); }
+
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    const data = await resp.json();
+    userIDs = data.user_ids || [];
+    renderUidTags();
+    if (data.start_date) {
+      $('start-date').value = data.start_date;
+      $('end-date').value = data.end_date;
+    } else {
+      setDefaultDates();
+    }
+    if (data.cookie) {
+      $('cookie-status').textContent = '已保存 Cookie: ' + data.cookie_masked;
+      $('cookie-status').style.color = '#27ae60';
+    } else {
+      $('cookie-status').textContent = '未设置 Cookie（抓取将失败）';
+      $('cookie-status').style.color = '#e74c3c';
+    }
+  } catch(e) {}
+}
+
+function setDefaultDates() {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  $('end-date').value = now.toISOString().split('T')[0];
+  $('start-date').value = weekAgo.toISOString().split('T')[0];
+  saveDates();
+}
+
+async function saveDates() {
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({start_date: $('start-date').value, end_date: $('end-date').value})
+    });
+  } catch(e) {}
+}
+
+async function saveCookie() {
+  const cookie = $('cookie-input').value.trim();
+  if (!cookie) { toast('请输入 Cookie', true); return; }
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cookie: cookie})
+    });
+    toast('Cookie 已保存');
+    loadConfig();
+  } catch(e) { toast('保存失败', true); }
+}
+
+function renderUidTags() {
+  const container = $('uid-list');
+  container.innerHTML = userIDs.map(uid => `
+    <div class="uid-tag" style="${activeUserFilter === uid ? 'border:2px solid #4a9eff;' : ''}">
+      <span onclick="filterByUser('${esc(uid)}')" style="cursor:pointer;font-weight:${activeUserFilter === uid ? 'bold' : 'normal'}">${esc(uid)}</span>
+      <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); triggerCrawl('${esc(uid)}')" style="font-size:10px;padding:2px 6px;margin-left:6px;">抓取</button>
+      <span class="remove" onclick="removeUid('${esc(uid)}')">&times;</span>
+    </div>
+  `).join('') + (activeUserFilter ? `<div style="font-size:11px;color:#4a9eff;padding-top:4px;cursor:pointer" onclick="filterByUser('')">显示全部</div>` : '');
+}
+
+async function addUid() {
+  const input = $('uid-input');
+  const uid = input.value.trim();
+  if (!uid) return;
+  if (userIDs.includes(uid)) { toast('UID 已存在', true); return; }
+  userIDs.push(uid);
+  await saveUids();
+  input.value = '';
+}
+
+async function removeUid(uid) {
+  userIDs = userIDs.filter(u => u !== uid);
+  await saveUids();
+}
+
+async function saveUids() {
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({user_ids: userIDs})
+    });
+    renderUidTags();
+    toast('UID 列表已保存 (' + userIDs.length + ' 个)');
+  } catch(e) { toast('保存失败', true); }
+}
 
 async function loadTweets(reset) {
   if (isLoading || (!reset && !hasMore)) return;
@@ -126,7 +325,8 @@ async function loadTweets(reset) {
 
   const deleted = currentTab === 'trash' ? 'only' : 'exclude';
   try {
-    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=20&deleted=${deleted}`);
+    const uidParam = activeUserFilter ? '&user_id=' + activeUserFilter : '';
+    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=20&deleted=${deleted}${uidParam}`);
     const data = await resp.json();
     if (data.length === 0) { hasMore = false; $('end-marker').classList.remove('hidden'); }
     else {
@@ -152,27 +352,32 @@ function renderCard(t) {
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
     <div class="card-body">
       <div class="card-meta">
-        <span class="card-meta-left">${esc(t.created_at)} &bull; ${esc(t.source)} &bull; ${esc(t.ip_location)}</span>
+        <span class="card-meta-left">${esc(t.screen_name || '')} &bull; ${esc(t.created_at)} &bull; ${esc(t.source)}</span>
         <span class="card-meta-right">
-          <button class="btn-del" onclick="deleteOne('${t.id}')" title="删除">&#x2715;</button>
+          <button class="btn-del" onclick="deleteOne('${t.id}')">&times;</button>
         </span>
       </div>
       <div class="card-content">${esc(t.content)}</div>
+      ${t.retweet_content ? renderRetweet(t) : ''}
       ${pics.length ? `<div class="card-images">${pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('')}</div>` : ''}
       <div class="card-actions">
-        <span>&#x1f501; ${t.reposts_count}</span>
-        <span>&#x2764; ${t.attitudes_count}</span>
-        <span class="comments-toggle" onclick="toggleComments(this, '${t.id}')">&#x1f4ac; ${commentCount} 条评论</span>
+        <span>转发 ${t.reposts_count}</span>
+        <span>赞 ${t.attitudes_count}</span>
+        <span class="comments-toggle" onclick="toggleComments(this, '${t.id}')">评论 ${commentCount}</span>
       </div>
       <div class="comments-box" id="comments-${t.id}">
-        ${comments.length === 0 ? '<div class="comment" style="color:#666">暂无评论</div>' : ''}
-        ${comments.slice(0, 5).map(c => `
-          <div class="comment">
-            <span class="comment-user">${esc((c.comment_user||{}).nick_name||'用户')}</span>: ${esc(c.content)}
-            ${c.reply_comment ? `<div class="comment-reply"><span class="comment-user">${esc((c.reply_comment.user||{}).nick_name||'用户')}</span>: ${esc(c.reply_comment.text)}</div>` : ''}
-          </div>
-        `).join('')}
-        ${commentCount > 5 ? `<div class="comments-more">... 还有 ${commentCount - 5} 条评论</div>` : ''}
+        ${comments.length === 0 ? '<div class="comments-box-inner"><div class="comment" style="color:#aaa">暂无评论</div></div>' : ''}
+        <div class="comments-box-inner">
+          ${comments.map(c => `
+            <div class="comment">
+              <span class="comment-user">${esc((c.comment_user||{}).nick_name||'用户')}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
+              ${c.reply_comment ? `<div class="comment-reply"><span class="comment-user">${esc((c.reply_comment.user||{}).nick_name||'用户')}</span>: ${esc(c.reply_comment.text)}</div>` : ''}
+              ${(c.sub_comments||[]).map(s => `
+                <div class="comment-reply"><span class="comment-user">${esc((s.comment_user||{}).nick_name||'用户')}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${esc(s.content)}</div>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
       </div>
     </div>
   `;
@@ -182,8 +387,14 @@ function renderCard(t) {
 function toggleComments(el, id) {
   const box = $('comments-' + id);
   box.classList.toggle('open');
-  const isOpen = box.classList.contains('open');
-  el.innerHTML = `&#x1f4ac; ${box.querySelectorAll('.comment').length} 条评论 ${isOpen ? '&#x25B2;' : '&#x25BC;'}`;
+}
+
+function renderRetweet(t) {
+  const pics = t.retweet_pic_urls || [];
+  return `<div style="background:#f0f0f0;border-left:3px solid #ddd;padding:8px 10px;margin:6px 0;border-radius:4px;">
+    <span style="color:#e67e22;">@${esc(t.retweet_user||'')}</span>: <span style="font-size:13px;color:#666;">${esc(t.retweet_content)}</span>
+    ${pics.length ? '<div class="card-images" style="margin-top:6px;">' + pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('') + '</div>' : ''}
+  </div>`;
 }
 
 function esc(s) {
@@ -217,13 +428,18 @@ function toggleOne(cb) {
 }
 
 function updateBatchBtn() {
-  const btn = $('btn-batch-delete');
-  btn.disabled = selected.size === 0;
-  btn.textContent = selected.size > 0 ? `\u{1f5d1} 删除选中(${selected.size})` : '\u{1f5d1} 删除选中';
+  if (currentTab === 'trash') {
+    const btn = $('btn-batch-restore');
+    btn.disabled = selected.size === 0;
+    btn.textContent = selected.size > 0 ? `撤回选中(${selected.size})` : '撤回选中';
+  } else {
+    const btn = $('btn-batch-delete');
+    btn.disabled = selected.size === 0;
+    btn.textContent = selected.size > 0 ? `删除选中(${selected.size})` : '删除选中';
+  }
 }
 
 async function deleteOne(id) {
-  if (!confirm('确认删除这条微博？')) return;
   try {
     await fetch(`/api/tweets/${id}`, { method: 'DELETE' });
     removeCard(id);
@@ -234,7 +450,6 @@ async function deleteOne(id) {
 
 async function batchDelete() {
   if (selected.size === 0) return;
-  if (!confirm(`确认删除选中的 ${selected.size} 条微博？`)) return;
   try {
     const ids = Array.from(selected);
     await fetch('/api/tweets/batch-delete', {
@@ -250,60 +465,195 @@ async function batchDelete() {
   } catch(e) { toast('删除失败', true); }
 }
 
+async function batchRestore() {
+  if (selected.size === 0) return;
+  try {
+    const ids = Array.from(selected);
+    await fetch('/api/tweets/restore', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ids })
+    });
+    ids.forEach(id => removeCard(id));
+    selected.clear();
+    updateBatchBtn();
+    toast(`已撤回 ${ids.length} 条`);
+    loadStats();
+  } catch(e) { toast('撤回失败', true); }
+}
+
 function removeCard(id) {
   const card = document.querySelector(`.card[data-id="${id}"]`);
   if (card) card.remove();
 }
 
-async function triggerCrawl() {
-  const btn = $('btn-crawl');
-  btn.disabled = true;
-  btn.textContent = '抓取中...';
-  try {
-    const resp = await fetch('/api/crawl', { method: 'POST' });
-    const data = await resp.json();
-    if (data.status === 'started') toast('抓取已启动，完成后刷新页面可查看新微博');
-    else toast(data.message, true);
-  } catch(e) { toast('请求失败', true); }
-  btn.disabled = false;
-  btn.textContent = '\u{1f504} 立即抓取';
+function filterByUser(uid) {
+  activeUserFilter = uid;
+  renderUidTags();
+  loadTweets(true);
 }
 
-async function checkStatus() {
+async function triggerCrawl(user_id) {
+  const isSingle = !!user_id;
+  if (!isSingle && userIDs.length === 0) { toast('请先添加博主 UID', true); return; }
+  const btn = $('btn-crawl');
+  btn.disabled = true;
+  btn.textContent = isSingle ? `抓取 ${user_id}...` : '抓取中...';
+  $('crawl-log').classList.remove('hidden', 'error', 'collapsed');
+  $('crawl-log-body').textContent = '正在启动抓取...';
   try {
-    const resp = await fetch('/api/crawl/status');
+    const resp = await fetch('/api/crawl', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(user_id ? {user_id} : {}),
+    });
     const data = await resp.json();
-    if (data.running) {
-      $('crawl-banner').classList.add('show');
-      $('btn-crawl').disabled = true;
-    } else {
-      $('crawl-banner').classList.remove('show');
-      $('btn-crawl').disabled = false;
-      if (data.last_result) {
-        loadTweets(true);
-        loadStats();
+    if (data.status === 'started') {
+      toast('抓取已启动');
+      $('crawl-log-body').textContent = '等待日志...';
+    } else toast(data.message, true);
+  } catch(e) { toast('请求失败', true); }
+  btn.disabled = false;
+  btn.textContent = '立即抓取';
+}
+
+let sseLastResult = null;
+
+function listenSSE() {
+  const es = new EventSource('/api/crawl/events');
+  // Handle status events
+  es.addEventListener('status', function(e) {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.running) {
+        $('crawl-banner').classList.add('show');
+        $('btn-crawl').disabled = true;
+        // Show log box when crawl starts
+        $('crawl-log').classList.remove('hidden', 'collapsed');
+        $('crawl-log-body').textContent = '';
+      } else {
+        $('crawl-banner').classList.remove('show');
+        $('btn-crawl').disabled = false;
+        $('btn-crawl').textContent = '立即抓取';
+        if (data.last_result) {
+          const key = JSON.stringify(data.last_result);
+          if (key !== sseLastResult) {
+            sseLastResult = key;
+            loadTweets(true);
+            loadStats();
+          }
+        }
       }
-    }
-  } catch(e) {}
-  setTimeout(checkStatus, 5000);
+    } catch(e) {}
+  });
+  // Handle real-time log lines
+  es.addEventListener('log', function(e) {
+    const body = $('crawl-log-body');
+    body.textContent += e.data + '\n';
+    body.scrollTop = body.scrollHeight;
+  });
+  es.onerror = function() {
+    setTimeout(listenSSE, 5000);
+    es.close();
+  };
+}
+
+async function cancelCrawl() {
+  try {
+    const resp = await fetch('/api/crawl/cancel', {method: 'POST'});
+    const data = await resp.json();
+    toast(data.message || '已取消');
+    $('crawl-banner').classList.remove('show');
+    $('btn-crawl').disabled = false;
+    $('btn-crawl').textContent = '立即抓取';
+    $('crawl-log-body').textContent = '抓取已取消';
+    $('crawl-log').classList.remove('hidden', 'collapsed');
+    // reload after a delay to let the backend process the cancel
+    setTimeout(() => { loadTweets(true); loadStats(); }, 2000);
+  } catch(e) { toast('取消失败', true); }
 }
 
 async function loadStats() {
   try {
     const resp = await fetch('/api/stats');
     const data = await resp.json();
-    $('stats-text').textContent = `共 ${data.total_tweets} 条 | 已删 ${data.deleted_tweets}`;
+    const total = data.total_tweets;
+    const deleted = data.deleted_tweets;
+    $('stats-text').textContent = `${total - deleted} 条 | 删 ${deleted} | 总 ${total}`;
   } catch(e) {}
 }
 
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  $('select-all-row').style.display = tab === 'trash' ? 'none' : '';
+  $('select-all-row').style.display = tab === 'trash' ? '' : '';
   $('btn-batch-delete').style.display = tab === 'trash' ? 'none' : '';
+  $('btn-batch-restore').style.display = tab === 'trash' ? '' : 'none';
   selected.clear();
   updateBatchBtn();
   loadTweets(true);
+}
+
+function showCrawlLog(result) {
+  const el = $('crawl-log');
+  el.classList.remove('hidden', 'collapsed');
+  const body = $('crawl-log-body');
+  if (result.status === 'failed') {
+    el.classList.add('error');
+    body.innerHTML = '<div class="line-error">抓取失败!</div>' + esc(result.log || '') + '\n\n错误:\n' + esc(result.error || '');
+  } else if (result.log) {
+    el.classList.remove('error');
+    body.textContent = result.log;
+  }
+  body.scrollTop = body.scrollHeight;
+}
+
+function toggleCrawlLog() {
+  const el = $('crawl-log');
+  const toggle = $('crawl-log-toggle');
+  el.classList.toggle('collapsed');
+  toggle.textContent = el.classList.contains('collapsed') ? '展开 ▼' : '收起 ▲';
+}
+
+function exportPDF() {
+  const now = new Date();
+  const weekAgo = new Date(now - 7 * 86400000);
+  $('export-end').value = now.toISOString().split('T')[0];
+  $('export-start').value = weekAgo.toISOString().split('T')[0];
+  $('export-overlay').classList.add('show');
+}
+
+function closeExportModal() {
+  $('export-overlay').classList.remove('show');
+}
+
+function doExport() {
+  const start = $('export-start').value;
+  const end = $('export-end').value;
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  params.set('format', 'pdf');
+  closeExportModal();
+  const btn = document.getElementById('btn-export');
+  const origText = btn.textContent;
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+  fetch('/api/export?' + params)
+    .then(r => {
+      if (!r.ok) throw new Error('导出失败');
+      return r.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `weibo_export_${start || 'all'}_${end || 'all'}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch(e => toast(e.message, true))
+    .finally(() => { btn.textContent = origText; btn.disabled = false; });
 }
 
 function toast(msg, isError) {

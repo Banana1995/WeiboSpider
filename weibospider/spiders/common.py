@@ -122,6 +122,12 @@ def parse_tweet_info(data):
     if 'retweeted_status' in data:
         tweet['is_retweet'] = True
         tweet['retweet_id'] = data['retweeted_status']['mid']
+        rs = data['retweeted_status']
+        tweet['retweet_content'] = rs.get('text_raw', '').replace('\u200b', '')
+        tweet['retweet_user'] = rs.get('user', {}).get('screen_name', '')
+        tweet['retweet_pic_urls'] = ["https://wx1.sinaimg.cn/orj960/" + pid for pid in rs.get('pic_ids', [])]
+        if 'page_info' in rs and rs['page_info'].get('object_type', '') == 'video':
+            tweet['retweet_has_video'] = True
     if 'reads_count' in data:
         tweet['reads_count'] = data['reads_count']
     return tweet

@@ -2,3 +2,8 @@
 *.db
 __pycache__/
 .pytest_cache/
+cookie.txt
+crawl.log
+server.log
+*.db-shm
+*.db-wal

@@ -165,10 +165,11 @@ def api_tweets():
     user_id = request.args.get('user_id')  # optional filter
 
     tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted, user_id=user_id)
-    # Attach comments for each tweet
+    # Attach comments and annotations for each tweet
     for t in tweets:
         comments = DB.get_comments(t['id'], sort='hot')
         t['comments_list'] = comments
+        t['annotations_list'] = DB.get_annotations(t['id'])
     return jsonify(tweets)
 
 

@@ -469,7 +469,9 @@ function renderCard(t) {
   row.appendChild(panel);
   container.appendChild(row);
 
-  if (typeof loadAnnotations === 'function') loadAnnotations(t.id);
+  const anns = t.annotations_list || [];
+  renderAnnotationPanel(t.id, anns);
+  setTimeout(() => applyHighlights(t.id, anns), 0);
 }
 
 function toggleComments(el, id) {

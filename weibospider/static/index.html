@@ -469,7 +469,7 @@ function renderCard(t) {
   row.appendChild(panel);
   container.appendChild(row);
 
-  loadAnnotations(t.id);
+  if (typeof loadAnnotations === 'function') loadAnnotations(t.id);
 }
 
 function toggleComments(el, id) {

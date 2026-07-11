@@ -7,10 +7,10 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-#app { max-width: 700px; margin: 0 auto; padding: 0 12px; }
+#app { max-width: 1000px; margin: 0 auto; padding: 0 12px; }
 
 /* Top bar */
-.toolbar { position: sticky; top: 0; z-index: 100; background: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e0e0e0; gap: 8px; flex-wrap: wrap; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.toolbar { background: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e0e0e0; gap: 8px; flex-wrap: wrap; }
 .toolbar h1 { font-size: 16px; white-space: nowrap; }
 .stats { font-size: 11px; color: #888; white-space: nowrap; }
 .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: bold; }
@@ -33,8 +33,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .uid-input-row input { flex: 1; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; outline: none; }
 .uid-input-row input:focus { border-color: #4a9eff; }
 
+/* Sticky header (toolbar + tabs) */
+.sticky-header { position: sticky; top: 0; z-index: 100; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
 /* Tabs */
-.tabs { display: flex; margin: 10px 0 6px; border-bottom: 2px solid #e0e0e0; }
+.tabs { display: flex; margin: 0; border-bottom: 2px solid #e0e0e0; padding: 0 16px; }
 .tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border: none; background: none; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
 .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
 
@@ -56,13 +59,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Comments */
 .comments-toggle { color: #4a9eff; cursor: pointer; font-size: 12px; user-select: none; }
 .comments-toggle:hover { text-decoration: underline; }
+.crawl-comments-btn { margin-left: auto; color: #4a9eff; cursor: pointer; font-size: 12px; user-select: none; }
+.crawl-comments-btn:hover { text-decoration: underline; }
 .comments-box { display: none; background: #f8f9fa; border-radius: 8px; margin-top: 8px; max-height: 350px; overflow-y: auto; }
 .comments-box-inner { padding: 10px; }
 .comments-box.open { display: block; }
 .comment { font-size: 12px; padding: 5px 0; line-height: 1.5; border-bottom: 1px solid #eee; }
 .comment:last-child { border-bottom: none; }
 .comment-user { color: #e67e22; }
-.comment-reply { margin-left: 16px; padding-left: 8px; border-left: 2px solid #ddd; color: #888; }
+.comment-reply { margin-left: 16px; padding-left: 8px; border-left: 2px solid #ddd; color: #888; font-size: 11px; }
+.comment-reply .comment-user { color: #e67e22; }
+.comment-reply-user { color: #999; font-size: 10px; }
+.sub-collapse-btn { color: #4a9eff; cursor: pointer; font-size: 11px; margin-top: 4px; display: inline-block; }
+.sub-collapse-btn:hover { text-decoration: underline; }
+.sub-hidden { display: none; }
 .comment-time { color: #bbb; font-size: 10px; margin-left: 6px; }
 
 /* Loading */
@@ -113,64 +123,136 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 /* Cookie warning */
 .cookie-warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 11px; color: #856404; }
+
+/* Tweet row (card + annotation panel side by side) */
+.tweet-row { display: flex; gap: 16px; align-items: flex-start; }
+.tweet-row + .tweet-row { margin-top: 10px; }
+.tweet-row .card { flex: 1; max-width: 680px; }
+
+/* Annotation panel (right column) */
+.annotation-panel { width: 260px; flex-shrink: 0; }
+.annotation-card {
+  background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 8px; overflow: hidden;
+}
+.annotation-card-header {
+  padding: 8px 12px; border-bottom: 1px solid #eee;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; font-weight: 600; color: #666;
+}
+.annotation-card-body { padding: 10px 12px; }
+.annotation-card-body + .annotation-card-body { border-top: 1px solid #f5f5f5; }
+.annotation-selected-text {
+  background: #fff3cd; padding: 4px 6px; border-radius: 4px;
+  font-size: 12px; color: #666; margin-bottom: 6px; cursor: pointer;
+}
+.annotation-comment { font-size: 13px; color: #333; line-height: 1.5; word-break: break-word; }
+.annotation-actions { margin-top: 6px; font-size: 11px; }
+.annotation-actions a { color: #4a9eff; cursor: pointer; margin-right: 8px; }
+.annotation-actions a.del { color: #e74c3c; }
+.annotation-input {
+  background: #fff; border: 1px solid #4a9eff; border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(74,158,255,0.15); padding: 12px;
+}
+.annotation-input textarea {
+  width: 100%; border: 1px solid #ddd; border-radius: 6px;
+  padding: 8px; font-size: 13px; resize: none; height: 60px; outline: none;
+}
+.annotation-input textarea:focus { border-color: #4a9eff; }
+.annotation-input .actions {
+  display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end;
+}
+.annotation-input .actions button {
+  padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+}
+.annotation-input .actions .save { background: #4a9eff; color: #fff; border: none; }
+.annotation-input .actions .cancel { background: #fff; border: 1px solid #ddd; color: #666; }
+
+/* Highlight marks in tweet content */
+.annotation-highlight {
+  background: #fff3cd; border-radius: 2px; cursor: pointer; padding: 1px 2px;
+}
+.annotation-highlight:hover { background: #ffe69c; }
+.annotation-card.flash { animation: ann-flash 0.6s ease; }
+@keyframes ann-flash {
+  0%, 100% { background: #fff; }
+  50% { background: #e8f0fe; }
+}
+
+/* Collapsible config panel */
+.config-panel { border: 1px solid #e0e0e0; border-radius: 8px; margin: 10px 0; overflow: hidden; }
+.config-panel-header { padding: 10px 14px; background: #f8f8f8; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; color: #666; user-select: none; }
+.config-panel-header:hover { background: #f0f0f0; }
+.config-panel-body { display: none; padding: 12px; flex-direction: column; gap: 12px; }
+.config-panel-body.open { display: flex; }
+.config-panel-body .config-section { margin: 0; }
 </style>
 </head>
 <body>
 <div id="app">
-  <div class="toolbar">
-    <h1>微博管理器</h1>
-    <span class="stats" id="stats-text">加载中...</span>
-    <div class="toolbar-actions">
-      <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
-      <div style="position:relative;display:inline-block;">
-        <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
+  <div class="sticky-header">
+    <div class="toolbar">
+      <h1>微博管理器</h1>
+      <span class="stats" id="stats-text">加载中...</span>
+      <div class="toolbar-actions">
+        <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
+        <div style="position:relative;display:inline-block;">
+          <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
+        </div>
+        <button class="btn btn-danger" id="btn-batch-delete" disabled>删除选中</button>
+        <button class="btn" id="btn-batch-restore" disabled style="display:none;background:#f0a040;color:#fff;">撤回选中</button>
       </div>
-      <button class="btn btn-danger" id="btn-batch-delete" disabled>删除选中</button>
-      <button class="btn" id="btn-batch-restore" disabled style="display:none;background:#f0a040;color:#fff;">撤回选中</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="active">微博列表</button>
+      <button class="tab" data-tab="trash">回收站</button>
     </div>
   </div>
 
   <div class="crawl-banner" id="crawl-banner">抓取进行中... <a href="#" onclick="event.preventDefault();cancelCrawl()" style="color:#e74c3c;margin-left:8px;">[取消]</a></div>
 
-  <div id="crawl-log" class="crawl-log hidden">
+  <div id="crawl-log" class="crawl-log collapsed">
     <div class="crawl-log-header" onclick="toggleCrawlLog()">
       <span>抓取日志</span>
-      <span class="crawl-log-toggle" id="crawl-log-toggle">收起 ▲</span>
+      <span class="crawl-log-toggle" id="crawl-log-toggle">展开 ▼</span>
     </div>
     <div class="crawl-log-body" id="crawl-log-body"></div>
   </div>
 
-  <div class="config-section">
-    <h3>Cookie（从浏览器登录 weibo.com 后复制）</h3>
-    <div id="cookie-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
-    <div class="uid-input-row">
-      <input type="text" id="cookie-input" placeholder="粘贴完整的微博 Cookie 字符串">
-      <button class="btn btn-sm btn-primary" onclick="saveCookie()">保存</button>
+  <div class="config-panel">
+    <div class="config-panel-header" onclick="toggleConfigPanel()">
+      <span>配置</span>
+      <span id="config-toggle">展开 ▼</span>
     </div>
-  </div>
+    <div class="config-panel-body" id="config-panel-body">
+      <div class="config-section">
+        <h3>Cookie</h3>
+        <div id="cookie-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
+        <div class="uid-input-row">
+          <input type="text" id="cookie-input" placeholder="粘贴微博 Cookie">
+          <button class="btn btn-sm btn-primary" onclick="saveCookie()">保存</button>
+        </div>
+      </div>
 
-  <div class="config-section">
-    <h3>时间范围</h3>
-    <div class="uid-input-row">
-      <input type="date" id="start-date" onchange="saveDates()" style="flex:1;">
-      <span style="color:#888;padding:0 4px;">~</span>
-      <input type="date" id="end-date" onchange="saveDates()" style="flex:1;">
+      <div class="config-section">
+        <h3>时间范围</h3>
+        <div class="uid-input-row">
+          <input type="date" id="start-date" onchange="saveDates()" style="flex:1;">
+          <span style="color:#888;padding:0 4px;">~</span>
+          <input type="date" id="end-date" onchange="saveDates()" style="flex:1;">
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>监控的博主</h3>
+        <div class="uid-list" id="uid-list"></div>
+        <div class="uid-input-row">
+          <input type="text" id="uid-input" placeholder="输入 UID，回车添加">
+          <button class="btn btn-sm btn-primary" onclick="addUid()">添加</button>
+        </div>
+      </div>
     </div>
-    <span style="font-size:10px;color:#aaa;">留空 = 抓取全部微博</span>
-  </div>
-
-  <div class="config-section">
-    <h3>监控的博主</h3>
-    <div class="uid-list" id="uid-list"></div>
-    <div class="uid-input-row">
-      <input type="text" id="uid-input" placeholder="输入微博用户 UID，按回车添加">
-      <button class="btn btn-sm btn-primary" onclick="addUid()">添加</button>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button class="tab active" data-tab="active">微博列表</button>
-    <button class="tab" data-tab="trash">回收站</button>
   </div>
 
   <div class="select-all" id="select-all-row">
@@ -249,10 +331,9 @@ async function loadConfig() {
 
 function setDefaultDates() {
   const now = new Date();
-  const weekAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   $('end-date').value = now.toISOString().split('T')[0];
   $('start-date').value = weekAgo.toISOString().split('T')[0];
-  saveDates();
 }
 
 async function saveDates() {
@@ -340,15 +421,19 @@ async function loadTweets(reset) {
 
 function renderCard(t) {
   const container = $('cards-container');
-  const div = document.createElement('div');
-  div.className = 'card';
-  div.dataset.id = t.id;
+  const row = document.createElement('div');
+  row.className = 'tweet-row';
+  row.dataset.id = t.id;
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.id = t.id;
 
   const pics = (typeof t.pic_urls === 'string' ? JSON.parse(t.pic_urls || '[]') : (t.pic_urls || []));
   const comments = t.comments_list || [];
   const commentCount = comments.length;
 
-  div.innerHTML = `
+  card.innerHTML = `
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
     <div class="card-body">
       <div class="card-meta">
@@ -357,31 +442,34 @@ function renderCard(t) {
           <button class="btn-del" onclick="deleteOne('${t.id}')">&times;</button>
         </span>
       </div>
-      <div class="card-content">${esc(t.content)}</div>
+      <div class="card-content" data-field="content" data-tweet-id="${t.id}">${esc(t.content)}</div>
       ${t.retweet_content ? renderRetweet(t) : ''}
       ${pics.length ? `<div class="card-images">${pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('')}</div>` : ''}
       <div class="card-actions">
         <span>转发 ${t.reposts_count}</span>
         <span>赞 ${t.attitudes_count}</span>
         <span class="comments-toggle" onclick="toggleComments(this, '${t.id}')">评论 ${commentCount}</span>
+        <span class="crawl-comments-btn" onclick="crawlComments('${t.id}', this)">抓取评论</span>
       </div>
       <div class="comments-box" id="comments-${t.id}">
         ${comments.length === 0 ? '<div class="comments-box-inner"><div class="comment" style="color:#aaa">暂无评论</div></div>' : ''}
         <div class="comments-box-inner">
-          ${comments.map(c => `
-            <div class="comment">
-              <span class="comment-user">${esc((c.comment_user||{}).nick_name||'用户')}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
-              ${c.reply_comment ? `<div class="comment-reply"><span class="comment-user">${esc((c.reply_comment.user||{}).nick_name||'用户')}</span>: ${esc(c.reply_comment.text)}</div>` : ''}
-              ${(c.sub_comments||[]).map(s => `
-                <div class="comment-reply"><span class="comment-user">${esc((s.comment_user||{}).nick_name||'用户')}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${esc(s.content)}</div>
-              `).join('')}
-            </div>
-          `).join('')}
+          ${comments.length === 0 ? '<div class="comment" style="color:#aaa">暂无评论</div>' : comments.map(c => renderComment(c)).join('')}
         </div>
       </div>
     </div>
   `;
-  container.appendChild(div);
+
+  const panel = document.createElement('div');
+  panel.className = 'annotation-panel';
+  panel.dataset.tweetId = t.id;
+  panel.id = 'annotation-panel-' + t.id;
+
+  row.appendChild(card);
+  row.appendChild(panel);
+  container.appendChild(row);
+
+  loadAnnotations(t.id);
 }
 
 function toggleComments(el, id) {
@@ -389,12 +477,81 @@ function toggleComments(el, id) {
   box.classList.toggle('open');
 }
 
+async function crawlComments(tweetId, btn) {
+  const origText = btn.textContent;
+  btn.textContent = '抓取中...';
+  btn.style.pointerEvents = 'none';
+  try {
+    const resp = await fetch(`/api/tweets/${tweetId}/crawl-comments`, { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok) {
+      const comments = data.comments || [];
+      const box = $('comments-' + tweetId);
+      const inner = box.querySelector('.comments-box-inner');
+      if (inner) {
+        inner.innerHTML = comments.length === 0
+          ? '<div class="comment" style="color:#aaa">暂无评论</div>'
+          : comments.map(c => renderComment(c)).join('');
+      }
+      const toggle = document.querySelector(`.card[data-id="${tweetId}"] .comments-toggle`);
+      if (toggle) toggle.textContent = `评论 ${comments.length}`;
+      box.classList.add('open');
+      toast(`已抓取 ${data.new_count || 0} 条新评论，共 ${data.count} 条`);
+    } else {
+      toast(data.error || '抓取失败', true);
+    }
+  } catch(e) { toast('请求失败', true); }
+  btn.textContent = origText;
+  btn.style.pointerEvents = '';
+}
+
 function renderRetweet(t) {
   const pics = t.retweet_pic_urls || [];
-  return `<div style="background:#f0f0f0;border-left:3px solid #ddd;padding:8px 10px;margin:6px 0;border-radius:4px;">
+  return `<div class="retweet-block" data-field="retweet_content" data-tweet-id="${t.id}" style="background:#f0f0f0;border-left:3px solid #ddd;padding:8px 10px;margin:6px 0;border-radius:4px;">
     <span style="color:#e67e22;">@${esc(t.retweet_user||'')}</span>: <span style="font-size:13px;color:#666;">${esc(t.retweet_content)}</span>
     ${pics.length ? '<div class="card-images" style="margin-top:6px;">' + pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('') + '</div>' : ''}
   </div>`;
+}
+
+function renderComment(c) {
+  const user = (c.comment_user||{}).nick_name||'用户';
+  const replyTo = c.reply_comment ? esc((c.reply_comment.user||{}).nick_name||'用户') : '';
+  const replyLine = replyTo ? `<span class="comment-reply-user">回复 @${replyTo}</span> ` : '';
+  const subs = c.sub_comments || [];
+  const collapseId = 'subs-' + c._id;
+  let subHtml = '';
+  if (subs.length > 5) {
+    const shown = subs.slice(0, 5);
+    const hidden = subs.slice(5);
+    subHtml = shown.map(s => renderSubComment(s)).join('')
+            + hidden.map(s => `<div class="comment-reply sub-hidden" id-sub="${collapseId}">${renderSubCommentInner(s)}</div>`).join('')
+            + `<div class="sub-collapse-btn" id-btn="${collapseId}" onclick="toggleSubs(this)">展开 ${hidden.length} 条回复</div>`;
+  } else if (subs.length > 0) {
+    subHtml = subs.map(s => renderSubComment(s)).join('');
+  }
+  return `<div class="comment">
+    ${replyLine}<span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
+    ${subHtml}
+  </div>`;
+}
+
+function renderSubComment(s) {
+  return renderSubCommentInner(s);
+}
+
+function renderSubCommentInner(s) {
+  const user = (s.comment_user||{}).nick_name||'用户';
+  const replyTo = s.reply_comment ? esc((s.reply_comment.user||{}).nick_name||'用户') : '';
+  const replyLine = replyTo ? `回复 @${replyTo} ` : '';
+  return `<div class="comment-reply"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}</div>`;
+}
+
+function toggleSubs(el) {
+  const btnId = el.getAttribute('id-btn');
+  const hidden = document.querySelectorAll(`[id-sub="${btnId}"]`);
+  const expanding = hidden.length > 0 && hidden[0].classList.contains('sub-hidden');
+  hidden.forEach(h => h.classList.toggle('sub-hidden'));
+  el.textContent = expanding ? '收起' : `展开 ${hidden.length} 条回复`;
 }
 
 function esc(s) {
@@ -412,7 +569,7 @@ function onScroll() {
 
 function toggleSelectAll() {
   const checked = $('select-all').checked;
-  document.querySelectorAll('.card input[type=checkbox]').forEach(cb => {
+  document.querySelectorAll('.tweet-row .card input[type=checkbox]').forEach(cb => {
     cb.checked = checked;
     const id = cb.dataset.id;
     checked ? selected.add(id) : selected.delete(id);
@@ -424,7 +581,7 @@ function toggleOne(cb) {
   const id = cb.dataset.id;
   cb.checked ? selected.add(id) : selected.delete(id);
   updateBatchBtn();
-  $('select-all').checked = selected.size === document.querySelectorAll('.card input[type=checkbox]').length;
+  $('select-all').checked = selected.size === document.querySelectorAll('.tweet-row .card input[type=checkbox]').length;
 }
 
 function updateBatchBtn() {
@@ -483,8 +640,8 @@ async function batchRestore() {
 }
 
 function removeCard(id) {
-  const card = document.querySelector(`.card[data-id="${id}"]`);
-  if (card) card.remove();
+  const row = document.querySelector(`.tweet-row[data-id="${id}"]`);
+  if (row) row.remove();
 }
 
 function filterByUser(uid) {
@@ -499,7 +656,8 @@ async function triggerCrawl(user_id) {
   const btn = $('btn-crawl');
   btn.disabled = true;
   btn.textContent = isSingle ? `抓取 ${user_id}...` : '抓取中...';
-  $('crawl-log').classList.remove('hidden', 'error', 'collapsed');
+  $('crawl-log').classList.remove('collapsed', 'error');
+  $('crawl-log-toggle').textContent = '收起 ▲';
   $('crawl-log-body').textContent = '正在启动抓取...';
   try {
     const resp = await fetch('/api/crawl', {
@@ -528,8 +686,8 @@ function listenSSE() {
       if (data.running) {
         $('crawl-banner').classList.add('show');
         $('btn-crawl').disabled = true;
-        // Show log box when crawl starts
-        $('crawl-log').classList.remove('hidden', 'collapsed');
+        $('crawl-log').classList.remove('collapsed');
+        $('crawl-log-toggle').textContent = '收起 ▲';
         $('crawl-log-body').textContent = '';
       } else {
         $('crawl-banner').classList.remove('show');
@@ -567,7 +725,8 @@ async function cancelCrawl() {
     $('btn-crawl').disabled = false;
     $('btn-crawl').textContent = '立即抓取';
     $('crawl-log-body').textContent = '抓取已取消';
-    $('crawl-log').classList.remove('hidden', 'collapsed');
+    $('crawl-log').classList.remove('collapsed');
+    $('crawl-log-toggle').textContent = '收起 ▲';
     // reload after a delay to let the backend process the cancel
     setTimeout(() => { loadTweets(true); loadStats(); }, 2000);
   } catch(e) { toast('取消失败', true); }
@@ -596,7 +755,8 @@ function switchTab(tab) {
 
 function showCrawlLog(result) {
   const el = $('crawl-log');
-  el.classList.remove('hidden', 'collapsed');
+  el.classList.remove('collapsed');
+  $('crawl-log-toggle').textContent = '收起 ▲';
   const body = $('crawl-log-body');
   if (result.status === 'failed') {
     el.classList.add('error');
@@ -613,6 +773,13 @@ function toggleCrawlLog() {
   const toggle = $('crawl-log-toggle');
   el.classList.toggle('collapsed');
   toggle.textContent = el.classList.contains('collapsed') ? '展开 ▼' : '收起 ▲';
+}
+
+function toggleConfigPanel() {
+  const body = $('config-panel-body');
+  const toggle = $('config-toggle');
+  body.classList.toggle('open');
+  toggle.textContent = body.classList.contains('open') ? '收起 ▲' : '展开 ▼';
 }
 
 function exportPDF() {

@@ -119,14 +119,15 @@ def parse_tweet_info(data):
     tweet['url'] = f"https://weibo.com/{tweet['user']['_id']}/{tweet['mblogid']}"
     if 'continue_tag' in data and data['isLongText']:
         tweet['isLongText'] = True
-    if 'retweeted_status' in data:
-        tweet['is_retweet'] = True
-        tweet['retweet_id'] = data['retweeted_status']['mid']
+    if 'retweeted_status' in data and data['retweeted_status'] is not None:
         rs = data['retweeted_status']
-        tweet['retweet_content'] = rs.get('text_raw', '').replace('\u200b', '')
-        tweet['retweet_user'] = rs.get('user', {}).get('screen_name', '')
+        tweet['is_retweet'] = True
+        tweet['retweet_id'] = rs.get('mid', '')
+        tweet['retweet_content'] = (rs.get('text_raw') or '').replace('\u200b', '')
+        tweet['retweet_user'] = (rs.get('user') or {}).get('screen_name', '')
+        tweet['retweet_user_id'] = str((rs.get('user') or {}).get('id', ''))
         tweet['retweet_pic_urls'] = ["https://wx1.sinaimg.cn/orj960/" + pid for pid in rs.get('pic_ids', [])]
-        if 'page_info' in rs and rs['page_info'].get('object_type', '') == 'video':
+        if 'page_info' in rs and (rs.get('page_info') or {}).get('object_type', '') == 'video':
             tweet['retweet_has_video'] = True
     if 'reads_count' in data:
         tweet['reads_count'] = data['reads_count']

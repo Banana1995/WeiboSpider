@@ -35,10 +35,12 @@ def _get_user_ids():
 
 def _crawl(scheduler=None, user_id=None):
     """Execute crawl via subprocess. If user_id is given, only crawl that user."""
+    import threading
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_file = os.path.join(script_dir, 'crawl.log')
     log_lines = []
     all_ids = _get_user_ids()
+    unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
 
     def _log(msg):
         ts = datetime.now().strftime('%H:%M:%S')
@@ -51,12 +53,39 @@ def _crawl(scheduler=None, user_id=None):
         except:
             pass
 
+    def _run_scrapy_with_log(cmd_args):
+        """Run Scrapy subprocess, stream stdout to terminal + crawl.log in real-time."""
+        proc = subprocess.Popen(cmd_args, cwd=script_dir, env=unbuffered_env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+        def _forward():
+            for line in proc.stdout:
+                stripped = line.rstrip('\n')
+                if not stripped:
+                    continue
+                print(stripped, file=sys.stderr, flush=True)
+                try:
+                    with open(log_file, 'a') as lf:
+                        lf.write(stripped + '\n')
+                except:
+                    pass
+
+        thread = threading.Thread(target=_forward, daemon=True)
+        thread.start()
+        return proc, thread
+
     if user_id:
         if user_id not in all_ids:
             return {'status': 'failed', 'error': f'UID {user_id} 不在配置列表中', 'log': ''}
         user_ids = [user_id]
     else:
         user_ids = all_ids
+
+    # Truncate log file so SSE starts fresh for this crawl
+    try:
+        open(log_file, 'w').close()
+    except:
+        pass
 
     _log(f"====== 开始抓取 (用户: {user_ids}) ======")
 
@@ -75,7 +104,10 @@ def _crawl(scheduler=None, user_id=None):
 
     start_time = DB.get_config('start_date', '')
     end_time = DB.get_config('end_date', '')
-    _log(f"时间范围: {start_time or '不限'} ~ {end_time or '不限'}")
+    if not start_time or not end_time:
+        start_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+        end_time = datetime.now().strftime('%Y-%m-%d')
+    _log(f"时间范围: {start_time} ~ {end_time}")
 
     # Step 1: crawl tweets
     tweets_before = DB.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]
@@ -91,12 +123,12 @@ def _crawl(scheduler=None, user_id=None):
             sys.executable, '-m', 'scrapy', 'crawl', 'tweet_spider_by_user_id',
             '-a', 'user_ids=%s' % uid,
             '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
+            '-s', 'LOG_LEVEL=INFO',
         ]
         if start_time and end_time:
             cmd.extend(['-a', 'start_time=%s' % start_time, '-a', 'end_time=%s' % end_time])
 
-        proc = subprocess.Popen(cmd, cwd=script_dir,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc, _t = _run_scrapy_with_log(cmd)
         while proc.poll() is None:
             if _check_cancel():
                 proc.kill(); proc.wait(timeout=2)
@@ -113,22 +145,35 @@ def _crawl(scheduler=None, user_id=None):
         new_tweets = tweets_after - tweets_before
         _log(f"用户 {uid} 微博抓取完成 (新增 {new_tweets} 条, 总计 {tweets_after} 条)")
 
-    # Step 2: crawl comments
-    tweet_ids = DB.get_tweet_ids()
+    # Step 2: crawl comments for tweets in main list (deleted=0)
+    total_ids = DB.get_tweet_ids(start_date=start_time, end_date=end_time)
+    if not total_ids:
+        _log("主列表中没有微博需要抓评论")
+        stats = DB.stats()
+        return {'tweets_total': 0, 'status': 'completed', 'stats': stats,
+                'log': '\n'.join(log_lines)}
+
+    skip_ids = DB.get_tweet_ids_with_enough_comments(100, start_date=start_time, end_date=end_time)
+    tweet_ids = [tid for tid in total_ids if tid not in skip_ids]
+    _log(f"主列表共 {len(total_ids)} 条微博，{len(skip_ids)} 条已有100+评论跳过，抓取剩余 {len(tweet_ids)} 条")
+
     if not tweet_ids:
-        _log("没有微博需要抓评论")
-        return {'tweets_total': 0, 'status': 'completed', 'log': '\n'.join(log_lines)}
+        _log("所有微博已有足够评论，跳过评论抓取")
+        stats = DB.stats()
+        return {'tweets_total': 0, 'status': 'completed', 'stats': stats,
+                'log': '\n'.join(log_lines)}
 
     comments_before = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
     _log(f"开始抓取评论 ({len(tweet_ids)} 条微博, 已有 {comments_before} 条评论)")
 
     all_ids_str = ','.join(tweet_ids)
-    proc = subprocess.Popen([
+    proc, _t = _run_scrapy_with_log([
         sys.executable, '-m', 'scrapy', 'crawl', 'comment',
         '-a', 'tweet_ids=%s' % all_ids_str,
         '-a', 'flow=0',
         '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
-    ], cwd=script_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        '-s', 'LOG_LEVEL=INFO',
+    ])
 
     while proc.poll() is None:
         if _check_cancel():
@@ -253,6 +298,56 @@ def api_delete_annotation(ann_id):
     return jsonify({'deleted': True})
 
 
+@app.route('/api/tweets/<tweet_id>/crawl-comments', methods=['POST'])
+def api_crawl_comments(tweet_id):
+    """Crawl hot-sorted comments for a single tweet on demand."""
+    tweet = DB.get_tweet(tweet_id)
+    if tweet is None:
+        return jsonify({'error': 'tweet not found'}), 404
+    mblogid = tweet.get('mblogid')
+    if not mblogid:
+        return jsonify({'error': 'tweet has no mblogid'}), 400
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    if not cookie:
+        return jsonify({'error': '未配置 Cookie'}), 400
+    cookie_path = os.path.join(script_dir, 'cookie.txt')
+    with open(cookie_path, 'w') as f:
+        f.write(cookie.strip())
+
+    comments_before = DB.conn.execute(
+        "SELECT COUNT(*) FROM comments WHERE tweet_id=?", (tweet_id,)
+    ).fetchone()[0]
+
+    cmd = [
+        sys.executable, '-m', 'scrapy', 'crawl', 'comment',
+        '-a', 'tweet_ids=%s' % mblogid,
+        '-a', 'flow=0',
+        '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
+        '-s', 'LOG_LEVEL=INFO',
+    ]
+    try:
+        proc = subprocess.run(cmd, cwd=script_dir, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': '抓取超时'}), 504
+
+    spider_output = (proc.stdout or '') + (proc.stderr or '')
+    if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
+        return jsonify({'error': 'Cookie 已过期，请更新 Cookie'}), 400
+
+    if proc.returncode != 0:
+        tail = spider_output[-500:] if spider_output else ''
+        return jsonify({'error': f'scrapy failed (returncode={proc.returncode})', 'output': tail}), 500
+
+    comments = DB.get_comments(tweet_id, sort='hot')
+    new_count = len(comments) - comments_before
+    if new_count == 0 and len(comments) == 0:
+        return jsonify({'error': '未抓取到评论（可能 Cookie 过期或该微博无评论）', 'output': spider_output[-500:]}), 500
+
+    return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
+
+
 @app.route('/api/crawl', methods=['POST'])
 def api_crawl():
     if SCHEDULER is None:
@@ -299,6 +394,9 @@ def api_crawl_events():
             # 2. Push new log lines while crawling or right after completion
             try:
                 if os.path.exists(log_file):
+                    file_size = os.path.getsize(log_file)
+                    if last_log_pos > file_size:
+                        last_log_pos = 0
                     with open(log_file, 'r') as f:
                         f.seek(last_log_pos)
                         new_lines = f.read()
@@ -514,12 +612,10 @@ def create_app(db_path=None):
         DB.set_config('cookie', DEFAULT_COOKIE)
     if not DB.get_config('user_ids', None):
         DB.set_config('user_ids', DEFAULT_USER_IDS)
-    if DB.get_config('start_date', None) is None:
-        two_days_ago = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
-        today = datetime.now().strftime('%Y-%m-%d')
-        DB.set_config('start_date', two_days_ago)
-        DB.set_config('end_date', today)
-
+    # One-time migration: trash retweets of other users' content
+    if not DB.get_config('retweet_trash_migrated'):
+        DB.migrate_retweet_trash()
+        DB.set_config('retweet_trash_migrated', True)
     # Graceful shutdown: checkpoint WAL and close DB
     import atexit
     def _cleanup():

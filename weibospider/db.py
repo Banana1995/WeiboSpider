@@ -51,6 +51,7 @@ class TweetDB:
                 "ALTER TABLE tweets ADD COLUMN retweet_user TEXT DEFAULT ''",
             "ALTER TABLE tweets ADD COLUMN retweet_pic_urls TEXT DEFAULT '[]'",
             "ALTER TABLE tweets ADD COLUMN retweet_has_video INTEGER DEFAULT 0",
+            "ALTER TABLE tweets ADD COLUMN retweet_user_id TEXT DEFAULT ''",
             "ALTER TABLE comments ADD COLUMN sort_order INTEGER DEFAULT 0",
             ]:
                 try:
@@ -113,8 +114,9 @@ class TweetDB:
             (id, mblogid, content, user_id, created_at, reposts_count,
              comments_count, attitudes_count, pic_urls, pic_num,
              source, ip_location, is_retweet, retweet_id, deleted,
-             deleted_at, url, crawl_time, screen_name, retweet_content, retweet_user, retweet_pic_urls, retweet_has_video)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?)
+             deleted_at, url, crawl_time, screen_name, retweet_content,
+             retweet_user, retweet_user_id, retweet_pic_urls, retweet_has_video)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             content=excluded.content,
             reposts_count=excluded.reposts_count,
@@ -122,6 +124,7 @@ class TweetDB:
             attitudes_count=excluded.attitudes_count,
             retweet_content=excluded.retweet_content,
             retweet_user=excluded.retweet_user,
+            retweet_user_id=excluded.retweet_user_id,
             retweet_pic_urls=excluded.retweet_pic_urls,
             crawl_time=excluded.crawl_time
         """, (
@@ -133,11 +136,15 @@ class TweetDB:
                 json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
                 item.get('pic_num', 0), item.get('source', ''),
                 item.get('ip_location', ''), int(item.get('is_retweet', False)),
-                item.get('retweet_id'), item.get('url', ''),
+                item.get('retweet_id'),
+                int(item.get('deleted', 0)),
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S') if item.get('deleted') else None,
+                item.get('url', ''),
                 item.get('crawl_time', int(time.time())),
                 item.get('screen_name', ''),
                 item.get('retweet_content', ''),
                 item.get('retweet_user', ''),
+                item.get('retweet_user_id', ''),
                 json.dumps(item.get('retweet_pic_urls', [])) if isinstance(item.get('retweet_pic_urls'), list) else (item.get('retweet_pic_urls') or '[]'),
                 int(item.get('retweet_has_video', False)),
             ))
@@ -252,9 +259,36 @@ class TweetDB:
             self.conn.commit()
             return cur.rowcount
 
-    def get_tweet_ids(self):
+    def get_tweet_ids(self, start_date=None, end_date=None):
         with self._lock:
-            rows = self.conn.execute("SELECT mblogid FROM tweets WHERE deleted=0").fetchall()
+            if start_date and end_date:
+                rows = self.conn.execute(
+                    "SELECT mblogid FROM tweets WHERE deleted=0 "
+                    "AND created_at >= ? AND created_at <= ?",
+                    (start_date, end_date + ' 23:59:59')
+                ).fetchall()
+            else:
+                rows = self.conn.execute("SELECT mblogid FROM tweets WHERE deleted=0").fetchall()
+            return [r[0] for r in rows]
+
+    def get_tweet_ids_with_enough_comments(self, min_count, start_date=None, end_date=None):
+        with self._lock:
+            if start_date and end_date:
+                rows = self.conn.execute(
+                    "SELECT t.mblogid FROM tweets t "
+                    "JOIN comments c ON c.tweet_id = t.id "
+                    "WHERE t.deleted = 0 AND t.created_at >= ? AND t.created_at <= ? "
+                    "GROUP BY t.mblogid "
+                    "HAVING COUNT(c.id) >= ?", (start_date, end_date + ' 23:59:59', min_count)
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    "SELECT t.mblogid FROM tweets t "
+                    "JOIN comments c ON c.tweet_id = t.id "
+                    "WHERE t.deleted = 0 "
+                    "GROUP BY t.mblogid "
+                    "HAVING COUNT(c.id) >= ?", (min_count,)
+                ).fetchall()
             return [r[0] for r in rows]
 
     def stats(self):
@@ -267,6 +301,29 @@ class TweetDB:
                 'deleted_tweets': deleted_count,
                 'total_comments': comments_count,
             }
+
+    def migrate_retweet_trash(self):
+        """One-time migration: trash retweets of OTHER users' content.
+
+        Original tweets (is_retweet=0) and retweets of own content
+        (retweet_user_id == user_id) stay in main list.
+        Retweets of others' content → trash.
+        Uses screen_name as fallback for old rows lacking retweet_user_id.
+        """
+        with self._lock:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.conn.execute("""
+                UPDATE tweets SET deleted=1, deleted_at=?
+                WHERE is_retweet=1 AND deleted=0
+                  AND retweet_user_id != '' AND retweet_user_id != user_id
+            """, [now])
+            self.conn.execute("""
+                UPDATE tweets SET deleted=1, deleted_at=?
+                WHERE is_retweet=1 AND deleted=0
+                  AND (retweet_user_id = '' OR retweet_user_id IS NULL)
+                  AND retweet_user != '' AND retweet_user != screen_name
+            """, [now])
+            self.conn.commit()
 
     def get_config(self, key, default=None):
         with self._lock:

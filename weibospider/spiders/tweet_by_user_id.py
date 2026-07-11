@@ -56,8 +56,19 @@ class TweetSpiderByUserID(Spider):
                               meta={'user_id': user_id, 'page_num': 1})
 
     def parse(self, response, **kwargs):
+        page_num = response.meta['page_num']
         data = json.loads(response.text)
+
+        if data.get('ok') == -100:
+            self.logger.critical(
+                "Weibo API returned ok=-100 (not logged in / cookie expired). "
+                "Please update your cookie in the web UI config."
+            )
+            return
+
         tweets = data.get('data', {}).get('list', [])
+        if page_num == 1 or page_num % 5 == 0:
+            self.logger.info("page=%d got %d tweets", page_num, len(tweets))
         user_id = response.meta['user_id']
 
         for tweet in tweets:
@@ -77,7 +88,6 @@ class TweetSpiderByUserID(Spider):
                 yield item
 
         if tweets:
-            page_num = response.meta['page_num']
             url = response.url.replace(f'page={page_num}', f'page={page_num + 1}')
             yield Request(url, callback=self.parse,
                           headers={'Referer': f'https://weibo.com/u/{user_id}'},

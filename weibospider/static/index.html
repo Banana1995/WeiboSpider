@@ -920,7 +920,7 @@ async function loadAnnotations(tweetId) {
     const anns = await resp.json();
     renderAnnotationPanel(tweetId, anns);
     applyHighlights(tweetId, anns);
-  } catch(e) {}
+  } catch(e) { toast('加载评论失败', true); }
 }
 
 function renderAnnotationPanel(tweetId, anns) {
@@ -956,6 +956,13 @@ function renderAnnotationPanel(tweetId, anns) {
 function applyHighlights(tweetId, anns) {
   const row = document.querySelector(`.tweet-row[data-id="${tweetId}"]`);
   if (!row) return;
+
+  row.querySelectorAll('mark.annotation-highlight').forEach(m => {
+    const parent = m.parentNode;
+    while (m.firstChild) parent.insertBefore(m.firstChild, m);
+    parent.removeChild(m);
+    parent.normalize();
+  });
 
   const fieldElements = {};
   row.querySelectorAll('[data-field]').forEach(el => {
@@ -996,7 +1003,7 @@ function applyHighlights(tweetId, anns) {
     mark.className = 'annotation-highlight';
     mark.dataset.annotationId = ann.id;
     mark.onclick = () => flashAnnotation(ann.id);
-    range.surroundContents(mark);
+    try { range.surroundContents(mark); } catch(e) { /* skip cross-element */ }
   });
 }
 

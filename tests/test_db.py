@@ -220,3 +220,81 @@ class TestTweetDB:
         assert stats['total_tweets'] == 5
         assert stats['deleted_tweets'] == 2
         assert stats['total_comments'] == 1
+
+
+class TestAnnotations:
+    def test_create_table(self, db):
+        tables = db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        assert 'annotations' in [t[0] for t in tables]
+
+    def test_insert_annotation(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'hello world', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        ann = db.insert_annotation({
+            'id': 'a1', 'tweet_id': '1', 'start_offset': 0,
+            'end_offset': 5, 'selected_text': 'hello',
+            'comment': 'hi', 'field': 'content',
+        })
+        assert ann['id'] == 'a1'
+        assert ann['selected_text'] == 'hello'
+        assert ann['comment'] == 'hi'
+
+    def test_get_annotations(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_annotation({
+            'id': 'a1', 'tweet_id': '1', 'start_offset': 0,
+            'end_offset': 3, 'selected_text': 'hel', 'comment': 'c1', 'field': 'content',
+        })
+        db.insert_annotation({
+            'id': 'a2', 'tweet_id': '1', 'start_offset': 3,
+            'end_offset': 5, 'selected_text': 'lo', 'comment': 'c2', 'field': 'content',
+        })
+        anns = db.get_annotations('1')
+        assert len(anns) == 2
+        assert anns[0]['comment'] == 'c1'
+
+    def test_update_annotation(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_annotation({
+            'id': 'a1', 'tweet_id': '1', 'start_offset': 0,
+            'end_offset': 3, 'selected_text': 'hel', 'comment': 'old', 'field': 'content',
+        })
+        updated = db.update_annotation('a1', 'new comment')
+        assert updated['comment'] == 'new comment'
+        anns = db.get_annotations('1')
+        assert anns[0]['comment'] == 'new comment'
+
+    def test_delete_annotation(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_annotation({
+            'id': 'a1', 'tweet_id': '1', 'start_offset': 0,
+            'end_offset': 3, 'selected_text': 'hel', 'comment': 'c1', 'field': 'content',
+        })
+        assert db.delete_annotation('a1') is True
+        assert db.delete_annotation('a1') is False
+        assert len(db.get_annotations('1')) == 0

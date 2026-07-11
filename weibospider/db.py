@@ -80,6 +80,19 @@ class TweetDB:
         CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets(created_at);
         CREATE INDEX IF NOT EXISTS idx_tweets_deleted ON tweets(deleted);
         CREATE INDEX IF NOT EXISTS idx_comments_tweet_id ON comments(tweet_id);
+        CREATE TABLE IF NOT EXISTS annotations (
+            id          TEXT PRIMARY KEY,
+            tweet_id    TEXT NOT NULL,
+            start_offset INTEGER NOT NULL,
+            end_offset   INTEGER NOT NULL,
+            selected_text TEXT NOT NULL,
+            comment     TEXT NOT NULL,
+            field       TEXT DEFAULT 'content',
+            created_at  TEXT,
+            updated_at  TEXT,
+            FOREIGN KEY (tweet_id) REFERENCES tweets(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_annotations_tweet_id ON annotations(tweet_id);
         """)
             self.conn.commit()
 
@@ -277,3 +290,54 @@ class TweetDB:
                 (key, str(value))
             )
             self.conn.commit()
+
+    def insert_annotation(self, item):
+        with self._lock:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.conn.execute("""
+            INSERT INTO annotations
+                (id, tweet_id, start_offset, end_offset, selected_text,
+                 comment, field, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                item['id'], item['tweet_id'],
+                item['start_offset'], item['end_offset'],
+                item['selected_text'], item['comment'],
+                item.get('field', 'content'), now, now,
+            ))
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM annotations WHERE id=?", (item['id'],)
+            ).fetchone()
+            return dict(row)
+
+    def get_annotations(self, tweet_id):
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM annotations WHERE tweet_id=? ORDER BY start_offset ASC",
+                (tweet_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_annotation(self, ann_id, comment):
+        with self._lock:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cur = self.conn.execute(
+                "UPDATE annotations SET comment=?, updated_at=? WHERE id=?",
+                (comment, now, ann_id)
+            )
+            self.conn.commit()
+            if cur.rowcount == 0:
+                return None
+            row = self.conn.execute(
+                "SELECT * FROM annotations WHERE id=?", (ann_id,)
+            ).fetchone()
+            return dict(row)
+
+    def delete_annotation(self, ann_id):
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM annotations WHERE id=?", (ann_id,)
+            )
+            self.conn.commit()
+            return cur.rowcount > 0

@@ -1,5 +1,6 @@
 # weibospider/app.py
 import json
+import uuid
 import logging
 import os
 import subprocess
@@ -204,6 +205,51 @@ def api_restore():
     ids = data.get('ids', [])
     count = DB.restore_tweets(ids)
     return jsonify({'restored': count})
+
+
+@app.route('/api/tweets/<tweet_id>/annotations')
+def api_get_annotations(tweet_id):
+    return jsonify(DB.get_annotations(tweet_id))
+
+
+@app.route('/api/tweets/<tweet_id>/annotations', methods=['POST'])
+def api_create_annotation(tweet_id):
+    tweet = DB.get_tweet(tweet_id)
+    if tweet is None:
+        return jsonify({'error': 'tweet not found'}), 404
+    data = request.get_json()
+    if not data or 'comment' not in data:
+        return jsonify({'error': 'missing comment'}), 400
+    item = {
+        'id': str(uuid.uuid4()),
+        'tweet_id': tweet_id,
+        'start_offset': data.get('start_offset', 0),
+        'end_offset': data.get('end_offset', 0),
+        'selected_text': data.get('selected_text', ''),
+        'comment': data['comment'],
+        'field': data.get('field', 'content'),
+    }
+    result = DB.insert_annotation(item)
+    return jsonify(result), 201
+
+
+@app.route('/api/annotations/<ann_id>', methods=['PUT'])
+def api_update_annotation(ann_id):
+    data = request.get_json()
+    if not data or 'comment' not in data:
+        return jsonify({'error': 'missing comment'}), 400
+    result = DB.update_annotation(ann_id, data['comment'])
+    if result is None:
+        return jsonify({'error': 'annotation not found'}), 404
+    return jsonify(result)
+
+
+@app.route('/api/annotations/<ann_id>', methods=['DELETE'])
+def api_delete_annotation(ann_id):
+    deleted = DB.delete_annotation(ann_id)
+    if not deleted:
+        return jsonify({'error': 'annotation not found'}), 404
+    return jsonify({'deleted': True})
 
 
 @app.route('/api/crawl', methods=['POST'])

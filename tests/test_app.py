@@ -136,3 +136,73 @@ class TestAPI:
         rv = client.get('/api/crawl/status')
         data = json.loads(rv.data)
         assert 'running' in data
+
+    def _insert_tweet(self, tweet_id='1'):
+        import app as app_module
+        app_module.DB.insert_tweet({
+            '_id': tweet_id, 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'hello world', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+
+    def test_get_annotations_empty(self, client):
+        self._insert_tweet()
+        rv = client.get('/api/tweets/1/annotations')
+        assert rv.status_code == 200
+        assert json.loads(rv.data) == []
+
+    def test_create_annotation(self, client):
+        self._insert_tweet()
+        rv = client.post('/api/tweets/1/annotations', json={
+            'start_offset': 0, 'end_offset': 5,
+            'selected_text': 'hello', 'comment': 'hi', 'field': 'content',
+        })
+        assert rv.status_code == 201
+        data = json.loads(rv.data)
+        assert data['comment'] == 'hi'
+        assert data['selected_text'] == 'hello'
+        assert data['id']
+
+    def test_get_annotations_after_create(self, client):
+        self._insert_tweet()
+        client.post('/api/tweets/1/annotations', json={
+            'start_offset': 0, 'end_offset': 5,
+            'selected_text': 'hello', 'comment': 'hi', 'field': 'content',
+        })
+        rv = client.get('/api/tweets/1/annotations')
+        data = json.loads(rv.data)
+        assert len(data) == 1
+        assert data[0]['comment'] == 'hi'
+
+    def test_update_annotation(self, client):
+        self._insert_tweet()
+        rv = client.post('/api/tweets/1/annotations', json={
+            'start_offset': 0, 'end_offset': 5,
+            'selected_text': 'hello', 'comment': 'old', 'field': 'content',
+        })
+        ann_id = json.loads(rv.data)['id']
+        rv = client.put(f'/api/annotations/{ann_id}', json={'comment': 'new'})
+        assert rv.status_code == 200
+        assert json.loads(rv.data)['comment'] == 'new'
+
+    def test_delete_annotation(self, client):
+        self._insert_tweet()
+        rv = client.post('/api/tweets/1/annotations', json={
+            'start_offset': 0, 'end_offset': 5,
+            'selected_text': 'hello', 'comment': 'hi', 'field': 'content',
+        })
+        ann_id = json.loads(rv.data)['id']
+        rv = client.delete(f'/api/annotations/{ann_id}')
+        assert rv.status_code == 200
+        assert json.loads(rv.data)['deleted'] is True
+        rv = client.get('/api/tweets/1/annotations')
+        assert json.loads(rv.data) == []
+
+    def test_create_annotation_tweet_not_found(self, client):
+        rv = client.post('/api/tweets/999/annotations', json={
+            'start_offset': 0, 'end_offset': 1,
+            'selected_text': 'x', 'comment': 'x', 'field': 'content',
+        })
+        assert rv.status_code == 404

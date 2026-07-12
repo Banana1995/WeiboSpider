@@ -851,8 +851,8 @@ function handleSelection(e) {
 
   if (fullText.substring(startOffset, endOffset) !== selectedText) return;
 
-  showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText);
   sel.removeAllRanges();
+  showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText);
 }
 
 function findFieldElement(node) {
@@ -891,11 +891,13 @@ function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedTex
     </div>
   `;
   panel.appendChild(div);
-  div.querySelector('textarea').focus();
+  const textarea = div.querySelector('textarea');
+  const saveButton = div.querySelector('.save');
+  requestAnimationFrame(() => textarea.focus());
 
   div.querySelector('.cancel').onclick = () => div.remove();
-  div.querySelector('.save').onclick = async () => {
-    const comment = div.querySelector('textarea').value.trim();
+  const saveAnnotation = async () => {
+    const comment = textarea.value.trim();
     if (!comment) { toast('请输入评论', true); return; }
     try {
       const resp = await fetch(`/api/tweets/${tweetId}/annotations`, {
@@ -914,6 +916,13 @@ function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedTex
       }
     } catch(e) { toast('请求失败', true); }
   };
+  saveButton.onclick = saveAnnotation;
+  textarea.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      saveAnnotation();
+    }
+  });
 }
 
 async function loadAnnotations(tweetId) {

@@ -252,6 +252,67 @@ class TestTweetDB:
         db.batch_delete(['111'])
         assert db.get_latest_tweet_id('u1') is None
 
+    def test_get_tweets_for_comment_crawl(self, db):
+        from datetime import datetime, timedelta
+        recent = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+        old = (datetime.now() - timedelta(hours=20)).strftime('%Y-%m-%d %H:%M:%S')
+        # recent tweet, no comments → should be included
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'recent', 'created_at': recent,
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        # 10h-old tweet → should be excluded (outside 8h window)
+        tenh = (datetime.now() - timedelta(hours=10)).strftime('%Y-%m-%d %H:%M:%S')
+        db.insert_tweet({
+            '_id': '5', 'mblogid': 'Mb5', 'user_id': 'u1',
+            'content': '10h old', 'created_at': tenh,
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        # old tweet → should be excluded
+        db.insert_tweet({
+            '_id': '2', 'mblogid': 'Mb2', 'user_id': 'u1',
+            'content': 'old', 'created_at': old,
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        # recent tweet with 100 comments → should be excluded (frozen)
+        db.insert_tweet({
+            '_id': '3', 'mblogid': 'Mb3', 'user_id': 'u1',
+            'content': 'frozen', 'created_at': recent,
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        for i in range(100):
+            db.insert_comment({
+                '_id': f'c{i}', 'tweet_id': '3', 'content': f'comment {i}',
+                'created_at': recent, 'like_counts': 0, 'ip_location': '',
+                'comment_user': '{}', 'crawl_time': 0,
+            })
+        # deleted recent tweet → should be excluded
+        db.insert_tweet({
+            '_id': '4', 'mblogid': 'Mb4', 'user_id': 'u1',
+            'content': 'deleted', 'created_at': recent,
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.batch_delete(['4'])
+
+        results = db.get_tweets_for_comment_crawl(hours=8)
+        ids = [r[0] for r in results]
+        assert '1' in ids
+        assert '2' not in ids
+        assert '3' not in ids
+        assert '4' not in ids
+        assert '5' not in ids
+
 
 class TestAnnotations:
     def test_create_table(self, db):

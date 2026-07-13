@@ -301,6 +301,24 @@ class TweetDB:
             ).fetchone()
             return row[0] if row else None
 
+    def get_tweets_for_comment_crawl(self, hours=8):
+        """Return (id, mblogid) tuples for tweets eligible for comment crawl:
+        non-deleted, within the last `hours` hours, and with <100 comments.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, mblogid FROM tweets "
+                "WHERE deleted=0 "
+                "  AND created_at > datetime('now', 'localtime', ?) "
+                "  AND id NOT IN ("
+                "    SELECT tweet_id FROM comments "
+                "    GROUP BY tweet_id HAVING COUNT(*) >= 100"
+                "  ) "
+                "ORDER BY created_at DESC",
+                (f'-{hours} hours',)
+            ).fetchall()
+            return [(r[0], r[1]) for r in rows]
+
     def stats(self):
         with self._lock:
             total = self.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]

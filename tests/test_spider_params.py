@@ -53,3 +53,54 @@ class TestTweetSpiderParams:
         # Should yield exactly 1 item (the matching tweet), no next-page Request
         assert len(results) == 1
         assert results[0]['_id'] == '111'
+
+
+class TestCommentSpiderParams:
+    def test_max_pages_parsed(self):
+        from spiders.comment import CommentSpider
+        spider = CommentSpider(tweet_ids='Mb1', max_pages='2')
+        assert spider.max_pages == 2
+
+    def test_max_pages_defaults_none(self):
+        from spiders.comment import CommentSpider
+        spider = CommentSpider(tweet_ids='Mb1')
+        assert spider.max_pages is None
+
+    def test_parse_stops_at_max_pages(self):
+        """parse() should not yield next-page Request when max_pages is reached."""
+        from spiders.comment import CommentSpider
+        from unittest.mock import MagicMock
+        import json
+
+        comments_data = [
+            {'id': 1, 'idstr': '1', 'text_raw': 'comment 1',
+             'user': {'id': 10, 'idstr': '10', 'screen_name': 'user',
+                      'avatar_hd': 'http://example.com/a.jpg', 'verified': False},
+             'created_at': 'Mon Jan 01 10:00:00 +0800 2024',
+             'like_counts': 0, 'source': ''},
+        ]
+        response = MagicMock()
+        response.text = json.dumps({
+            'ok': 1,
+            'data': comments_data,
+            'max_id': 999,  # would normally trigger pagination
+        })
+        response.meta = {
+            'base_url': 'https://weibo.com/ajax/statuses/buildComments?flow=0&id=123',
+            'tweet_id': '123',
+            'tweet_index': 1,
+            'tweet_total': 1,
+            'sort_offset': 0,
+            'comment_count': 0,
+            'top_count': 0,
+            'page_num': 1,
+        }
+
+        spider = CommentSpider(tweet_ids='Mb1', max_pages='1')
+        results = list(spider.parse(response))
+
+        # Should yield the comment item but NOT a next-page Request
+        items = [r for r in results if not hasattr(r, 'url')]
+        requests = [r for r in results if hasattr(r, 'url')]
+        assert len(items) == 1
+        assert len(requests) == 0  # max_pages=1, so no pagination

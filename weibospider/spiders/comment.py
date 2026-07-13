@@ -19,12 +19,13 @@ class CommentSpider(Spider):
         'CONCURRENT_REQUESTS': 8,
     }
 
-    def __init__(self, tweet_ids=None, flow='0', *args, **kwargs):
+    def __init__(self, tweet_ids=None, flow='0', max_pages=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tweet_ids = tweet_ids or ['Mb15BDYR0']
         if isinstance(self.tweet_ids, str):
             self.tweet_ids = self.tweet_ids.split(',')
         self.flow = flow  # 0=热度排序, 1=时间排序
+        self.max_pages = int(max_pages) if max_pages else None  # limit pages per tweet
 
     def start_requests(self):
         self.logger.info("Starting comments crawl for %d tweets", len(self.tweet_ids))
@@ -37,7 +38,8 @@ class CommentSpider(Spider):
             yield Request(base_url, callback=self.parse, headers={'Referer': 'https://weibo.com/'}, meta={
                 'base_url': base_url, 'tweet_id': str(mid),
                 'tweet_index': idx + 1, 'tweet_total': len(self.tweet_ids),
-                'sort_offset': 0, 'comment_count': 0, 'top_count': 0
+                'sort_offset': 0, 'comment_count': 0, 'top_count': 0,
+                'page_num': 1
             })
 
     def parse(self, response, **kwargs):
@@ -114,7 +116,9 @@ class CommentSpider(Spider):
                              tweet_idx, tweet_total, tweet_id, p1_msg)
 
         # Paginate to next page of comments (stop if limit reached)
-        if not reached_limit and data.get('max_id', 0) != 0 and len(comments) > 0:
+        current_page = response.meta.get('page_num', 1)
+        reached_max_pages = self.max_pages is not None and current_page >= self.max_pages
+        if not reached_limit and not reached_max_pages and data.get('max_id', 0) != 0 and len(comments) > 0:
             url = response.meta['base_url'] + '&max_id=' + str(data['max_id'])
             yield Request(url, callback=self.parse,
                           headers={'Referer': 'https://weibo.com/',
@@ -125,11 +129,13 @@ class CommentSpider(Spider):
                                 'tweet_total': tweet_total,
                                 'sort_offset': seq,
                                 'comment_count': comment_count + len(comments),
-                                'top_count': top_count})
+                                'top_count': top_count,
+                                'page_num': current_page + 1})
         elif total_count > 0:
             limit_msg = f" (limited to {MAX_TOP} top + {MAX_SUB} sub/ea)" if reached_limit else ""
-            self.logger.info("[%d/%d] tweet %s: done, %d comments total%s",
-                             tweet_idx, tweet_total, tweet_id, total_count, limit_msg)
+            pages_msg = f" (max_pages={self.max_pages})" if reached_max_pages else ""
+            self.logger.info("[%d/%d] tweet %s: done, %d comments total%s%s",
+                             tweet_idx, tweet_total, tweet_id, total_count, limit_msg, pages_msg)
 
     @staticmethod
     def parse_comment(data):

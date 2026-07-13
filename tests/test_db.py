@@ -221,6 +221,37 @@ class TestTweetDB:
         assert stats['deleted_tweets'] == 2
         assert stats['total_comments'] == 1
 
+    def test_get_latest_tweet_id(self, db):
+        db.insert_tweet({
+            '_id': '111', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'old', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.insert_tweet({
+            '_id': '222', 'mblogid': 'Mb2', 'user_id': 'u1',
+            'content': 'new', 'created_at': '2024-06-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        assert db.get_latest_tweet_id('u1') == '222'
+
+    def test_get_latest_tweet_id_no_tweets(self, db):
+        assert db.get_latest_tweet_id('nonexistent') is None
+
+    def test_get_latest_tweet_id_excludes_deleted(self, db):
+        db.insert_tweet({
+            '_id': '111', 'mblogid': 'Mb1', 'user_id': 'u1',
+            'content': 'deleted', 'created_at': '2024-06-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        db.batch_delete(['111'])
+        assert db.get_latest_tweet_id('u1') is None
+
 
 class TestAnnotations:
     def test_create_table(self, db):

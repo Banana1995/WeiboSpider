@@ -291,6 +291,16 @@ class TweetDB:
                 ).fetchall()
             return [r[0] for r in rows]
 
+    def get_latest_tweet_id(self, user_id):
+        """Return the id of the most recent non-deleted tweet for a user, or None."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM tweets WHERE user_id=? AND deleted=0 "
+                "ORDER BY created_at DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+            return row[0] if row else None
+
     def stats(self):
         with self._lock:
             total = self.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]

@@ -196,6 +196,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <span class="stats" id="stats-text">加载中...</span>
       <div class="toolbar-actions">
         <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
+        <button class="btn btn-primary" id="btn-incremental" style="background:#27ae60;">增量同步</button>
         <div style="position:relative;display:inline-block;">
           <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
         </div>
@@ -241,6 +242,30 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
           <input type="date" id="start-date" onchange="saveDates()" style="flex:1;">
           <span style="color:#888;padding:0 4px;">~</span>
           <input type="date" id="end-date" onchange="saveDates()" style="flex:1;">
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>定时调度</h3>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <input type="checkbox" id="schedule-enabled" onchange="saveSchedule()">
+          <label for="schedule-enabled" style="font-size:12px;">启用定时抓取</label>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <label style="font-size:11px;flex:1;">起始小时
+            <input type="number" id="schedule-start-hour" min="0" max="23" value="5" onchange="saveSchedule()" style="width:100%;">
+          </label>
+          <label style="font-size:11px;flex:1;">结束小时
+            <input type="number" id="schedule-end-hour" min="1" max="24" value="23" onchange="saveSchedule()" style="width:100%;">
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <label style="font-size:11px;flex:1;">推文间隔(分钟)
+            <input type="number" id="tweet-interval-minutes" min="10" value="60" onchange="saveSchedule()" style="width:100%;">
+          </label>
+          <label style="font-size:11px;flex:1;">评论间隔(分钟)
+            <input type="number" id="comment-interval-minutes" min="10" value="30" onchange="saveSchedule()" style="width:100%;">
+          </label>
         </div>
       </div>
 
@@ -293,6 +318,7 @@ let userIDs = [];
 let activeUserFilter = '';  // empty = show all
 
 document.getElementById('btn-crawl').addEventListener('click', () => triggerCrawl());
+document.getElementById('btn-incremental').addEventListener('click', () => triggerIncremental());
 document.getElementById('btn-export').addEventListener('click', exportPDF);
 document.getElementById('btn-batch-delete').addEventListener('click', batchDelete);
 document.getElementById('btn-batch-restore').addEventListener('click', batchRestore);
@@ -326,6 +352,13 @@ async function loadConfig() {
       $('cookie-status').textContent = '未设置 Cookie（抓取将失败）';
       $('cookie-status').style.color = '#e74c3c';
     }
+    if (data.schedule_enabled !== undefined) {
+      $('schedule-enabled').checked = data.schedule_enabled;
+      $('schedule-start-hour').value = data.schedule_start_hour;
+      $('schedule-end-hour').value = data.schedule_end_hour;
+      $('tweet-interval-minutes').value = data.tweet_interval_minutes;
+      $('comment-interval-minutes').value = data.comment_interval_minutes;
+    }
   } catch(e) {}
 }
 
@@ -344,6 +377,23 @@ async function saveDates() {
       body: JSON.stringify({start_date: $('start-date').value, end_date: $('end-date').value})
     });
   } catch(e) {}
+}
+
+async function saveSchedule() {
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        schedule_enabled: $('schedule-enabled').checked,
+        schedule_start_hour: parseInt($('schedule-start-hour').value),
+        schedule_end_hour: parseInt($('schedule-end-hour').value),
+        tweet_interval_minutes: parseInt($('tweet-interval-minutes').value),
+        comment_interval_minutes: parseInt($('comment-interval-minutes').value),
+      })
+    });
+    toast('调度配置已保存');
+  } catch(e) { toast('保存失败', true); }
 }
 
 async function saveCookie() {
@@ -677,26 +727,54 @@ async function triggerCrawl(user_id) {
   btn.textContent = '立即抓取';
 }
 
+async function triggerIncremental() {
+  const btn = $('btn-incremental');
+  btn.disabled = true;
+  btn.textContent = '同步中...';
+  $('crawl-log').classList.remove('collapsed', 'error');
+  $('crawl-log-toggle').textContent = '收起 ▲';
+  $('crawl-log-body').textContent = '正在启动增量同步...';
+  try {
+    const resp = await fetch('/api/crawl/incremental', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+    });
+    const data = await resp.json();
+    if (data.status === 'started') {
+      toast('增量同步已启动');
+      $('crawl-log-body').textContent = '等待日志...';
+    } else toast(data.message, true);
+  } catch(e) { toast('请求失败', true); }
+  btn.disabled = false;
+  btn.textContent = '增量同步';
+}
+
 let sseLastResult = null;
 
 function listenSSE() {
   const es = new EventSource('/api/crawl/events');
-  // Handle status events
   es.addEventListener('status', function(e) {
     try {
       const data = JSON.parse(e.data);
-      if (data.running) {
+      const tweetRunning = data.tweet && data.tweet.running;
+      const commentRunning = data.comment && data.comment.running;
+      const anyRunning = tweetRunning || commentRunning;
+      if (anyRunning) {
         $('crawl-banner').classList.add('show');
         $('btn-crawl').disabled = true;
+        $('btn-incremental').disabled = true;
         $('crawl-log').classList.remove('collapsed');
         $('crawl-log-toggle').textContent = '收起 ▲';
-        $('crawl-log-body').textContent = '';
       } else {
         $('crawl-banner').classList.remove('show');
         $('btn-crawl').disabled = false;
         $('btn-crawl').textContent = '立即抓取';
-        if (data.last_result) {
-          const key = JSON.stringify(data.last_result);
+        $('btn-incremental').disabled = false;
+        $('btn-incremental').textContent = '增量同步';
+        const tweetResult = data.tweet && data.tweet.last_result;
+        const commentResult = data.comment && data.comment.last_result;
+        if (tweetResult || commentResult) {
+          const key = JSON.stringify({t: tweetResult, c: commentResult});
           if (key !== sseLastResult) {
             sseLastResult = key;
             loadTweets(true);
@@ -706,7 +784,6 @@ function listenSSE() {
       }
     } catch(e) {}
   });
-  // Handle real-time log lines
   es.addEventListener('log', function(e) {
     const body = $('crawl-log-body');
     body.textContent += e.data + '\n';
@@ -726,6 +803,8 @@ async function cancelCrawl() {
     $('crawl-banner').classList.remove('show');
     $('btn-crawl').disabled = false;
     $('btn-crawl').textContent = '立即抓取';
+    $('btn-incremental').disabled = false;
+    $('btn-incremental').textContent = '增量同步';
     $('crawl-log-body').textContent = '抓取已取消';
     $('crawl-log').classList.remove('collapsed');
     $('crawl-log-toggle').textContent = '收起 ▲';

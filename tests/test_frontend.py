@@ -15,3 +15,26 @@ def test_shift_enter_saves_annotation_while_enter_keeps_default_newline():
     assert "textarea.addEventListener('keydown', e => {" in INDEX_HTML
     assert "if (e.key === 'Enter' && e.shiftKey)" in INDEX_HTML
     assert "e.preventDefault();\n      saveAnnotation();" in INDEX_HTML
+
+
+def test_incremental_sync_button_exists():
+    assert 'id="btn-incremental"' in INDEX_HTML
+    assert '增量同步' in INDEX_HTML
+
+
+def test_schedule_config_inputs_exist():
+    assert 'id="schedule-enabled"' in INDEX_HTML
+    assert 'id="schedule-start-hour"' in INDEX_HTML
+    assert 'id="schedule-end-hour"' in INDEX_HTML
+    assert 'id="tweet-interval-minutes"' in INDEX_HTML
+    assert 'id="comment-interval-minutes"' in INDEX_HTML
+
+
+def test_trigger_incremental_function_exists():
+    assert "async function triggerIncremental()" in INDEX_HTML
+    assert "fetch('/api/crawl/incremental'" in INDEX_HTML
+
+
+def test_sse_handles_dual_status():
+    assert "data.tweet" in INDEX_HTML
+    assert "data.comment" in INDEX_HTML

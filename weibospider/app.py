@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -33,19 +34,25 @@ def _get_user_ids():
     return list(DEFAULT_USER_IDS)
 
 
-def _crawl(scheduler=None, user_id=None):
-    """Execute crawl via subprocess. If user_id is given, only crawl that user."""
-    import threading
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    log_file = os.path.join(script_dir, 'crawl.log')
-    log_lines = []
-    all_ids = _get_user_ids()
-    unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
+def _get_schedule_config():
+    """Read schedule config from DB with proper type coercion."""
+    se = DB.get_config('schedule_enabled', False)
+    if isinstance(se, str):
+        se = se.lower() == 'true'
+    return {
+        'schedule_enabled': se,
+        'schedule_start_hour': int(DB.get_config('schedule_start_hour', 5)),
+        'schedule_end_hour': int(DB.get_config('schedule_end_hour', 23)),
+        'tweet_interval_minutes': int(DB.get_config('tweet_interval_minutes', 60)),
+        'comment_interval_minutes': int(DB.get_config('comment_interval_minutes', 30)),
+    }
 
+
+def _make_log_helpers(tag, log_file, unbuffered_env):
+    """Create _log and _run_scrapy_with_log helpers with a tag prefix."""
     def _log(msg):
         ts = datetime.now().strftime('%H:%M:%S')
-        line = f"[{ts}] {msg}"
-        log_lines.append(line)
+        line = f"[{ts}] [{tag}] {msg}"
         logger.info(msg)
         try:
             with open(log_file, 'a') as lf:
@@ -54,10 +61,9 @@ def _crawl(scheduler=None, user_id=None):
             pass
 
     def _run_scrapy_with_log(cmd_args):
-        """Run Scrapy subprocess, stream stdout to terminal + crawl.log in real-time."""
-        proc = subprocess.Popen(cmd_args, cwd=script_dir, env=unbuffered_env,
+        proc = subprocess.Popen(cmd_args, cwd=os.path.dirname(os.path.abspath(__file__)),
+                                env=unbuffered_env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-
         def _forward():
             for line in proc.stdout:
                 stripped = line.rstrip('\n')
@@ -69,54 +75,66 @@ def _crawl(scheduler=None, user_id=None):
                         lf.write(stripped + '\n')
                 except:
                     pass
-
         thread = threading.Thread(target=_forward, daemon=True)
         thread.start()
         return proc, thread
 
+    return _log, _run_scrapy_with_log
+
+
+def _crawl_tweets(scheduler=None, mode='full', user_id=None):
+    """Crawl tweets. mode='incremental' stops at existing tweets; 'full' crawls all."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_file = os.path.join(script_dir, 'crawl.log')
+    all_ids = _get_user_ids()
+    unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
+
+    _log, _run_scrapy_with_log = _make_log_helpers('tweet', log_file, unbuffered_env)
+
     if user_id:
         if user_id not in all_ids:
-            return {'status': 'failed', 'error': f'UID {user_id} 不在配置列表中', 'log': ''}
+            return {'status': 'failed', 'error': f'UID {user_id} 不在配置列表中'}
         user_ids = [user_id]
     else:
         user_ids = all_ids
 
-    # Truncate log file so SSE starts fresh for this crawl
-    try:
-        open(log_file, 'w').close()
-    except:
-        pass
+    if mode == 'full':
+        try:
+            open(log_file, 'w').close()
+        except:
+            pass
 
-    _log(f"====== 开始抓取 (用户: {user_ids}) ======")
+    _log(f"====== 开始抓取推文 (mode={mode}, 用户: {user_ids}) ======")
 
     def _check_cancel():
-        return scheduler and scheduler.cancelled
+        return scheduler and scheduler.tweet_cancelled
 
-    # Read cookie from DB, write to cookie.txt for Scrapy to pick up
     cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
     if not cookie:
         _log("失败: 未配置 Cookie")
-        return {'status': 'failed', 'error': '未配置 Cookie', 'log': '\n'.join(log_lines)}
+        return {'status': 'failed', 'error': '未配置 Cookie'}
     cookie_path = os.path.join(script_dir, 'cookie.txt')
     with open(cookie_path, 'w') as f:
         f.write(cookie.strip())
-    _log("Cookie 已写入 cookie.txt (len=%d)" % len(cookie))
 
     start_time = DB.get_config('start_date', '')
     end_time = DB.get_config('end_date', '')
-    if not start_time or not end_time:
-        start_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        end_time = datetime.now().strftime('%Y-%m-%d')
-    _log(f"时间范围: {start_time} ~ {end_time}")
+    if mode == 'full':
+        if not start_time or not end_time:
+            start_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_time = datetime.now().strftime('%Y-%m-%d')
+        _log(f"时间范围: {start_time} ~ {end_time}")
+    else:
+        start_time = None
+        end_time = None
 
-    # Step 1: crawl tweets
     tweets_before = DB.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]
     _log(f"微博抓取前已有 {tweets_before} 条")
 
     for uid in user_ids:
         if _check_cancel():
             _log("用户取消了抓取")
-            return {'status': 'cancelled', 'log': '\n'.join(log_lines)}
+            return {'status': 'cancelled'}
 
         _log(f"抓取用户 {uid} 的微博...")
         cmd = [
@@ -127,59 +145,91 @@ def _crawl(scheduler=None, user_id=None):
         ]
         if start_time and end_time:
             cmd.extend(['-a', 'start_time=%s' % start_time, '-a', 'end_time=%s' % end_time])
+        if mode == 'incremental':
+            stop_id = DB.get_latest_tweet_id(uid)
+            if stop_id:
+                cmd.extend(['-a', 'stop_after_id=%s' % stop_id])
+                _log(f"增量模式: stop_after_id={stop_id}")
 
         proc, _t = _run_scrapy_with_log(cmd)
         while proc.poll() is None:
             if _check_cancel():
                 proc.kill(); proc.wait(timeout=2)
                 _log("用户取消了抓取")
-                return {'status': 'cancelled', 'log': '\n'.join(log_lines)}
+                return {'status': 'cancelled'}
             time.sleep(0.5)
 
         if proc.returncode != 0:
             _log(f"失败! 微博抓取 returncode={proc.returncode}")
             return {'status': 'failed', 'stage': 'tweets', 'user_id': uid,
-                    'log': '\n'.join(log_lines), 'error': f'returncode={proc.returncode}'}
+                    'error': f'returncode={proc.returncode}'}
 
         tweets_after = DB.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]
         new_tweets = tweets_after - tweets_before
         _log(f"用户 {uid} 微博抓取完成 (新增 {new_tweets} 条, 总计 {tweets_after} 条)")
 
-    # Step 2: crawl comments for tweets in main list (deleted=0)
-    total_ids = DB.get_tweet_ids(start_date=start_time, end_date=end_time)
-    if not total_ids:
-        _log("主列表中没有微博需要抓评论")
-        stats = DB.stats()
-        return {'tweets_total': 0, 'status': 'completed', 'stats': stats,
-                'log': '\n'.join(log_lines)}
+    stats = DB.stats()
+    return {'status': 'completed', 'stats': stats}
 
-    skip_ids = DB.get_tweet_ids_with_enough_comments(100, start_date=start_time, end_date=end_time)
-    tweet_ids = [tid for tid in total_ids if tid not in skip_ids]
-    _log(f"主列表共 {len(total_ids)} 条微博，{len(skip_ids)} 条已有100+评论跳过，抓取剩余 {len(tweet_ids)} 条")
+
+def _crawl_comments(scheduler=None, mode='full'):
+    """Crawl comments. mode='incremental' uses 8h window + 2 pages; 'full' uses date range."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_file = os.path.join(script_dir, 'crawl.log')
+    unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
+
+    _log, _run_scrapy_with_log = _make_log_helpers('comment', log_file, unbuffered_env)
+
+    def _check_cancel():
+        return scheduler and scheduler.comment_cancelled
+
+    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    if not cookie:
+        _log("失败: 未配置 Cookie")
+        return {'status': 'failed', 'error': '未配置 Cookie'}
+    cookie_path = os.path.join(script_dir, 'cookie.txt')
+    with open(cookie_path, 'w') as f:
+        f.write(cookie.strip())
+
+    if mode == 'incremental':
+        tweet_pairs = DB.get_tweets_for_comment_crawl(hours=8)
+        tweet_ids = [mblogid for _, mblogid in tweet_pairs]
+        _log(f"增量模式: {len(tweet_ids)} 条微博待补齐评论 (8h 内, <100 评论)")
+    else:
+        start_time = DB.get_config('start_date', '')
+        end_time = DB.get_config('end_date', '')
+        if not start_time or not end_time:
+            start_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_time = datetime.now().strftime('%Y-%m-%d')
+        total_ids = DB.get_tweet_ids(start_date=start_time, end_date=end_time)
+        skip_ids = DB.get_tweet_ids_with_enough_comments(100, start_date=start_time, end_date=end_time)
+        tweet_ids = [tid for tid in total_ids if tid not in skip_ids]
+        _log(f"全量模式: 共 {len(total_ids)} 条, 跳过 {len(skip_ids)} 条(≥100评论), 抓取 {len(tweet_ids)} 条")
 
     if not tweet_ids:
-        _log("所有微博已有足够评论，跳过评论抓取")
+        _log("没有微博需要抓评论")
         stats = DB.stats()
-        return {'tweets_total': 0, 'status': 'completed', 'stats': stats,
-                'log': '\n'.join(log_lines)}
+        return {'status': 'completed', 'stats': stats}
 
     comments_before = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
     _log(f"开始抓取评论 ({len(tweet_ids)} 条微博, 已有 {comments_before} 条评论)")
 
-    all_ids_str = ','.join(tweet_ids)
-    proc, _t = _run_scrapy_with_log([
+    cmd = [
         sys.executable, '-m', 'scrapy', 'crawl', 'comment',
-        '-a', 'tweet_ids=%s' % all_ids_str,
+        '-a', 'tweet_ids=%s' % ','.join(tweet_ids),
         '-a', 'flow=0',
         '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
         '-s', 'LOG_LEVEL=INFO',
-    ])
+    ]
+    if mode == 'incremental':
+        cmd.extend(['-a', 'max_pages=2'])
 
+    proc, _t = _run_scrapy_with_log(cmd)
     while proc.poll() is None:
         if _check_cancel():
             proc.kill(); proc.wait(timeout=2)
             _log("用户取消了抓取")
-            return {'status': 'cancelled', 'log': '\n'.join(log_lines)}
+            return {'status': 'cancelled'}
         time.sleep(1)
 
     comments_after = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
@@ -187,13 +237,11 @@ def _crawl(scheduler=None, user_id=None):
 
     if proc.returncode != 0:
         _log(f"评论抓取失败! returncode={proc.returncode}")
-    else:
-        _log(f"评论抓取完成 (新增 {new_comments} 条, 总计 {comments_after} 条)")
+        return {'status': 'failed', 'error': f'returncode={proc.returncode}', 'stats': DB.stats()}
 
+    _log(f"评论抓取完成 (新增 {new_comments} 条, 总计 {comments_after} 条)")
     stats = DB.stats()
-    _log(f"抓取结束: 微博 {stats['total_tweets']} 条, 评论 {stats['total_comments']} 条")
-    return {'tweets_total': len(tweet_ids), 'status': 'completed', 'stats': stats,
-            'log': '\n'.join(log_lines)}
+    return {'status': 'completed', 'stats': stats}
 
 
 @app.route('/')
@@ -358,10 +406,21 @@ def api_crawl():
     return jsonify(result)
 
 
+@app.route('/api/crawl/incremental', methods=['POST'])
+def api_crawl_incremental():
+    if SCHEDULER is None:
+        return jsonify({'status': 'started', 'message': 'Scheduler disabled (test mode)'})
+    result = SCHEDULER.manual_incremental()
+    return jsonify(result)
+
+
 @app.route('/api/crawl/status')
 def api_crawl_status():
     if SCHEDULER is None:
-        return jsonify({'running': False, 'last_result': None})
+        return jsonify({
+            'tweet': {'running': False, 'last_result': None},
+            'comment': {'running': False, 'last_result': None},
+        })
     return jsonify(SCHEDULER.status)
 
 
@@ -385,7 +444,6 @@ def api_crawl_events():
             # 1. Push status changes
             if SCHEDULER:
                 current = SCHEDULER.status
-                running = current.get('running', False)
                 state = json.dumps(current, ensure_ascii=False, default=str)
                 if state != last_state:
                     last_state = state
@@ -417,12 +475,14 @@ def api_crawl_events():
 def api_get_config():
     cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
     masked = cookie[:20] + '...' + cookie[-10:] if len(cookie) > 30 else cookie
+    config = _get_schedule_config()
     return jsonify({
         'user_ids': _get_user_ids(),
         'cookie': cookie,
         'cookie_masked': masked,
         'start_date': DB.get_config('start_date', ''),
         'end_date': DB.get_config('end_date', ''),
+        **config,
     })
 
 
@@ -447,6 +507,22 @@ def api_set_config():
     if 'end_date' in data:
         DB.set_config('end_date', data['end_date'])
         updated['end_date'] = data['end_date']
+    schedule_keys = {
+        'schedule_enabled': bool,
+        'schedule_start_hour': int,
+        'schedule_end_hour': int,
+        'tweet_interval_minutes': int,
+        'comment_interval_minutes': int,
+    }
+    schedule_changed = False
+    for key, caster in schedule_keys.items():
+        if key in data:
+            val = caster(data[key])
+            DB.set_config(key, str(val) if key == 'schedule_enabled' else val)
+            updated[key] = val
+            schedule_changed = True
+    if schedule_changed and SCHEDULER:
+        SCHEDULER.update_config(_get_schedule_config())
     if updated:
         return jsonify({'updated': True, **updated})
     return jsonify({'error': 'no valid field provided'}), 400
@@ -629,6 +705,7 @@ def create_app(db_path=None):
     # Flask reloader support: only start scheduler in the reloaded child process
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
         if SCHEDULER is None and not app.config.get('SCHEDULER_DISABLED'):
-            SCHEDULER = CrawlScheduler(_crawl)
+            SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments)
+            SCHEDULER.update_config(_get_schedule_config())
             SCHEDULER.start()
     return app

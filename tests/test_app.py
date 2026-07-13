@@ -135,7 +135,7 @@ class TestAPI:
     def test_crawl_status(self, client):
         rv = client.get('/api/crawl/status')
         data = json.loads(rv.data)
-        assert 'running' in data
+        assert 'tweet' in data and 'comment' in data
 
     def _insert_tweet(self, tweet_id='1'):
         import app as app_module
@@ -206,3 +206,48 @@ class TestAPI:
             'selected_text': 'x', 'comment': 'x', 'field': 'content',
         })
         assert rv.status_code == 404
+
+
+class TestScheduleConfig:
+    def test_config_default_schedule_values(self, client):
+        rv = client.get('/api/config')
+        data = json.loads(rv.data)
+        assert data['schedule_enabled'] is False
+        assert data['schedule_start_hour'] == 5
+        assert data['schedule_end_hour'] == 23
+        assert data['tweet_interval_minutes'] == 60
+        assert data['comment_interval_minutes'] == 30
+
+    def test_config_set_schedule_values(self, client):
+        rv = client.post('/api/config', json={
+            'schedule_enabled': True,
+            'schedule_start_hour': 8,
+            'schedule_end_hour': 22,
+            'tweet_interval_minutes': 120,
+            'comment_interval_minutes': 60,
+        })
+        data = json.loads(rv.data)
+        assert data['updated'] is True
+        rv = client.get('/api/config')
+        data = json.loads(rv.data)
+        assert data['schedule_enabled'] is True
+        assert data['schedule_start_hour'] == 8
+        assert data['schedule_end_hour'] == 22
+        assert data['tweet_interval_minutes'] == 120
+        assert data['comment_interval_minutes'] == 60
+
+
+class TestCrawlStatus:
+    def test_status_returns_dual_structure(self, client):
+        rv = client.get('/api/crawl/status')
+        data = json.loads(rv.data)
+        assert 'tweet' in data
+        assert 'comment' in data
+        assert 'running' in data['tweet']
+        assert 'running' in data['comment']
+
+
+class TestIncrementalEndpoint:
+    def test_incremental_endpoint_exists(self, client):
+        rv = client.post('/api/crawl/incremental')
+        assert rv.status_code in (200, 409)

@@ -23,13 +23,14 @@ class TweetSpiderByUserID(Spider):
         'CONCURRENT_REQUESTS': 4,
     }
 
-    def __init__(self, user_ids=None, start_time=None, end_time=None, *args, **kwargs):
+    def __init__(self, user_ids=None, start_time=None, end_time=None, stop_after_id=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.user_ids = user_ids or ['1087770692']
         if isinstance(self.user_ids, str):
             self.user_ids = [self.user_ids]
         self.start_time = start_time  # YYYY-MM-DD
         self.end_time = end_time      # YYYY-MM-DD
+        self.stop_after_id = stop_after_id  # stop pagination when this tweet id is seen
 
     def start_requests(self):
         for user_id in self.user_ids:
@@ -71,6 +72,7 @@ class TweetSpiderByUserID(Spider):
             self.logger.info("page=%d got %d tweets", page_num, len(tweets))
         user_id = response.meta['user_id']
 
+        stop_pagination = False
         for tweet in tweets:
             item = parse_tweet_info(tweet)
             item['user_id'] = user_id
@@ -87,7 +89,12 @@ class TweetSpiderByUserID(Spider):
             else:
                 yield item
 
-        if tweets:
+            if self.stop_after_id and str(item.get('_id')) == str(self.stop_after_id):
+                self.logger.info("stop_after_id=%s reached, stopping pagination", self.stop_after_id)
+                stop_pagination = True
+                break
+
+        if tweets and not stop_pagination:
             url = response.url.replace(f'page={page_num}', f'page={page_num + 1}')
             yield Request(url, callback=self.parse,
                           headers={'Referer': f'https://weibo.com/u/{user_id}'},

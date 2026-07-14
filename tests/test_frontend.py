@@ -38,3 +38,24 @@ def test_trigger_incremental_function_exists():
 def test_sse_handles_dual_status():
     assert "data.tweet" in INDEX_HTML
     assert "data.comment" in INDEX_HTML
+
+
+def test_tweet_row_uses_relative_positioning():
+    assert '.tweet-row { position: relative; }' in INDEX_HTML
+
+
+def test_tweet_card_has_no_max_width():
+    assert 'max-width: 680px' not in INDEX_HTML
+
+
+def test_annotation_panel_absolute_positioned():
+    assert 'position: absolute' in INDEX_HTML
+    assert 'left: 100%' in INDEX_HTML
+
+
+def test_annotation_panel_max_height():
+    assert 'max-height: 400px' in INDEX_HTML
+
+
+def test_empty_annotation_panel_hidden():
+    assert '.annotation-panel:empty { display: none; }' in INDEX_HTML

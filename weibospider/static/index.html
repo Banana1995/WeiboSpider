@@ -124,13 +124,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Cookie warning */
 .cookie-warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 11px; color: #856404; }
 
-/* Tweet row (card + annotation panel side by side) */
-.tweet-row { display: flex; gap: 16px; align-items: flex-start; }
+/* Tweet row (card full-width, annotation panel floats outside) */
+.tweet-row { position: relative; }
 .tweet-row + .tweet-row { margin-top: 10px; }
-.tweet-row .card { flex: 1; max-width: 680px; }
 
-/* Annotation panel (right column) */
-.annotation-panel { width: 260px; flex-shrink: 0; }
+/* Annotation panel (floating outside container on wide screens) */
+.annotation-panel {
+  position: absolute; top: 0; left: 100%; margin-left: 16px;
+  width: 260px; max-height: 400px; overflow-y: auto;
+}
+.annotation-panel:empty { display: none; }
 .annotation-card {
   background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 8px; overflow: hidden;

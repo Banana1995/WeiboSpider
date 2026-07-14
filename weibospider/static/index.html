@@ -936,31 +936,58 @@ function handleSelection(e) {
   if (!startFieldEl) return;
 
   const tweetId = startFieldEl.dataset.tweetId;
-  const field = startFieldEl.dataset.field;
   if (!tweetId) return;
 
-  const fullText = startFieldEl.textContent;
-  let startOffset = getOffset(startFieldEl, range.startContainer, range.startOffset);
-
   const endFieldEl = findFieldElement(range.endContainer);
-  let endOffset;
-  if (endFieldEl === startFieldEl) {
-    endOffset = getOffset(startFieldEl, range.endContainer, range.endOffset);
-  } else {
-    endOffset = fullText.length;
+  if (!endFieldEl) return;
+
+  const row = document.querySelector(`.tweet-row[data-id="${tweetId}"]`);
+  if (!row) return;
+  const fieldElements = Array.from(row.querySelectorAll('[data-field]'));
+  const startIndex = fieldElements.indexOf(startFieldEl);
+  const endIndex = fieldElements.indexOf(endFieldEl);
+  if (startIndex === -1 || endIndex === -1) return;
+
+  const annotations = [];
+  for (let i = startIndex; i <= endIndex; i++) {
+    const el = fieldElements[i];
+    const fullText = el.textContent;
+    if (!fullText.trim()) continue;
+
+    let sOff, eOff;
+    if (i === startIndex) {
+      sOff = getOffset(el, range.startContainer, range.startOffset);
+    } else {
+      sOff = 0;
+    }
+    if (i === endIndex) {
+      eOff = getOffset(el, range.endContainer, range.endOffset);
+    } else {
+      eOff = fullText.length;
+    }
+
+    let text = fullText.substring(sOff, eOff);
+    const leadingTrim = text.length - text.trimStart().length;
+    const trailingTrim = text.length - text.trimEnd().length;
+    sOff += leadingTrim;
+    eOff -= trailingTrim;
+    text = fullText.substring(sOff, eOff);
+
+    if (!text) continue;
+
+    annotations.push({
+      tweetId: tweetId,
+      field: el.dataset.field,
+      startOffset: sOff,
+      endOffset: eOff,
+      selectedText: text,
+    });
   }
 
-  let selectedText = fullText.substring(startOffset, endOffset);
-  const leadingTrim = selectedText.length - selectedText.trimStart().length;
-  const trailingTrim = selectedText.length - selectedText.trimEnd().length;
-  startOffset += leadingTrim;
-  endOffset -= trailingTrim;
-  selectedText = fullText.substring(startOffset, endOffset);
-
-  if (!selectedText) return;
+  if (annotations.length === 0) return;
 
   sel.removeAllRanges();
-  showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText);
+  showMultiAnnotationInput(annotations);
 }
 
 function findFieldElement(node) {
@@ -988,16 +1015,22 @@ function getOffset(fieldEl, startNode, startOffset) {
 }
 
 function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText) {
+  showMultiAnnotationInput([{ tweetId, field, startOffset, endOffset, selectedText }]);
+}
+
+function showMultiAnnotationInput(annotations) {
+  const tweetId = annotations[0].tweetId;
   const panel = $('annotation-panel-' + tweetId);
   if (!panel) return;
 
   const existing = panel.querySelector('.annotation-input');
   if (existing) existing.remove();
 
+  const preview = annotations.map(a => `<div class="annotation-selected-text">"${esc(a.selectedText)}"</div>`).join('');
   const div = document.createElement('div');
   div.className = 'annotation-input';
   div.innerHTML = `
-    <div class="annotation-selected-text">"${esc(selectedText)}"</div>
+    ${preview}
     <textarea placeholder="输入评论..."></textarea>
     <div class="actions">
       <button class="cancel">取消</button>
@@ -1014,20 +1047,22 @@ function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedTex
     const comment = textarea.value.trim();
     if (!comment) { toast('请输入评论', true); return; }
     try {
-      const resp = await fetch(`/api/tweets/${tweetId}/annotations`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ start_offset: startOffset, end_offset: endOffset,
-                               selected_text: selectedText, comment, field }),
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        div.remove();
-        await loadAnnotations(tweetId);
-        toast('已添加划线评论');
-      } else {
-        toast(data.error || '保存失败', true);
+      for (const a of annotations) {
+        const resp = await fetch(`/api/tweets/${a.tweetId}/annotations`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ start_offset: a.startOffset, end_offset: a.endOffset,
+                                 selected_text: a.selectedText, comment, field: a.field }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json();
+          toast(data.error || '保存失败', true);
+          return;
+        }
       }
+      div.remove();
+      await loadAnnotations(tweetId);
+      toast(annotations.length > 1 ? `已添加 ${annotations.length} 条划线评论` : '已添加划线评论');
     } catch(e) { toast('请求失败', true); }
   };
   saveButton.onclick = saveAnnotation;
@@ -1131,11 +1166,17 @@ function applyHighlights(tweetId, anns) {
       }
       pos += nodeLen;
     }
-    if (!startNode || !endNode) return;
+    if (!startNode) return;
+
+    if (!endNode) {
+      const lastNode = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).lastChild();
+      endNode = lastNode;
+      endOff = lastNode ? lastNode.textContent.length : 0;
+    }
 
     const range = document.createRange();
     range.setStart(startNode, startOff);
-    range.setEnd(endNode, endOff);
+    if (endNode) range.setEnd(endNode, endOff);
 
     const mark = document.createElement('mark');
     mark.className = 'annotation-highlight';

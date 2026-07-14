@@ -86,3 +86,8 @@ def test_close_all_popovers_function_exists():
 
 def test_clear_popover_state_on_resize():
     assert "addEventListener('resize'" in INDEX_HTML
+
+
+def test_popover_tracks_annotation_id_for_switching():
+    assert 'panel.dataset.popoverAnnId === annId' in INDEX_HTML
+    assert 'delete panel.dataset.popoverAnnId' in INDEX_HTML

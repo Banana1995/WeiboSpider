@@ -91,3 +91,16 @@ def test_clear_popover_state_on_resize():
 def test_popover_tracks_annotation_id_for_switching():
     assert 'panel.dataset.popoverAnnId === annId' in INDEX_HTML
     assert 'delete panel.dataset.popoverAnnId' in INDEX_HTML
+
+
+def test_adjust_row_height_prevents_overlap():
+    assert 'function adjustRowHeight(tweetId)' in INDEX_HTML
+    assert 'row.style.minHeight' in INDEX_HTML
+
+
+def test_adjust_row_height_called_after_render():
+    assert 'adjustRowHeight(tweetId);' in INDEX_HTML
+
+
+def test_resize_clears_min_height_on_narrow():
+    assert "row.style.minHeight = ''" in INDEX_HTML

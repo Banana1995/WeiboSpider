@@ -1028,6 +1028,7 @@ async function loadAnnotations(tweetId) {
     const anns = await resp.json();
     renderAnnotationPanel(tweetId, anns);
     applyHighlights(tweetId, anns);
+    adjustRowHeight(tweetId);
   } catch(e) { toast('加载评论失败', true); }
 }
 
@@ -1059,6 +1060,18 @@ function renderAnnotationPanel(tweetId, anns) {
   });
 
   panel.appendChild(card);
+  adjustRowHeight(tweetId);
+}
+
+function adjustRowHeight(tweetId) {
+  const panel = $('annotation-panel-' + tweetId);
+  const row = document.querySelector(`.tweet-row[data-id="${tweetId}"]`);
+  if (!panel || !row) return;
+  if (isNarrowScreen() || panel.children.length === 0) {
+    row.style.minHeight = '';
+  } else {
+    row.style.minHeight = panel.offsetHeight + 'px';
+  }
 }
 
 function applyHighlights(tweetId, anns) {
@@ -1155,6 +1168,13 @@ document.addEventListener('click', (e) => {
 window.addEventListener('resize', () => {
   if (!isNarrowScreen()) {
     closeAllPopovers();
+    document.querySelectorAll('.tweet-row[data-id]').forEach(row => {
+      adjustRowHeight(row.dataset.id);
+    });
+  } else {
+    document.querySelectorAll('.tweet-row[data-id]').forEach(row => {
+      row.style.minHeight = '';
+    });
   }
 });
 

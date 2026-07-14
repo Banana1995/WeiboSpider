@@ -7,7 +7,8 @@ INDEX_HTML = (
 
 
 def test_annotation_input_focus_is_deferred_until_mouseup_finishes():
-    assert "sel.removeAllRanges();\n  showMultiAnnotationInput(" in INDEX_HTML
+    assert "sel.removeAllRanges();" in INDEX_HTML
+    assert "showAnnotationInput(" in INDEX_HTML
     assert "requestAnimationFrame(() => textarea.focus());" in INDEX_HTML
 
 

@@ -948,7 +948,8 @@ function handleSelection(e) {
   const endIndex = fieldElements.indexOf(endFieldEl);
   if (startIndex === -1 || endIndex === -1) return;
 
-  const annotations = [];
+  const ranges = [];
+  let fullSelectedText = [];
   for (let i = startIndex; i <= endIndex; i++) {
     const el = fieldElements[i];
     const fullText = el.textContent;
@@ -975,19 +976,15 @@ function handleSelection(e) {
 
     if (!text) continue;
 
-    annotations.push({
-      tweetId: tweetId,
-      field: el.dataset.field,
-      startOffset: sOff,
-      endOffset: eOff,
-      selectedText: text,
-    });
+    ranges.push({ field: el.dataset.field, start_offset: sOff, end_offset: eOff, selected_text: text });
+    fullSelectedText.push(text);
   }
 
-  if (annotations.length === 0) return;
+  if (ranges.length === 0) return;
 
   sel.removeAllRanges();
-  showMultiAnnotationInput(annotations);
+  const primary = ranges[0];
+  showAnnotationInput(tweetId, primary.field, primary.start_offset, primary.end_offset, fullSelectedText.join('\n'), ranges.length > 1 ? ranges : null);
 }
 
 function findFieldElement(node) {
@@ -1014,23 +1011,17 @@ function getOffset(fieldEl, startNode, startOffset) {
   return offset;
 }
 
-function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText) {
-  showMultiAnnotationInput([{ tweetId, field, startOffset, endOffset, selectedText }]);
-}
-
-function showMultiAnnotationInput(annotations) {
-  const tweetId = annotations[0].tweetId;
+function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText, ranges) {
   const panel = $('annotation-panel-' + tweetId);
   if (!panel) return;
 
   const existing = panel.querySelector('.annotation-input');
   if (existing) existing.remove();
 
-  const preview = annotations.map(a => `<div class="annotation-selected-text">"${esc(a.selectedText)}"</div>`).join('');
   const div = document.createElement('div');
   div.className = 'annotation-input';
   div.innerHTML = `
-    ${preview}
+    <div class="annotation-selected-text">"${esc(selectedText)}"</div>
     <textarea placeholder="输入评论..."></textarea>
     <div class="actions">
       <button class="cancel">取消</button>
@@ -1047,22 +1038,22 @@ function showMultiAnnotationInput(annotations) {
     const comment = textarea.value.trim();
     if (!comment) { toast('请输入评论', true); return; }
     try {
-      for (const a of annotations) {
-        const resp = await fetch(`/api/tweets/${a.tweetId}/annotations`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ start_offset: a.startOffset, end_offset: a.endOffset,
-                                 selected_text: a.selectedText, comment, field: a.field }),
-        });
-        if (!resp.ok) {
-          const data = await resp.json();
-          toast(data.error || '保存失败', true);
-          return;
-        }
+      const body = { start_offset: startOffset, end_offset: endOffset,
+                     selected_text: selectedText, comment, field };
+      if (ranges) body.ranges = JSON.stringify(ranges);
+      const resp = await fetch(`/api/tweets/${tweetId}/annotations`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        div.remove();
+        await loadAnnotations(tweetId);
+        toast('已添加划线评论');
+      } else {
+        toast(data.error || '保存失败', true);
       }
-      div.remove();
-      await loadAnnotations(tweetId);
-      toast(annotations.length > 1 ? `已添加 ${annotations.length} 条划线评论` : '已添加划线评论');
     } catch(e) { toast('请求失败', true); }
   };
   saveButton.onclick = saveAnnotation;
@@ -1143,58 +1134,67 @@ function applyHighlights(tweetId, anns) {
   });
 
   anns.forEach(ann => {
-    const el = fieldElements[ann.field];
-    if (!el) return;
-    const text = el.textContent;
-    const sub = text.substring(ann.start_offset, ann.end_offset);
-    if (sub !== ann.selected_text) return;
-
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let pos = 0;
-    let startNode = null, startOff = 0, endNode = null, endOff = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const nodeLen = node.textContent.length;
-      if (startNode === null && pos + nodeLen > ann.start_offset) {
-        startNode = node;
-        startOff = ann.start_offset - pos;
-      }
-      if (startNode !== null && pos + nodeLen >= ann.end_offset) {
-        endNode = node;
-        endOff = ann.end_offset - pos;
-        break;
-      }
-      pos += nodeLen;
-    }
-    if (!startNode) return;
-
-    if (!endNode) {
-      const lastNode = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).lastChild();
-      endNode = lastNode;
-      endOff = lastNode ? lastNode.textContent.length : 0;
+    let ranges = [{ field: ann.field, start_offset: ann.start_offset, end_offset: ann.end_offset }];
+    if (ann.ranges) {
+      try { ranges = JSON.parse(ann.ranges); } catch(e) {}
     }
 
-    const range = document.createRange();
-    range.setStart(startNode, startOff);
-    if (endNode) range.setEnd(endNode, endOff);
+    ranges.forEach(r => {
+      const el = fieldElements[r.field];
+      if (!el) return;
+      const text = el.textContent;
+      const sub = text.substring(r.start_offset, r.end_offset);
+      if (sub !== r.selected_text) return;
 
-    const mark = document.createElement('mark');
-    mark.className = 'annotation-highlight';
-    mark.dataset.annotationId = ann.id;
-    mark.onclick = () => {
-      if (isNarrowScreen()) {
-        togglePopover(tweetId, ann.id);
-      } else {
-        flashAnnotation(ann.id);
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let pos = 0;
+      let startNode = null, startOff = 0, endNode = null, endOff = 0;
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const nodeLen = node.textContent.length;
+        if (startNode === null && pos + nodeLen > r.start_offset) {
+          startNode = node;
+          startOff = r.start_offset - pos;
+        }
+        if (startNode !== null && pos + nodeLen >= r.end_offset) {
+          endNode = node;
+          endOff = r.end_offset - pos;
+          break;
+        }
+        pos += nodeLen;
       }
-    };
-    try { range.surroundContents(mark); } catch(e) {
-      try {
-        const contents = range.extractContents();
-        mark.appendChild(contents);
-        range.insertNode(mark);
-      } catch(e2) { /* skip */ }
-    }
+      if (!startNode) return;
+
+      if (!endNode) {
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let lastNode = null;
+        while (w.nextNode()) lastNode = w.currentNode;
+        endNode = lastNode;
+        endOff = lastNode ? lastNode.textContent.length : 0;
+      }
+
+      const range = document.createRange();
+      range.setStart(startNode, startOff);
+      if (endNode) range.setEnd(endNode, endOff);
+
+      const mark = document.createElement('mark');
+      mark.className = 'annotation-highlight';
+      mark.dataset.annotationId = ann.id;
+      mark.onclick = () => {
+        if (isNarrowScreen()) {
+          togglePopover(tweetId, ann.id);
+        } else {
+          flashAnnotation(ann.id);
+        }
+      };
+      try { range.surroundContents(mark); } catch(e) {
+        try {
+          const contents = range.extractContents();
+          mark.appendChild(contents);
+          range.insertNode(mark);
+        } catch(e2) { /* skip */ }
+      }
+    });
   });
 }
 

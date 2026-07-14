@@ -89,6 +89,7 @@ class TweetDB:
             selected_text TEXT NOT NULL,
             comment     TEXT NOT NULL,
             field       TEXT DEFAULT 'content',
+            ranges      TEXT,
             created_at  TEXT,
             updated_at  TEXT,
             FOREIGN KEY (tweet_id) REFERENCES tweets(id)
@@ -382,13 +383,14 @@ class TweetDB:
             self.conn.execute("""
             INSERT INTO annotations
                 (id, tweet_id, start_offset, end_offset, selected_text,
-                 comment, field, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 comment, field, ranges, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item['id'], item['tweet_id'],
                 item['start_offset'], item['end_offset'],
                 item['selected_text'], item['comment'],
-                item.get('field', 'content'), now, now,
+                item.get('field', 'content'),
+                item.get('ranges'), now, now,
             ))
             self.conn.commit()
             row = self.conn.execute(

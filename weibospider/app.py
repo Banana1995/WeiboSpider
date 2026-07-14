@@ -322,6 +322,7 @@ def api_create_annotation(tweet_id):
         'selected_text': data.get('selected_text', ''),
         'comment': data['comment'],
         'field': data.get('field', 'content'),
+        'ranges': data.get('ranges'),
     }
     result = DB.insert_annotation(item)
     return jsonify(result), 201

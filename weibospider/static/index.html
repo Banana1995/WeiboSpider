@@ -1147,7 +1147,13 @@ function applyHighlights(tweetId, anns) {
         flashAnnotation(ann.id);
       }
     };
-    try { range.surroundContents(mark); } catch(e) { /* skip cross-element */ }
+    try { range.surroundContents(mark); } catch(e) {
+      try {
+        const contents = range.extractContents();
+        mark.appendChild(contents);
+        range.insertNode(mark);
+      } catch(e2) { /* skip */ }
+    }
   });
 }
 

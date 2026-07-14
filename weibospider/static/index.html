@@ -931,17 +931,24 @@ function handleSelection(e) {
   if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) return;
 
   const range = sel.getRangeAt(0);
-  const container = range.commonAncestorContainer;
-  const fieldEl = findFieldElement(container);
-  if (!fieldEl) return;
 
-  const tweetId = fieldEl.dataset.tweetId;
-  const field = fieldEl.dataset.field;
+  const startFieldEl = findFieldElement(range.startContainer);
+  if (!startFieldEl) return;
+
+  const tweetId = startFieldEl.dataset.tweetId;
+  const field = startFieldEl.dataset.field;
   if (!tweetId) return;
 
-  const fullText = fieldEl.textContent;
-  let startOffset = getOffset(fieldEl, range.startContainer, range.startOffset);
-  let endOffset = getOffset(fieldEl, range.endContainer, range.endOffset);
+  const fullText = startFieldEl.textContent;
+  let startOffset = getOffset(startFieldEl, range.startContainer, range.startOffset);
+
+  const endFieldEl = findFieldElement(range.endContainer);
+  let endOffset;
+  if (endFieldEl === startFieldEl) {
+    endOffset = getOffset(startFieldEl, range.endContainer, range.endOffset);
+  } else {
+    endOffset = fullText.length;
+  }
 
   let selectedText = fullText.substring(startOffset, endOffset);
   const leadingTrim = selectedText.length - selectedText.trimStart().length;

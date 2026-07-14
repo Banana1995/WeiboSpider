@@ -104,3 +104,13 @@ def test_adjust_row_height_called_after_render():
 
 def test_resize_clears_min_height_on_narrow():
     assert "row.style.minHeight = ''" in INDEX_HTML
+
+
+def test_get_offset_uses_tree_walker_not_range():
+    assert 'document.createTreeWalker(fieldEl, NodeFilter.SHOW_TEXT)' in INDEX_HTML
+    assert 'range.toString().length' not in INDEX_HTML
+
+
+def test_handle_selection_accounts_for_leading_whitespace():
+    assert 'leadingWS' in INDEX_HTML
+    assert 'rawText.trimStart()' in INDEX_HTML

@@ -939,11 +939,13 @@ function handleSelection(e) {
   const field = fieldEl.dataset.field;
   if (!tweetId) return;
 
-  const selectedText = sel.toString().trim();
+  const rawText = sel.toString();
+  const selectedText = rawText.trim();
   if (!selectedText) return;
 
+  const leadingWS = rawText.length - rawText.trimStart().length;
   const fullText = fieldEl.textContent;
-  const startOffset = getOffset(fieldEl, range.startContainer, range.startOffset);
+  const startOffset = getOffset(fieldEl, range.startContainer, range.startOffset) + leadingWS;
   const endOffset = startOffset + selectedText.length;
 
   if (fullText.substring(startOffset, endOffset) !== selectedText) return;
@@ -964,10 +966,16 @@ function findFieldElement(node) {
 }
 
 function getOffset(fieldEl, startNode, startOffset) {
-  const range = document.createRange();
-  range.selectNodeContents(fieldEl);
-  range.setEnd(startNode, startOffset);
-  return range.toString().length;
+  const walker = document.createTreeWalker(fieldEl, NodeFilter.SHOW_TEXT);
+  let offset = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node === startNode) {
+      return offset + startOffset;
+    }
+    offset += node.textContent.length;
+  }
+  return offset;
 }
 
 function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText) {

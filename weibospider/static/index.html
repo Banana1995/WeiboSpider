@@ -1128,11 +1128,13 @@ function isNarrowScreen() {
 function togglePopover(tweetId, annId) {
   const panel = $('annotation-panel-' + tweetId);
   if (!panel) return;
-  if (panel.classList.contains('popover-open')) {
+  if (panel.classList.contains('popover-open') && panel.dataset.popoverAnnId === annId) {
     panel.classList.remove('popover-open');
+    delete panel.dataset.popoverAnnId;
   } else {
     closeAllPopovers();
     panel.classList.add('popover-open');
+    panel.dataset.popoverAnnId = annId;
     setTimeout(() => flashAnnotation(annId), 50);
   }
 }
@@ -1140,6 +1142,7 @@ function togglePopover(tweetId, annId) {
 function closeAllPopovers() {
   document.querySelectorAll('.annotation-panel.popover-open').forEach(p => {
     p.classList.remove('popover-open');
+    delete p.dataset.popoverAnnId;
   });
 }
 

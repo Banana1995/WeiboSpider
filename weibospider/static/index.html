@@ -1110,10 +1110,50 @@ function applyHighlights(tweetId, anns) {
     const mark = document.createElement('mark');
     mark.className = 'annotation-highlight';
     mark.dataset.annotationId = ann.id;
-    mark.onclick = () => flashAnnotation(ann.id);
+    mark.onclick = () => {
+      if (isNarrowScreen()) {
+        togglePopover(tweetId, ann.id);
+      } else {
+        flashAnnotation(ann.id);
+      }
+    };
     try { range.surroundContents(mark); } catch(e) { /* skip cross-element */ }
   });
 }
+
+function isNarrowScreen() {
+  return window.matchMedia('(max-width: 1399px)').matches;
+}
+
+function togglePopover(tweetId, annId) {
+  const panel = $('annotation-panel-' + tweetId);
+  if (!panel) return;
+  if (panel.classList.contains('popover-open')) {
+    panel.classList.remove('popover-open');
+  } else {
+    closeAllPopovers();
+    panel.classList.add('popover-open');
+    setTimeout(() => flashAnnotation(annId), 50);
+  }
+}
+
+function closeAllPopovers() {
+  document.querySelectorAll('.annotation-panel.popover-open').forEach(p => {
+    p.classList.remove('popover-open');
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.annotation-highlight') && !e.target.closest('.annotation-panel')) {
+    closeAllPopovers();
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (!isNarrowScreen()) {
+    closeAllPopovers();
+  }
+});
 
 function flashAnnotation(annId) {
   const body = $('ann-body-' + annId);

@@ -69,3 +69,20 @@ def test_narrow_screen_hides_panel_by_default():
 def test_popover_open_class_exists():
     assert '.annotation-panel.popover-open' in INDEX_HTML
     assert 'z-index: 100' in INDEX_HTML
+
+
+def test_highlight_click_handles_narrow_screen():
+    assert "function isNarrowScreen()" in INDEX_HTML
+    assert "matchMedia('(max-width: 1399px)')" in INDEX_HTML
+
+
+def test_toggle_popover_function_exists():
+    assert "function togglePopover(tweetId, annId)" in INDEX_HTML
+
+
+def test_close_all_popovers_function_exists():
+    assert "function closeAllPopovers()" in INDEX_HTML
+
+
+def test_clear_popover_state_on_resize():
+    assert "addEventListener('resize'" in INDEX_HTML

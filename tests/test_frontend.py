@@ -112,5 +112,7 @@ def test_get_offset_uses_tree_walker_not_range():
 
 
 def test_handle_selection_accounts_for_leading_whitespace():
-    assert 'leadingWS' in INDEX_HTML
-    assert 'rawText.trimStart()' in INDEX_HTML
+    assert 'leadingTrim' in INDEX_HTML
+    assert 'trailingTrim' in INDEX_HTML
+    assert 'trimStart()' in INDEX_HTML
+    assert 'trimEnd()' in INDEX_HTML

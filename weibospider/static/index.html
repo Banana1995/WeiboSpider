@@ -939,16 +939,18 @@ function handleSelection(e) {
   const field = fieldEl.dataset.field;
   if (!tweetId) return;
 
-  const rawText = sel.toString();
-  const selectedText = rawText.trim();
-  if (!selectedText) return;
-
-  const leadingWS = rawText.length - rawText.trimStart().length;
   const fullText = fieldEl.textContent;
-  const startOffset = getOffset(fieldEl, range.startContainer, range.startOffset) + leadingWS;
-  const endOffset = startOffset + selectedText.length;
+  let startOffset = getOffset(fieldEl, range.startContainer, range.startOffset);
+  let endOffset = getOffset(fieldEl, range.endContainer, range.endOffset);
 
-  if (fullText.substring(startOffset, endOffset) !== selectedText) return;
+  let selectedText = fullText.substring(startOffset, endOffset);
+  const leadingTrim = selectedText.length - selectedText.trimStart().length;
+  const trailingTrim = selectedText.length - selectedText.trimEnd().length;
+  startOffset += leadingTrim;
+  endOffset -= trailingTrim;
+  selectedText = fullText.substring(startOffset, endOffset);
+
+  if (!selectedText) return;
 
   sel.removeAllRanges();
   showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText);

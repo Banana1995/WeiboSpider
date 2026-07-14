@@ -59,3 +59,13 @@ def test_annotation_panel_max_height():
 
 def test_empty_annotation_panel_hidden():
     assert '.annotation-panel:empty { display: none; }' in INDEX_HTML
+
+
+def test_narrow_screen_hides_panel_by_default():
+    assert '@media (max-width: 1399px)' in INDEX_HTML
+    assert '.annotation-panel { display: none; }' in INDEX_HTML
+
+
+def test_popover_open_class_exists():
+    assert '.annotation-panel.popover-open' in INDEX_HTML
+    assert 'z-index: 100' in INDEX_HTML

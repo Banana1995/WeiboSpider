@@ -1143,8 +1143,6 @@ function applyHighlights(tweetId, anns) {
       const el = fieldElements[r.field];
       if (!el) return;
       const text = el.textContent;
-      const sub = text.substring(r.start_offset, r.end_offset);
-      if (sub !== r.selected_text) return;
 
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let pos = 0;

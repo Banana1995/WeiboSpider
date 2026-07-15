@@ -939,13 +939,12 @@ function handleSelection(e) {
   if (!tweetId) return;
 
   const endFieldEl = findFieldElement(range.endContainer);
-  if (!endFieldEl) return;
 
   const row = document.querySelector(`.tweet-row[data-id="${tweetId}"]`);
   if (!row) return;
   const fieldElements = Array.from(row.querySelectorAll('[data-field]'));
   const startIndex = fieldElements.indexOf(startFieldEl);
-  let endIndex = fieldElements.indexOf(endFieldEl);
+  let endIndex = endFieldEl ? fieldElements.indexOf(endFieldEl) : -1;
   if (startIndex === -1) return;
   if (endIndex === -1) endIndex = fieldElements.length - 1;
 

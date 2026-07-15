@@ -53,6 +53,7 @@ class TweetDB:
             "ALTER TABLE tweets ADD COLUMN retweet_has_video INTEGER DEFAULT 0",
             "ALTER TABLE tweets ADD COLUMN retweet_user_id TEXT DEFAULT ''",
             "ALTER TABLE comments ADD COLUMN sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE annotations ADD COLUMN ranges TEXT",
             ]:
                 try:
                     self.conn.execute(sql)

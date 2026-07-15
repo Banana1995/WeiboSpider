@@ -407,6 +407,13 @@ class TweetDB:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_annotation(self, ann_id):
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM annotations WHERE id=?", (ann_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def update_annotation(self, ann_id, comment):
         with self._lock:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

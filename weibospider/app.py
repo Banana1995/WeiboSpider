@@ -312,20 +312,28 @@ def api_create_annotation(tweet_id):
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
     data = request.get_json()
-    if not data or 'comment' not in data:
-        return jsonify({'error': 'missing comment'}), 400
+    if not data or 'selected_text' not in data:
+        return jsonify({'error': 'missing selected_text'}), 400
     item = {
         'id': str(uuid.uuid4()),
         'tweet_id': tweet_id,
         'start_offset': data.get('start_offset', 0),
         'end_offset': data.get('end_offset', 0),
         'selected_text': data.get('selected_text', ''),
-        'comment': data['comment'],
+        'comment': data.get('comment', ''),
         'field': data.get('field', 'content'),
         'ranges': data.get('ranges'),
     }
     result = DB.insert_annotation(item)
     return jsonify(result), 201
+
+
+@app.route('/api/annotations/<ann_id>')
+def api_get_annotation(ann_id):
+    result = DB.get_annotation(ann_id)
+    if result is None:
+        return jsonify({'error': 'annotation not found'}), 404
+    return jsonify(result)
 
 
 @app.route('/api/annotations/<ann_id>', methods=['PUT'])

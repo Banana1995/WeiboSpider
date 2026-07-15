@@ -984,7 +984,25 @@ function handleSelection(e) {
 
   sel.removeAllRanges();
   const primary = ranges[0];
-  showAnnotationInput(tweetId, primary.field, primary.start_offset, primary.end_offset, fullSelectedText.join('\n'), ranges.length > 1 ? ranges : null);
+  createPendingAnnotation(tweetId, primary.field, primary.start_offset, primary.end_offset, fullSelectedText.join('\n'), ranges.length > 1 ? ranges : null);
+}
+
+async function createPendingAnnotation(tweetId, field, startOffset, endOffset, selectedText, ranges) {
+  const body = { start_offset: startOffset, end_offset: endOffset,
+                 selected_text: selectedText, comment: '', field };
+  if (ranges) body.ranges = JSON.stringify(ranges);
+  try {
+    const resp = await fetch(`/api/tweets/${tweetId}/annotations`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      await loadAnnotations(tweetId);
+      showAnnotationInput(data.id, tweetId, field, startOffset, endOffset, selectedText, ranges);
+    }
+  } catch(e) { toast('创建划线失败', true); }
 }
 
 function findFieldElement(node) {
@@ -1011,7 +1029,7 @@ function getOffset(fieldEl, startNode, startOffset) {
   return offset;
 }
 
-function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedText, ranges) {
+function showAnnotationInput(annId, tweetId, field, startOffset, endOffset, selectedText, ranges) {
   const panel = $('annotation-panel-' + tweetId);
   if (!panel) return;
 
@@ -1033,26 +1051,28 @@ function showAnnotationInput(tweetId, field, startOffset, endOffset, selectedTex
   const saveButton = div.querySelector('.save');
   requestAnimationFrame(() => textarea.focus());
 
-  div.querySelector('.cancel').onclick = () => div.remove();
+  div.querySelector('.cancel').onclick = async () => {
+    const ann = await fetch(`/api/annotations/${annId}`).then(r => r.ok ? r.json() : null);
+    if (ann && !ann.comment) {
+      await fetch(`/api/annotations/${annId}`, { method: 'DELETE' });
+      await loadAnnotations(tweetId);
+    }
+    div.remove();
+  };
   const saveAnnotation = async () => {
     const comment = textarea.value.trim();
-    if (!comment) { toast('请输入评论', true); return; }
     try {
-      const body = { start_offset: startOffset, end_offset: endOffset,
-                     selected_text: selectedText, comment, field };
-      if (ranges) body.ranges = JSON.stringify(ranges);
-      const resp = await fetch(`/api/tweets/${tweetId}/annotations`, {
-        method: 'POST',
+      const resp = await fetch(`/api/annotations/${annId}`, {
+        method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
+        body: JSON.stringify({ comment }),
       });
-      const data = await resp.json();
       if (resp.ok) {
         div.remove();
         await loadAnnotations(tweetId);
-        toast('已添加划线评论');
+        toast(comment ? '已保存' : '已删除');
       } else {
-        toast(data.error || '保存失败', true);
+        toast('保存失败', true);
       }
     } catch(e) { toast('请求失败', true); }
   };
@@ -1091,9 +1111,12 @@ function renderAnnotationPanel(tweetId, anns) {
     const body = document.createElement('div');
     body.className = 'annotation-card-body';
     body.id = 'ann-body-' + ann.id;
+    const commentHtml = ann.comment
+      ? `<div class="annotation-comment">${esc(ann.comment)}</div>`
+      : `<div class="annotation-comment" style="color:#aaa;font-style:italic;">未输入评论</div>`;
     body.innerHTML = `
       <div class="annotation-selected-text" onclick="scrollToHighlight('${tweetId}', '${ann.id}')">"${esc(ann.selected_text)}"</div>
-      <div class="annotation-comment">${esc(ann.comment)}</div>
+      ${commentHtml}
       <div class="annotation-actions">
         <a onclick="editAnnotation('${ann.id}', '${tweetId}')">编辑</a>
         <a class="del" onclick="deleteAnnotation('${ann.id}', '${tweetId}')">删除</a>

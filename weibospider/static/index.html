@@ -945,8 +945,9 @@ function handleSelection(e) {
   if (!row) return;
   const fieldElements = Array.from(row.querySelectorAll('[data-field]'));
   const startIndex = fieldElements.indexOf(startFieldEl);
-  const endIndex = fieldElements.indexOf(endFieldEl);
-  if (startIndex === -1 || endIndex === -1) return;
+  let endIndex = fieldElements.indexOf(endFieldEl);
+  if (startIndex === -1) return;
+  if (endIndex === -1) endIndex = fieldElements.length - 1;
 
   const ranges = [];
   let fullSelectedText = [];

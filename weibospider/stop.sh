@@ -5,5 +5,5 @@ if [ -f server.pid ]; then
     kill $(cat server.pid) 2>/dev/null && echo "已停止" || echo "进程已不存在"
     rm -f server.pid
 else
-    kill $(lsof -t -i :5000) 2>/dev/null && echo "已停止" || echo "没有运行中的服务"
+    kill $(lsof -t -i :5050) 2>/dev/null && echo "已停止" || echo "没有运行中的服务"
 fi

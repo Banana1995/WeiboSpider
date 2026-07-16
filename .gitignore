@@ -1,5 +1,7 @@
 .superpowers/
+.idea/
 *.db
+*.db.plock
 __pycache__/
 .pytest_cache/
 cookie.txt

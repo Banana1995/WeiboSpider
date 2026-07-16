@@ -9,9 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 class CrawlScheduler:
-    def __init__(self, crawl_tweets_func, crawl_comments_func):
+    def __init__(self, crawl_tweets_func, crawl_comments_func, keepalive_func=None):
         self.crawl_tweets_func = crawl_tweets_func
         self.crawl_comments_func = crawl_comments_func
+        self.keepalive_func = keepalive_func
         # Independent locks
         self._tweet_lock = threading.Lock()
         self._comment_lock = threading.Lock()
@@ -21,6 +22,7 @@ class CrawlScheduler:
         self._comment_cancelled = False
         self._tweet_last_result = None
         self._comment_last_result = None
+        self._keepalive_last_result = None
         self._config = {}
         self._scheduler = BackgroundScheduler()
 
@@ -48,7 +50,7 @@ class CrawlScheduler:
 
     def _reload_jobs(self):
         """Remove existing jobs and re-add based on current config."""
-        for job_id in ('tweet_crawl', 'comment_crawl'):
+        for job_id in ('tweet_crawl', 'comment_crawl', 'cookie_keepalive'):
             try:
                 self._scheduler.remove_job(job_id)
             except Exception:
@@ -70,7 +72,13 @@ class CrawlScheduler:
             CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0,30'),
             id='comment_crawl',
         )
-        logger.info("Jobs registered: tweet hourly, comment every 30min, %dh-%dh",
+        if self.keepalive_func is not None:
+            self._scheduler.add_job(
+                self._scheduled_keepalive,
+                CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='15,45'),
+                id='cookie_keepalive',
+            )
+        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive every 30min, %dh-%dh",
                      start_hour, end_hour)
 
     def _is_schedule_enabled(self):
@@ -83,6 +91,26 @@ class CrawlScheduler:
     def _scheduled_comment_crawl(self):
         logger.info("Scheduled comment crawl triggered")
         self._execute_comment_job(mode='incremental')
+
+    def _scheduled_keepalive(self):
+        logger.info("Scheduled cookie keepalive triggered")
+        self.manual_keepalive()
+
+    def manual_keepalive(self):
+        """Run cookie keepalive once, return result dict."""
+        if self.keepalive_func is None:
+            return {'error': 'keepalive not configured'}
+        try:
+            result = self.keepalive_func()
+            self._keepalive_last_result = result
+            logger.info("Cookie keepalive finished: %s", result)
+            if 'error' in result:
+                return {'status': 'error', 'error': result['error'], 'result': result}
+            return {'status': 'ok', 'result': result}
+        except Exception as e:
+            self._keepalive_last_result = {'error': str(e)}
+            logger.error("Cookie keepalive failed: %s", e)
+            return {'status': 'error', 'error': str(e)}
 
     def manual_crawl(self, user_id=None):
         """Full crawl: tweets + comments sequentially."""

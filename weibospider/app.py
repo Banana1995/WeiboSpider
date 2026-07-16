@@ -440,6 +440,16 @@ def api_crawl_cancel():
     return jsonify(SCHEDULER.cancel())
 
 
+@app.route('/api/cookie/keepalive', methods=['POST'])
+def api_cookie_keepalive():
+    """Manually trigger cookie keepalive (ping weibo.com, refresh Set-Cookie)."""
+    if SCHEDULER is None:
+        return jsonify({'error': 'Scheduler not available'}), 503
+    result = SCHEDULER.manual_keepalive()
+    code = 200 if result.get('status') == 'ok' else 400
+    return jsonify(result), code
+
+
 @app.route('/api/crawl/events')
 def api_crawl_events():
     """SSE endpoint: pushes crawl status and real-time log lines to the client."""
@@ -716,7 +726,10 @@ def create_app(db_path=None, debug=False):
     # - Dev with reloader (debug=True): start ONLY in reloaded child (WERKZEUG_RUN_MAIN=='true')
     if not debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         if SCHEDULER is None and not app.config.get('SCHEDULER_DISABLED'):
-            SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments)
+            from keepalive import refresh_cookie
+            _keepalive = lambda: refresh_cookie(DB)
+            SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments,
+                                       keepalive_func=_keepalive)
             SCHEDULER.update_config(_get_schedule_config())
             SCHEDULER.start()
     return app

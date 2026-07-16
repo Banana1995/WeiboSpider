@@ -247,6 +247,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="config-panel-body" id="config-panel-body">
       <div class="config-section">
         <h3>Cookie</h3>
+        <div id="cookie-expiry-info" style="font-size:11px;margin-bottom:4px;display:none;"></div>
         <div id="cookie-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
         <div class="uid-input-row">
           <input type="text" id="cookie-input" placeholder="粘贴微博 Cookie">
@@ -369,6 +370,23 @@ async function loadConfig() {
     } else {
       $('cookie-status').textContent = '未设置 Cookie（抓取将失败）';
       $('cookie-status').style.color = '#e74c3c';
+    }
+    const expiryEl = $('cookie-expiry-info');
+    if (data.cookie_expiry) {
+      const days = data.cookie_days_left;
+      let color = '#27ae60';
+      let label = '剩余 ' + days + ' 天';
+      if (days < 0) { color = '#e74c3c'; label = '已过期'; }
+      else if (days < 3) { color = '#e67e22'; }
+      else if (days < 7) { color = '#f39c12'; }
+      expiryEl.innerHTML = '到期时间: ' + data.cookie_expiry + ' (<span style="color:' + color + ';">' + label + '</span>)';
+      expiryEl.style.display = 'block';
+    } else if (data.cookie) {
+      expiryEl.textContent = '未检测到 ALF 字段，无法判断到期时间';
+      expiryEl.style.color = '#888';
+      expiryEl.style.display = 'block';
+    } else {
+      expiryEl.style.display = 'none';
     }
     if (data.schedule_enabled !== undefined) {
       $('schedule-enabled').checked = data.schedule_enabled;

@@ -119,6 +119,17 @@ class TweetDB:
             FOREIGN KEY (tweet_id) REFERENCES tweets(id)
         );
         CREATE INDEX IF NOT EXISTS idx_annotations_tweet_id ON annotations(tweet_id);
+        CREATE TABLE IF NOT EXISTS operation_logs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT NOT NULL,
+            category    TEXT NOT NULL,
+            action      TEXT NOT NULL,
+            detail      TEXT,
+            status      TEXT,
+            user        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_op_logs_ts ON operation_logs(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_op_logs_cat ON operation_logs(category);
         """)
             self.conn.commit()
 
@@ -512,3 +523,51 @@ class TweetDB:
                 return cur.rowcount > 0
             finally:
                 self._release_file_lock()
+
+    def insert_log(self, category, action, detail=None, status=None, user=None):
+        """Insert a row into operation_logs.
+
+        category: 'crawl' | 'annotation' | 'config' | 'keepalive' | 'schedule' | 'user'
+        action:  short description, e.g. 'manual_incremental', 'cookie_expired'
+        detail:  optional free-text context
+        status:  'success' | 'failed' | 'cancelled' | 'error'
+        user:    optional actor (e.g. 'scheduler', 'web', username)
+        """
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (insert_log)")
+            try:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                self.conn.execute(
+                    "INSERT INTO operation_logs (timestamp, category, action, detail, status, user) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (now, category, action, detail, status, user)
+                )
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
+
+    def get_logs(self, page=1, per_page=50, category=None):
+        """Return paginated operation logs, newest first."""
+        with self._lock:
+            offset = (page - 1) * per_page
+            if category:
+                rows = self.conn.execute(
+                    "SELECT * FROM operation_logs WHERE category=? "
+                    "ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (category, per_page, offset)
+                ).fetchall()
+                total = self.conn.execute(
+                    "SELECT COUNT(*) FROM operation_logs WHERE category=?",
+                    (category,)
+                ).fetchone()[0]
+            else:
+                rows = self.conn.execute(
+                    "SELECT * FROM operation_logs ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (per_page, offset)
+                ).fetchall()
+                total = self.conn.execute(
+                    "SELECT COUNT(*) FROM operation_logs"
+                ).fetchone()[0]
+            return {'logs': [dict(r) for r in rows], 'total': total,
+                    'page': page, 'per_page': per_page}

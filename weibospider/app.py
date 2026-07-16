@@ -23,7 +23,6 @@ app = Flask(__name__, static_folder='static')
 
 
 DEFAULT_USER_IDS = ['3962719063']
-DEFAULT_COOKIE = 'SCF=Aj8cXU27CJwGzaF6zdheDmI8ep9CZwXBOCfIUaIZL5_PLAVK6yzR_sO-TCcJQWMTAZhLeUHNCcBb11jDMqnPqJc.; _qimei_uuid42=1a417140f0210085f7f57ea14ffce0f958c458c52d; _qimei_fingerprint=475a2000b231cf62d6774d3153452a9b; _qimei_i_3=46e05480930b0588c091af360fd674e8f1bbf2f5475351d7b2de205927962638303535973989e28290bc; _qimei_h38=; SUB=_2A25HGihtDeRhGeNN7FEX8CnJzzyIHXVkViWlrDV8PUNbmtANLVrgkW9NSYOsFhIXebUJWENxJOqxb2RiJJQyfguE; SUBP=0033WrSXqPxfM725Ws9jqgMF55529P9D9WFHEYOBNW25GVY89yMnAFVX5JpX5KzhUgL.Fo-0S0ecehMfSh52dJLoI0YLxK-L12qLBonLxK-LB.-L1KzLxKBLB.qL122LxKqL1KqL1hMLxKML1hnLBo2LxKML1KBLBo-LxK-LB.BLBo2t; ALF=02_1782965565; SINAGLOBAL=8401538047095.367.1780374151987; ULV=1780374151988:1:1:1:8401538047095.367.1780374151987:; _qimei_i_1=2cf92ce5eb22; XSRF-TOKEN=0Gd9B2Pu9tBiPve5qJGofwAT; WBPSESS=6AmhJwedr--y_2hMkuB9xuCCBASwYj5oPXwPbTy5roaVfOvjFstgGIFNrizxLGJ7Q4WJY8faXCw-ORg3mZoHEiCWuSbg7X6OkCzEeSFBYaQo_Ca40ZQnrfRp0mFIgfWyyoX68bOS9g8aSZrm40ltVQ=='
 
 
 def _get_user_ids():
@@ -64,11 +63,13 @@ def _make_log_helpers(tag, log_file, unbuffered_env):
         proc = subprocess.Popen(cmd_args, cwd=os.path.dirname(os.path.abspath(__file__)),
                                 env=unbuffered_env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        captured = []
         def _forward():
             for line in proc.stdout:
                 stripped = line.rstrip('\n')
                 if not stripped:
                     continue
+                captured.append(stripped)
                 print(stripped, file=sys.stderr, flush=True)
                 try:
                     with open(log_file, 'a') as lf:
@@ -77,7 +78,7 @@ def _make_log_helpers(tag, log_file, unbuffered_env):
                     pass
         thread = threading.Thread(target=_forward, daemon=True)
         thread.start()
-        return proc, thread
+        return proc, thread, captured
 
     return _log, _run_scrapy_with_log
 
@@ -109,7 +110,7 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
     def _check_cancel():
         return scheduler and scheduler.tweet_cancelled
 
-    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    cookie = DB.get_config('cookie', '')
     if not cookie:
         _log("失败: 未配置 Cookie")
         return {'status': 'failed', 'error': '未配置 Cookie'}
@@ -151,7 +152,7 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
                 cmd.extend(['-a', 'stop_after_id=%s' % stop_id])
                 _log(f"增量模式: stop_after_id={stop_id}")
 
-        proc, _t = _run_scrapy_with_log(cmd)
+        proc, _t, captured = _run_scrapy_with_log(cmd)
         while proc.poll() is None:
             if _check_cancel():
                 proc.kill(); proc.wait(timeout=2)
@@ -163,6 +164,12 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
             _log(f"失败! 微博抓取 returncode={proc.returncode}")
             return {'status': 'failed', 'stage': 'tweets', 'user_id': uid,
                     'error': f'returncode={proc.returncode}'}
+
+        spider_output = '\n'.join(captured)
+        if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
+            _log("失败: Cookie 已过期")
+            return {'status': 'failed', 'error': 'Cookie 已过期，请更新 Cookie',
+                    'stage': 'tweets', 'user_id': uid}
 
         tweets_after = DB.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]
         new_tweets = tweets_after - tweets_before
@@ -183,7 +190,7 @@ def _crawl_comments(scheduler=None, mode='full'):
     def _check_cancel():
         return scheduler and scheduler.comment_cancelled
 
-    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    cookie = DB.get_config('cookie', '')
     if not cookie:
         _log("失败: 未配置 Cookie")
         return {'status': 'failed', 'error': '未配置 Cookie'}
@@ -224,7 +231,7 @@ def _crawl_comments(scheduler=None, mode='full'):
     if mode == 'incremental':
         cmd.extend(['-a', 'max_pages=2'])
 
-    proc, _t = _run_scrapy_with_log(cmd)
+    proc, _t, captured = _run_scrapy_with_log(cmd)
     while proc.poll() is None:
         if _check_cancel():
             proc.kill(); proc.wait(timeout=2)
@@ -234,6 +241,12 @@ def _crawl_comments(scheduler=None, mode='full'):
 
     comments_after = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
     new_comments = comments_after - comments_before
+
+    spider_output = '\n'.join(captured)
+    if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
+        _log("失败: Cookie 已过期")
+        return {'status': 'failed', 'error': 'Cookie 已过期，请更新 Cookie',
+                'stats': DB.stats()}
 
     if proc.returncode != 0:
         _log(f"评论抓取失败! returncode={proc.returncode}")
@@ -325,6 +338,9 @@ def api_create_annotation(tweet_id):
         'ranges': data.get('ranges'),
     }
     result = DB.insert_annotation(item)
+    DB.insert_log('annotation', 'create',
+                   detail=f'tweet={tweet_id} text={data.get("selected_text","")[:30]}',
+                   status='success', user='web')
     return jsonify(result), 201
 
 
@@ -344,6 +360,9 @@ def api_update_annotation(ann_id):
     result = DB.update_annotation(ann_id, data['comment'])
     if result is None:
         return jsonify({'error': 'annotation not found'}), 404
+    DB.insert_log('annotation', 'update',
+                   detail=f'ann={ann_id} comment={data["comment"][:30]}',
+                   status='success', user='web')
     return jsonify(result)
 
 
@@ -352,6 +371,8 @@ def api_delete_annotation(ann_id):
     deleted = DB.delete_annotation(ann_id)
     if not deleted:
         return jsonify({'error': 'annotation not found'}), 404
+    DB.insert_log('annotation', 'delete', detail=f'ann={ann_id}',
+                   status='success', user='web')
     return jsonify({'deleted': True})
 
 
@@ -366,7 +387,7 @@ def api_crawl_comments(tweet_id):
         return jsonify({'error': 'tweet has no mblogid'}), 400
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    cookie = DB.get_config('cookie', '')
     if not cookie:
         return jsonify({'error': '未配置 Cookie'}), 400
     cookie_path = os.path.join(script_dir, 'cookie.txt')
@@ -411,6 +432,7 @@ def api_crawl():
         return jsonify({'status': 'started', 'message': 'Scheduler disabled (test mode)'})
     data = request.get_json(silent=True) or {}
     user_id = data.get('user_id')  # optional: crawl only one user
+    DB.insert_log('crawl', 'manual_full', detail=f'user_id={user_id}', user='web')
     result = SCHEDULER.manual_crawl(user_id=user_id)
     return jsonify(result)
 
@@ -419,6 +441,7 @@ def api_crawl():
 def api_crawl_incremental():
     if SCHEDULER is None:
         return jsonify({'status': 'started', 'message': 'Scheduler disabled (test mode)'})
+    DB.insert_log('crawl', 'manual_incremental', user='web')
     result = SCHEDULER.manual_incremental()
     return jsonify(result)
 
@@ -445,9 +468,19 @@ def api_cookie_keepalive():
     """Manually trigger cookie keepalive (ping weibo.com, refresh Set-Cookie)."""
     if SCHEDULER is None:
         return jsonify({'error': 'Scheduler not available'}), 503
+    DB.insert_log('keepalive', 'manual_keepalive', user='web')
     result = SCHEDULER.manual_keepalive()
     code = 200 if result.get('status') == 'ok' else 400
     return jsonify(result), code
+
+
+@app.route('/api/logs')
+def api_logs():
+    """Return paginated operation logs."""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    category = request.args.get('category') or None
+    return jsonify(DB.get_logs(page=page, per_page=per_page, category=category))
 
 
 @app.route('/api/crawl/events')
@@ -492,13 +525,23 @@ def api_crawl_events():
 
 @app.route('/api/config', methods=['GET'])
 def api_get_config():
-    cookie = DB.get_config('cookie', '') or DEFAULT_COOKIE
+    from keepalive import get_alf_expiry
+    cookie = DB.get_config('cookie', '')
     masked = cookie[:20] + '...' + cookie[-10:] if len(cookie) > 30 else cookie
     config = _get_schedule_config()
+    alf_ts = get_alf_expiry(cookie)
+    cookie_expiry = None
+    cookie_days_left = None
+    if alf_ts:
+        from datetime import datetime as _dt
+        cookie_expiry = _dt.fromtimestamp(alf_ts).strftime('%Y-%m-%d %H:%M:%S')
+        cookie_days_left = round((alf_ts - time.time()) / 86400, 1)
     return jsonify({
         'user_ids': _get_user_ids(),
         'cookie': cookie,
         'cookie_masked': masked,
+        'cookie_expiry': cookie_expiry,
+        'cookie_days_left': cookie_days_left,
         'start_date': DB.get_config('start_date', ''),
         'end_date': DB.get_config('end_date', ''),
         **config,
@@ -514,12 +557,15 @@ def api_set_config():
     if 'cookie' in data:
         DB.set_config('cookie', data['cookie'])
         updated['cookie'] = True
+        DB.insert_log('config', 'set_cookie', status='success', user='web')
     if 'user_ids' in data:
         user_ids = data['user_ids']
         if isinstance(user_ids, str):
             user_ids = [uid.strip() for uid in user_ids.split(',') if uid.strip()]
         DB.set_config('user_ids', user_ids)
         updated['user_ids'] = user_ids
+        DB.insert_log('config', 'set_user_ids',
+                       detail=str(user_ids), status='success', user='web')
     if 'start_date' in data:
         DB.set_config('start_date', data['start_date'])
         updated['start_date'] = data['start_date']
@@ -542,6 +588,9 @@ def api_set_config():
             schedule_changed = True
     if schedule_changed and SCHEDULER:
         SCHEDULER.update_config(_get_schedule_config())
+        DB.insert_log('schedule', 'config_update',
+                       detail=str({k: updated.get(k) for k in schedule_keys if k in updated}),
+                       status='success', user='web')
     if updated:
         return jsonify({'updated': True, **updated})
     return jsonify({'error': 'no valid field provided'}), 400
@@ -704,7 +753,7 @@ def create_app(db_path=None, debug=False):
     DB = TweetDB(db_path)
     # Seed default config values on first run
     if DB.get_config('cookie', None) is None:
-        DB.set_config('cookie', DEFAULT_COOKIE)
+        DB.set_config('cookie', '')
     if not DB.get_config('user_ids', None):
         DB.set_config('user_ids', DEFAULT_USER_IDS)
     # One-time migration: trash retweets of other users' content
@@ -730,6 +779,9 @@ def create_app(db_path=None, debug=False):
             _keepalive = lambda: refresh_cookie(DB)
             SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments,
                                        keepalive_func=_keepalive)
+            SCHEDULER._log_to_db = lambda cat, act, detail=None, status=None, user='scheduler': \
+                DB.insert_log(cat, act, detail=detail, status=status, user=user)
+            SCHEDULER._get_cookie = lambda: DB.get_config('cookie', '') or ''
             SCHEDULER.update_config(_get_schedule_config())
             SCHEDULER.start()
     return app

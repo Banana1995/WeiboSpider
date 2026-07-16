@@ -75,25 +75,49 @@ class CrawlScheduler:
         if self.keepalive_func is not None:
             self._scheduler.add_job(
                 self._scheduled_keepalive,
-                CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='15,45'),
+                CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0'),
                 id='cookie_keepalive',
             )
-        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive every 30min, %dh-%dh",
+        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive daily, %dh-%dh",
                      start_hour, end_hour)
 
     def _is_schedule_enabled(self):
         return self._config.get('schedule_enabled', False) is True
 
+    def _log_schedule(self, category, action, status=None, detail=None):
+        """Insert an operation log via DB if available (set by create_app)."""
+        log_func = getattr(self, '_log_to_db', None)
+        if log_func:
+            try:
+                log_func(category, action, detail=detail, status=status)
+            except Exception:
+                pass
+
     def _scheduled_tweet_crawl(self):
         logger.info("Scheduled tweet crawl triggered")
+        self._log_schedule('crawl', 'scheduled_tweet_crawl')
         self._execute_tweet_job(mode='incremental')
 
     def _scheduled_comment_crawl(self):
         logger.info("Scheduled comment crawl triggered")
+        self._log_schedule('crawl', 'scheduled_comment_crawl')
         self._execute_comment_job(mode='incremental')
 
     def _scheduled_keepalive(self):
         logger.info("Scheduled cookie keepalive triggered")
+        # Only run if ALF expiry is within 3 days
+        from keepalive import should_keepalive_now
+        cookie = ''
+        try:
+            cookie = self._get_cookie() if hasattr(self, '_get_cookie') else ''
+        except Exception:
+            pass
+        if not should_keepalive_now(cookie):
+            logger.info("Cookie keepalive skipped: ALF not expiring soon")
+            self._log_schedule('keepalive', 'keepalive_skipped',
+                               status='skipped', detail='ALF not expiring soon')
+            return
+        self._log_schedule('keepalive', 'scheduled_keepalive')
         self.manual_keepalive()
 
     def manual_keepalive(self):
@@ -104,12 +128,18 @@ class CrawlScheduler:
             result = self.keepalive_func()
             self._keepalive_last_result = result
             logger.info("Cookie keepalive finished: %s", result)
+            status = 'success' if 'error' not in result else 'failed'
+            self._log_schedule('keepalive', 'keepalive_result',
+                               status=status,
+                               detail=str(result)[:200])
             if 'error' in result:
                 return {'status': 'error', 'error': result['error'], 'result': result}
             return {'status': 'ok', 'result': result}
         except Exception as e:
             self._keepalive_last_result = {'error': str(e)}
             logger.error("Cookie keepalive failed: %s", e)
+            self._log_schedule('keepalive', 'keepalive_result',
+                               status='failed', detail=str(e)[:200])
             return {'status': 'error', 'error': str(e)}
 
     def manual_crawl(self, user_id=None):

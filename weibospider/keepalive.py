@@ -1,17 +1,52 @@
 # weibospider/keepalive.py
 """Cookie keepalive: ping weibo.com to refresh session cookie via Set-Cookie headers.
 
-Uses only stdlib (urllib + http.cookiejar) to avoid adding dependencies.
+Uses only stdlib (urllib) to avoid adding dependencies.
 """
 import logging
+import re
+import time
 import urllib.request
-from http.cookiejar import CookieJar
 
 logger = logging.getLogger(__name__)
 
 KEEPALIVE_URL = 'https://weibo.com/'
 USER_AGENT = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
               'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36')
+
+# Run keepalive daily when ALF expiry is within this many seconds
+KEEPALIVE_WINDOW_SECONDS = 3 * 24 * 3600  # 3 days
+
+
+def get_alf_expiry(cookie_string):
+    """Extract ALF expiry timestamp from cookie string.
+
+    ALF format: 'ALF=<timestamp>' or 'ALF=02_<timestamp>'.
+    Returns int timestamp or None if not found / unparseable.
+    """
+    if not cookie_string:
+        return None
+    m = re.search(r'ALF=(?:\d+_)?(\d+)', cookie_string)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def should_keepalive_now(cookie_string, now=None):
+    """Return True if ALF expiry is within KEEPALIVE_WINDOW_SECONDS.
+
+    If ALF is missing or unparseable, returns True (keepalive anyway,
+    better safe than sorry).
+    """
+    if now is None:
+        now = time.time()
+    expiry = get_alf_expiry(cookie_string)
+    if expiry is None:
+        return True
+    return (expiry - now) < KEEPALIVE_WINDOW_SECONDS
 
 
 def _merge_set_cookie_into_cookie_string(old_cookie, set_cookie_headers):

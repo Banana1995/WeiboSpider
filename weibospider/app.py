@@ -689,7 +689,7 @@ def not_found(e):
     return jsonify({'error': 'not found'}), 404
 
 
-def create_app(db_path=None):
+def create_app(db_path=None, debug=False):
     global DB, SCHEDULER
     DB = TweetDB(db_path)
     # Seed default config values on first run
@@ -711,8 +711,10 @@ def create_app(db_path=None):
         except:
             pass
     atexit.register(_cleanup)
-    # Flask reloader support: only start scheduler in the reloaded child process
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    # Start scheduler only in the actual serving process:
+    # - Production (debug=False): start here
+    # - Dev with reloader (debug=True): start ONLY in reloaded child (WERKZEUG_RUN_MAIN=='true')
+    if not debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         if SCHEDULER is None and not app.config.get('SCHEDULER_DISABLED'):
             SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments)
             SCHEDULER.update_config(_get_schedule_config())

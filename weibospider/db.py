@@ -3,6 +3,7 @@ import os
 import sqlite3
 import threading
 import time
+import fcntl
 from datetime import datetime
 
 
@@ -11,13 +12,35 @@ class TweetDB:
         if db_path is None:
             db_path = os.path.join(os.getcwd(), 'data.db')
         self._lock = threading.RLock()
-        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
+        self.db_path = db_path
+        # Cross-process file lock to serialize writes (Flask + Scrapy subprocess)
+        self._lockfile_path = db_path + '.plock'
+        self._lockfile = open(self._lockfile_path, 'a')
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=10000")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self._create_tables()
+
+    def _acquire_file_lock(self):
+        """Acquire exclusive cross-process lock (blocks up to 30s)."""
+        deadline = time.time() + 30
+        while True:
+            try:
+                fcntl.flock(self._lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except (BlockingIOError, OSError):
+                if time.time() > deadline:
+                    return False
+                time.sleep(0.1)
+
+    def _release_file_lock(self):
+        try:
+            fcntl.flock(self._lockfile, fcntl.LOCK_UN)
+        except (OSError, IOError):
+            pass
 
     def _create_tables(self):
         with self._lock:
@@ -101,6 +124,14 @@ class TweetDB:
 
     def close(self):
         with self._lock:
+            try:
+                self._release_file_lock()
+            except Exception:
+                pass
+            try:
+                self._lockfile.close()
+            except Exception:
+                pass
             self.conn.close()
 
     def __enter__(self):
@@ -111,7 +142,10 @@ class TweetDB:
 
     def insert_tweet(self, item):
         with self._lock:
-            self.conn.execute("""
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (insert_tweet)")
+            try:
+                self.conn.execute("""
         INSERT INTO tweets
             (id, mblogid, content, user_id, created_at, reposts_count,
              comments_count, attitudes_count, pic_urls, pic_num,
@@ -150,11 +184,16 @@ class TweetDB:
                 json.dumps(item.get('retweet_pic_urls', [])) if isinstance(item.get('retweet_pic_urls'), list) else (item.get('retweet_pic_urls') or '[]'),
                 int(item.get('retweet_has_video', False)),
             ))
-            self.conn.commit()
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
 
     def insert_comment(self, item):
         with self._lock:
-            self.conn.execute("""
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (insert_comment)")
+            try:
+                self.conn.execute("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
              ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order)
@@ -169,7 +208,9 @@ class TweetDB:
                 item.get('parent_comment_id'),
                 item.get('sort_order', 0),
             ))
-            self.conn.commit()
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
 
     def get_tweets(self, page=1, per_page=20, sort='desc', deleted='exclude', user_id=None):
         with self._lock:
@@ -242,24 +283,34 @@ class TweetDB:
                 return 0
             placeholders = ','.join(['?'] * len(ids))
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            cur = self.conn.execute(
-                f"UPDATE tweets SET deleted=1, deleted_at=? WHERE id IN ({placeholders})",
-                [now] + list(ids)
-            )
-            self.conn.commit()
-            return cur.rowcount
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (batch_delete)")
+            try:
+                cur = self.conn.execute(
+                    f"UPDATE tweets SET deleted=1, deleted_at=? WHERE id IN ({placeholders})",
+                    [now] + list(ids)
+                )
+                self.conn.commit()
+                return cur.rowcount
+            finally:
+                self._release_file_lock()
 
     def restore_tweets(self, ids):
         with self._lock:
             if not ids:
                 return 0
             placeholders = ','.join(['?'] * len(ids))
-            cur = self.conn.execute(
-                f"UPDATE tweets SET deleted=0, deleted_at=NULL WHERE id IN ({placeholders})",
-                list(ids)
-            )
-            self.conn.commit()
-            return cur.rowcount
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (restore_tweets)")
+            try:
+                cur = self.conn.execute(
+                    f"UPDATE tweets SET deleted=0, deleted_at=NULL WHERE id IN ({placeholders})",
+                    list(ids)
+                )
+                self.conn.commit()
+                return cur.rowcount
+            finally:
+                self._release_file_lock()
 
     def get_tweet_ids(self, start_date=None, end_date=None):
         with self._lock:
@@ -341,19 +392,24 @@ class TweetDB:
         Uses screen_name as fallback for old rows lacking retweet_user_id.
         """
         with self._lock:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.conn.execute("""
-                UPDATE tweets SET deleted=1, deleted_at=?
-                WHERE is_retweet=1 AND deleted=0
-                  AND retweet_user_id != '' AND retweet_user_id != user_id
-            """, [now])
-            self.conn.execute("""
-                UPDATE tweets SET deleted=1, deleted_at=?
-                WHERE is_retweet=1 AND deleted=0
-                  AND (retweet_user_id = '' OR retweet_user_id IS NULL)
-                  AND retweet_user != '' AND retweet_user != screen_name
-            """, [now])
-            self.conn.commit()
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (migrate_retweet_trash)")
+            try:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                self.conn.execute("""
+                    UPDATE tweets SET deleted=1, deleted_at=?
+                    WHERE is_retweet=1 AND deleted=0
+                      AND retweet_user_id != '' AND retweet_user_id != user_id
+                """, [now])
+                self.conn.execute("""
+                    UPDATE tweets SET deleted=1, deleted_at=?
+                    WHERE is_retweet=1 AND deleted=0
+                      AND (retweet_user_id = '' OR retweet_user_id IS NULL)
+                      AND retweet_user != '' AND retweet_user != screen_name
+                """, [now])
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
 
     def get_config(self, key, default=None):
         with self._lock:
@@ -372,32 +428,42 @@ class TweetDB:
         with self._lock:
             if isinstance(value, (list, dict)):
                 value = json.dumps(value)
-            self.conn.execute(
-                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
-                (key, str(value))
-            )
-            self.conn.commit()
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (set_config)")
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                    (key, str(value))
+                )
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
 
     def insert_annotation(self, item):
         with self._lock:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.conn.execute("""
-            INSERT INTO annotations
-                (id, tweet_id, start_offset, end_offset, selected_text,
-                 comment, field, ranges, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                item['id'], item['tweet_id'],
-                item['start_offset'], item['end_offset'],
-                item['selected_text'], item['comment'],
-                item.get('field', 'content'),
-                item.get('ranges'), now, now,
-            ))
-            self.conn.commit()
-            row = self.conn.execute(
-                "SELECT * FROM annotations WHERE id=?", (item['id'],)
-            ).fetchone()
-            return dict(row)
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (insert_annotation)")
+            try:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                self.conn.execute("""
+                INSERT INTO annotations
+                    (id, tweet_id, start_offset, end_offset, selected_text,
+                     comment, field, ranges, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item['id'], item['tweet_id'],
+                    item['start_offset'], item['end_offset'],
+                    item['selected_text'], item['comment'],
+                    item.get('field', 'content'),
+                    item.get('ranges'), now, now,
+                ))
+                self.conn.commit()
+                row = self.conn.execute(
+                    "SELECT * FROM annotations WHERE id=?", (item['id'],)
+                ).fetchone()
+                return dict(row)
+            finally:
+                self._release_file_lock()
 
     def get_annotations(self, tweet_id):
         with self._lock:
@@ -416,23 +482,33 @@ class TweetDB:
 
     def update_annotation(self, ann_id, comment):
         with self._lock:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            cur = self.conn.execute(
-                "UPDATE annotations SET comment=?, updated_at=? WHERE id=?",
-                (comment, now, ann_id)
-            )
-            self.conn.commit()
-            if cur.rowcount == 0:
-                return None
-            row = self.conn.execute(
-                "SELECT * FROM annotations WHERE id=?", (ann_id,)
-            ).fetchone()
-            return dict(row)
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (update_annotation)")
+            try:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                cur = self.conn.execute(
+                    "UPDATE annotations SET comment=?, updated_at=? WHERE id=?",
+                    (comment, now, ann_id)
+                )
+                self.conn.commit()
+                if cur.rowcount == 0:
+                    return None
+                row = self.conn.execute(
+                    "SELECT * FROM annotations WHERE id=?", (ann_id,)
+                ).fetchone()
+                return dict(row)
+            finally:
+                self._release_file_lock()
 
     def delete_annotation(self, ann_id):
         with self._lock:
-            cur = self.conn.execute(
-                "DELETE FROM annotations WHERE id=?", (ann_id,)
-            )
-            self.conn.commit()
-            return cur.rowcount > 0
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (delete_annotation)")
+            try:
+                cur = self.conn.execute(
+                    "DELETE FROM annotations WHERE id=?", (ann_id,)
+                )
+                self.conn.commit()
+                return cur.rowcount > 0
+            finally:
+                self._release_file_lock()

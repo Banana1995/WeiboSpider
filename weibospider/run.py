@@ -14,13 +14,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 def main():
     parser = argparse.ArgumentParser(description='微博管理器')
-    parser.add_argument('--port', type=int, default=5000, help='Web 服务端口 (默认: 5000)')
+    parser.add_argument('--port', type=int, default=5050, help='Web 服务端口 (默认: 5050)')
     parser.add_argument('--host', default='0.0.0.0', help='监听地址 (默认: 0.0.0.0)')
     parser.add_argument('--dev', action='store_true', help='开发模式：改代码自动热更新')
     args = parser.parse_args()
 
     from app import create_app
-    app = create_app()
+    app = create_app(debug=args.dev)
     print(f"微博管理器已启动: http://localhost:{args.port}")
 
     if args.dev:

@@ -197,6 +197,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   50% { background: #e8f0fe; }
 }
 
+/* Operation logs */
+.log-entry { display:flex; gap:10px; padding:8px 12px; border-bottom:1px solid #f0f0f0; font-size:12px; align-items:baseline; }
+.log-entry:hover { background:#f8f9fa; }
+.log-time { color:#999; white-space:nowrap; flex-shrink:0; width:140px; }
+.log-cat { font-size:10px; padding:2px 6px; border-radius:3px; color:#fff; flex-shrink:0; min-width:40px; text-align:center; }
+.log-cat.crawl { background:#3498db; }
+.log-cat.keepalive { background:#9b59b6; }
+.log-cat.annotation { background:#e67e22; }
+.log-cat.config { background:#95a5a6; }
+.log-cat.schedule { background:#1abc9c; }
+.log-action { font-weight:600; color:#333; flex-shrink:0; }
+.log-detail { color:#888; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.log-status { font-size:10px; padding:1px 5px; border-radius:3px; flex-shrink:0; }
+.log-status.success { color:#27ae60; }
+.log-status.failed { color:#e74c3c; }
+.log-status.skipped { color:#999; }
+.log-status.cancelled { color:#f39c12; }
+
 /* Collapsible config panel */
 .config-panel { border: 1px solid #e0e0e0; border-radius: 8px; margin: 10px 0; overflow: hidden; }
 .config-panel-header { padding: 10px 14px; background: #f8f8f8; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; color: #666; user-select: none; }
@@ -226,6 +244,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="tabs">
       <button class="tab active" data-tab="active">微博列表</button>
       <button class="tab" data-tab="trash">回收站</button>
+      <button class="tab" data-tab="logs">操作日志</button>
     </div>
   </div>
 
@@ -307,6 +326,25 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   <div id="cards-container"></div>
   <div class="loader" id="loader">加载中...</div>
   <div class="loader hidden" id="end-marker">-- 没有更多了 --</div>
+
+  <div id="logs-container" style="display:none;padding:0 16px;">
+    <div id="logs-filter-bar" style="display:flex;gap:8px;align-items:center;margin:12px 0;">
+      <select id="logs-category-filter" onchange="loadLogs(1)" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid #ddd;">
+        <option value="">全部</option>
+        <option value="crawl">抓取</option>
+        <option value="keepalive">保活</option>
+        <option value="annotation">标注</option>
+        <option value="config">配置</option>
+        <option value="schedule">调度</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadLogs(1)" style="font-size:12px;">刷新</button>
+      <span id="logs-total" style="font-size:11px;color:#888;"></span>
+    </div>
+    <div id="logs-list"></div>
+    <div id="logs-more" style="text-align:center;padding:20px;">
+      <button class="btn btn-sm" onclick="loadLogs(null)" style="display:none;">加载更多</button>
+    </div>
+  </div>
 </div>
 
 <div class="export-overlay" id="export-overlay" onclick="if(event.target===this)closeExportModal()">
@@ -862,12 +900,64 @@ async function loadStats() {
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  $('select-all-row').style.display = tab === 'trash' ? '' : '';
-  $('btn-batch-delete').style.display = tab === 'trash' ? 'none' : '';
-  $('btn-batch-restore').style.display = tab === 'trash' ? '' : 'none';
-  selected.clear();
-  updateBatchBtn();
-  loadTweets(true);
+  const isLogs = tab === 'logs';
+  $('select-all-row').style.display = isLogs ? 'none' : (tab === 'trash' ? '' : '');
+  $('btn-batch-delete').style.display = isLogs ? 'none' : (tab === 'trash' ? 'none' : '');
+  $('btn-batch-restore').style.display = isLogs ? 'none' : (tab === 'trash' ? '' : 'none');
+  $('cards-container').style.display = isLogs ? 'none' : '';
+  $('loader').style.display = isLogs ? 'none' : '';
+  $('end-marker').style.display = isLogs ? 'none' : '';
+  $('logs-container').style.display = isLogs ? 'block' : 'none';
+  if (isLogs) {
+    loadLogs(1);
+  } else {
+    selected.clear();
+    updateBatchBtn();
+    loadTweets(true);
+  }
+}
+
+let logsPage = 1;
+let logsTotal = 0;
+const LOGS_PER_PAGE = 50;
+
+async function loadLogs(page) {
+  if (page !== null) logsPage = page;
+  const category = $('logs-category-filter') ? $('logs-category-filter').value : '';
+  try {
+    const resp = await fetch(`/api/logs?page=${logsPage}&per_page=${LOGS_PER_PAGE}${category ? '&category=' + category : ''}`);
+    const data = await resp.json();
+    logsTotal = data.total || 0;
+    if (page === 1) $('logs-list').innerHTML = '';
+    (data.logs || []).forEach(renderLogEntry);
+    $('logs-total').textContent = `共 ${logsTotal} 条`;
+    const moreBtn = $('logs-more').querySelector('button');
+    if (logsPage * LOGS_PER_PAGE < logsTotal) {
+      moreBtn.style.display = '';
+      moreBtn.textContent = '加载更多';
+    } else {
+      moreBtn.style.display = 'none';
+    }
+    if ((data.logs || []).length === 0 && page === 1) {
+      $('logs-list').innerHTML = '<div style="text-align:center;padding:30px;color:#aaa;font-size:13px;">暂无日志</div>';
+    }
+  } catch(e) { console.error(e); }
+}
+
+function renderLogEntry(log) {
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  const statusHtml = log.status ? `<span class="log-status ${log.status}">${log.status}</span>` : '';
+  const detailHtml = log.detail ? `<span class="log-detail" title="${esc(log.detail)}">${esc(log.detail)}</span>` : '';
+  div.innerHTML = `
+    <span class="log-time">${esc(log.timestamp || '')}</span>
+    <span class="log-cat ${log.category || ''}">${esc(log.category || '')}</span>
+    <span class="log-action">${esc(log.action || '')}</span>
+    ${detailHtml}
+    ${statusHtml}
+    <span style="color:#bbb;font-size:10px;">${esc(log.user || '')}</span>
+  `;
+  $('logs-list').appendChild(div);
 }
 
 function showCrawlLog(result) {

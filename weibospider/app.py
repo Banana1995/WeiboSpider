@@ -291,6 +291,8 @@ def api_get_tweet(tweet_id):
 @app.route('/api/tweets/<tweet_id>', methods=['DELETE'])
 def api_delete_tweet(tweet_id):
     count = DB.batch_delete([tweet_id])
+    DB.insert_log('tweet', 'delete', detail=f'tweet={tweet_id} count={count}',
+                   status='success', user='web')
     return jsonify({'deleted': count})
 
 
@@ -301,6 +303,8 @@ def api_batch_delete():
         return jsonify({'error': 'invalid JSON'}), 400
     ids = data.get('ids', [])
     count = DB.batch_delete(ids)
+    DB.insert_log('tweet', 'batch_delete', detail=f'ids={len(ids)} count={count}',
+                   status='success', user='web')
     return jsonify({'deleted': count})
 
 
@@ -311,6 +315,8 @@ def api_restore():
         return jsonify({'error': 'invalid JSON'}), 400
     ids = data.get('ids', [])
     count = DB.restore_tweets(ids)
+    DB.insert_log('tweet', 'restore', detail=f'ids={len(ids)} count={count}',
+                   status='success', user='web')
     return jsonify({'restored': count})
 
 
@@ -408,21 +414,33 @@ def api_crawl_comments(tweet_id):
     try:
         proc = subprocess.run(cmd, cwd=script_dir, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
+        DB.insert_log('crawl', 'single_comment_crawl',
+                       detail=f'tweet={tweet_id}', status='failed', user='web')
         return jsonify({'error': '抓取超时'}), 504
 
     spider_output = (proc.stdout or '') + (proc.stderr or '')
     if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
+        DB.insert_log('crawl', 'single_comment_crawl',
+                       detail=f'tweet={tweet_id}', status='failed', user='web')
         return jsonify({'error': 'Cookie 已过期，请更新 Cookie'}), 400
 
     if proc.returncode != 0:
         tail = spider_output[-500:] if spider_output else ''
+        DB.insert_log('crawl', 'single_comment_crawl',
+                       detail=f'tweet={tweet_id} returncode={proc.returncode}',
+                       status='failed', user='web')
         return jsonify({'error': f'scrapy failed (returncode={proc.returncode})', 'output': tail}), 500
 
     comments = DB.get_comments(tweet_id, sort='hot')
     new_count = len(comments) - comments_before
     if new_count == 0 and len(comments) == 0:
+        DB.insert_log('crawl', 'single_comment_crawl',
+                       detail=f'tweet={tweet_id} no_comments', status='failed', user='web')
         return jsonify({'error': '未抓取到评论（可能 Cookie 过期或该微博无评论）', 'output': spider_output[-500:]}), 500
 
+    DB.insert_log('crawl', 'single_comment_crawl',
+                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
+                   status='success', user='web')
     return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
 
 
@@ -460,6 +478,7 @@ def api_crawl_status():
 def api_crawl_cancel():
     if SCHEDULER is None:
         return jsonify({'status': 'error', 'message': 'Scheduler not available'})
+    DB.insert_log('crawl', 'cancel', user='web')
     return jsonify(SCHEDULER.cancel())
 
 
@@ -613,8 +632,14 @@ def api_export():
         results.append(t)
 
     if format == 'html':
+        DB.insert_log('export', 'pdf_html',
+                       detail=f'range={start}~{end} tweets={len(results)}',
+                       status='success', user='web')
         return _render_export_html(results, start, end)
     if format == 'pdf':
+        DB.insert_log('export', 'pdf_export',
+                       detail=f'range={start}~{end} tweets={len(results)}',
+                       status='success', user='web')
         return _render_export_pdf(results, start, end)
     return jsonify(results)
 

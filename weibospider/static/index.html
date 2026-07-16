@@ -207,6 +207,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .log-cat.annotation { background:#e67e22; }
 .log-cat.config { background:#95a5a6; }
 .log-cat.schedule { background:#1abc9c; }
+.log-cat.export { background:#e74c3c; }
+.log-cat.tweet { background:#2ecc71; }
 .log-action { font-weight:600; color:#333; flex-shrink:0; }
 .log-detail { color:#888; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .log-status { font-size:10px; padding:1px 5px; border-radius:3px; flex-shrink:0; }
@@ -336,6 +338,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <option value="annotation">标注</option>
         <option value="config">配置</option>
         <option value="schedule">调度</option>
+        <option value="export">导出</option>
+        <option value="tweet">推文</option>
       </select>
       <button class="btn btn-sm" onclick="loadLogs(1)" style="font-size:12px;">刷新</button>
       <span id="logs-total" style="font-size:11px;color:#888;"></span>

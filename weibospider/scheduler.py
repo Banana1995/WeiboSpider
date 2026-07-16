@@ -50,7 +50,7 @@ class CrawlScheduler:
 
     def _reload_jobs(self):
         """Remove existing jobs and re-add based on current config."""
-        for job_id in ('tweet_crawl', 'comment_crawl', 'cookie_keepalive'):
+        for job_id in ('tweet_crawl', 'comment_crawl', 'cookie_keepalive', 'log_cleanup'):
             try:
                 self._scheduler.remove_job(job_id)
             except Exception:
@@ -78,7 +78,13 @@ class CrawlScheduler:
                 CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0'),
                 id='cookie_keepalive',
             )
-        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive daily, %dh-%dh",
+        # Daily log cleanup at start_hour:00
+        self._scheduler.add_job(
+            self._scheduled_log_cleanup,
+            CronTrigger(hour=start_hour, minute='5'),
+            id='log_cleanup',
+        )
+        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive daily, log_cleanup daily, %dh-%dh",
                      start_hour, end_hour)
 
     def _is_schedule_enabled(self):
@@ -119,6 +125,22 @@ class CrawlScheduler:
             return
         self._log_schedule('keepalive', 'scheduled_keepalive')
         self.manual_keepalive()
+
+    def _scheduled_log_cleanup(self):
+        """Daily cleanup: delete operation logs older than 15 days."""
+        logger.info("Scheduled log cleanup triggered")
+        cleanup_func = getattr(self, '_cleanup_old_logs', None)
+        if cleanup_func is None:
+            return
+        try:
+            deleted = cleanup_func(days=15)
+            logger.info("Log cleanup: deleted %d old logs", deleted)
+            self._log_schedule('schedule', 'log_cleanup',
+                               status='success', detail=f'deleted={deleted}')
+        except Exception as e:
+            logger.error("Log cleanup failed: %s", e)
+            self._log_schedule('schedule', 'log_cleanup',
+                               status='failed', detail=str(e)[:200])
 
     def manual_keepalive(self):
         """Run cookie keepalive once, return result dict."""

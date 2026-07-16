@@ -571,3 +571,22 @@ class TweetDB:
                 ).fetchone()[0]
             return {'logs': [dict(r) for r in rows], 'total': total,
                     'page': page, 'per_page': per_page}
+
+    def cleanup_old_logs(self, days=15):
+        """Delete operation_logs older than `days` days. Returns deleted count."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (cleanup_old_logs)")
+            try:
+                cutoff = datetime.now().strftime('%Y-%m-%d 00:00:00')
+                from datetime import timedelta as _td
+                cutoff_dt = datetime.now() - _td(days=days)
+                cutoff = cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')
+                cur = self.conn.execute(
+                    "DELETE FROM operation_logs WHERE timestamp < ?",
+                    (cutoff,)
+                )
+                self.conn.commit()
+                return cur.rowcount
+            finally:
+                self._release_file_lock()

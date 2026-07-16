@@ -187,3 +187,39 @@ class TestOperationLogs:
         assert len(page2['logs']) == 2
         assert page1['logs'][0]['action'] == 'action_4'
         assert page2['logs'][0]['action'] == 'action_2'
+
+    def test_cleanup_old_logs_deletes_old(self, db):
+        from datetime import datetime, timedelta
+        # Insert an old log (20 days ago) by manipulating timestamp via direct SQL
+        old_ts = (datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d %H:%M:%S')
+        db.conn.execute(
+            "INSERT INTO operation_logs (timestamp, category, action) VALUES (?, 'crawl', 'old')",
+            (old_ts,)
+        )
+        db.conn.commit()
+        # Insert a recent log
+        db.insert_log('crawl', 'recent')
+        # Cleanup logs older than 15 days
+        deleted = db.cleanup_old_logs(days=15)
+        assert deleted == 1
+        logs = db.get_logs(page=1, per_page=10)
+        assert logs['total'] == 1
+        assert logs['logs'][0]['action'] == 'recent'
+
+    def test_cleanup_old_logs_keeps_recent(self, db):
+        from datetime import datetime, timedelta
+        # Insert a log 5 days ago (within 15-day window)
+        recent_ts = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d %H:%M:%S')
+        db.conn.execute(
+            "INSERT INTO operation_logs (timestamp, category, action) VALUES (?, 'crawl', 'recent')",
+            (recent_ts,)
+        )
+        db.conn.commit()
+        deleted = db.cleanup_old_logs(days=15)
+        assert deleted == 0
+        logs = db.get_logs(page=1, per_page=10)
+        assert logs['total'] == 1
+
+    def test_cleanup_old_logs_empty_db(self, db):
+        deleted = db.cleanup_old_logs(days=15)
+        assert deleted == 0

@@ -782,6 +782,7 @@ def create_app(db_path=None, debug=False):
             SCHEDULER._log_to_db = lambda cat, act, detail=None, status=None, user='scheduler': \
                 DB.insert_log(cat, act, detail=detail, status=status, user=user)
             SCHEDULER._get_cookie = lambda: DB.get_config('cookie', '') or ''
+            SCHEDULER._cleanup_old_logs = lambda days=15: DB.cleanup_old_logs(days)
             SCHEDULER.update_config(_get_schedule_config())
             SCHEDULER.start()
     return app

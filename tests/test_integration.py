@@ -59,7 +59,7 @@ class TestSchedulerJobRegistration:
             'comment_interval_minutes': 30,
         })
         time.sleep(0.1)
-        assert len(sch._scheduler.get_jobs()) == 2
+        assert len(sch._scheduler.get_jobs()) == 3
 
         sch.update_config({
             'schedule_enabled': False,
@@ -106,7 +106,7 @@ class TestSchedulerJobRegistration:
         })
         time.sleep(0.1)
         jobs = sch._scheduler.get_jobs()
-        assert len(jobs) == 2
+        assert len(jobs) == 3
         trigger_str = str({j.id: j for j in jobs}['tweet_crawl'].trigger)
         assert '5-22' in trigger_str
 
@@ -120,7 +120,7 @@ class TestSchedulerJobRegistration:
         })
         time.sleep(0.1)
         jobs = sch._scheduler.get_jobs()
-        assert len(jobs) == 2
+        assert len(jobs) == 3
         trigger_str = str({j.id: j for j in jobs}['tweet_crawl'].trigger)
         assert '8-19' in trigger_str
 
@@ -139,7 +139,7 @@ class TestSchedulerJobRegistration:
         # (we can't easily verify "no reload" but at least jobs should still be 2)
         sch.update_config(config)
         time.sleep(0.1)
-        assert len(sch._scheduler.get_jobs()) == 2
+        assert len(sch._scheduler.get_jobs()) == 3
 
 
 class TestSchedulerLocks:

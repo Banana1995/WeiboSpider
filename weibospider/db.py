@@ -10,7 +10,8 @@ from datetime import datetime
 class TweetDB:
     def __init__(self, db_path=None):
         if db_path is None:
-            db_path = os.path.join(os.getcwd(), 'data.db')
+            # Always use data.db next to this module, not cwd
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.db')
         self._lock = threading.RLock()
         self.db_path = db_path
         # Cross-process file lock to serialize writes (Flask + Scrapy subprocess)

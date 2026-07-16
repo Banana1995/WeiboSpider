@@ -71,7 +71,14 @@ def _merge_set_cookie_into_cookie_string(old_cookie, set_cookie_headers):
         if '=' not in first:
             continue
         k, _, v = first.partition('=')
-        cookies[k.strip()] = v.strip()
+        k = k.strip()
+        v = v.strip()
+        # Servers send 'Set-Cookie: key=deleted' to expire a cookie.
+        # Don't store 'deleted' as a value — remove the key instead.
+        if v.lower() in ('deleted', ''):
+            cookies.pop(k, None)
+        else:
+            cookies[k] = v
 
     return '; '.join(f'{k}={v}' for k, v in cookies.items())
 

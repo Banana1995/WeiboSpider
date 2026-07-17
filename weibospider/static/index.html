@@ -1111,7 +1111,6 @@ async function createPendingAnnotation(tweetId, field, startOffset, endOffset, s
     });
     const data = await resp.json();
     if (resp.ok) {
-      await loadAnnotations(tweetId);
       showAnnotationInput(data.id, tweetId, field, startOffset, endOffset, selectedText, ranges);
     }
   } catch(e) { toast('创建划线失败', true); }

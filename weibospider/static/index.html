@@ -1111,6 +1111,7 @@ async function createPendingAnnotation(tweetId, field, startOffset, endOffset, s
     });
     const data = await resp.json();
     if (resp.ok) {
+      await loadAnnotationHighlights(tweetId);
       showAnnotationInput(data.id, tweetId, field, startOffset, endOffset, selectedText, ranges);
     }
   } catch(e) { toast('创建划线失败', true); }
@@ -1204,6 +1205,14 @@ async function loadAnnotations(tweetId) {
     applyHighlights(tweetId, anns);
     adjustRowHeight(tweetId);
   } catch(e) { toast('加载评论失败', true); }
+}
+
+async function loadAnnotationHighlights(tweetId) {
+  try {
+    const resp = await fetch(`/api/tweets/${tweetId}/annotations`);
+    const anns = await resp.json();
+    applyHighlights(tweetId, anns);
+  } catch(e) { toast('加载高亮失败', true); }
 }
 
 function renderAnnotationPanel(tweetId, anns) {

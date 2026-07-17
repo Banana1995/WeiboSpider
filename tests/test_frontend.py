@@ -117,3 +117,27 @@ def test_handle_selection_accounts_for_leading_whitespace():
     assert 'trailingTrim' in INDEX_HTML
     assert 'trimStart()' in INDEX_HTML
     assert 'trimEnd()' in INDEX_HTML
+
+
+def test_pending_annotation_highlights_before_showing_input():
+    create_start = INDEX_HTML.index('async function createPendingAnnotation(')
+    create_end = INDEX_HTML.index('\nfunction findFieldElement(', create_start)
+    create_body = INDEX_HTML[create_start:create_end]
+
+    assert "await loadAnnotationHighlights(tweetId);" in create_body
+    assert create_body.index("await loadAnnotationHighlights(tweetId);") < create_body.index("showAnnotationInput(")
+
+
+def test_pending_annotation_creation_does_not_reload_panel():
+    create_start = INDEX_HTML.index('async function createPendingAnnotation(')
+    create_end = INDEX_HTML.index('\nfunction findFieldElement(', create_start)
+    create_body = INDEX_HTML[create_start:create_end]
+
+    assert "loadAnnotations(tweetId)" not in create_body
+
+
+def test_pending_highlight_preserves_existing_highlights():
+    assert "async function loadAnnotationHighlights(tweetId)" in INDEX_HTML
+    assert "applyHighlights(tweetId, anns);" in INDEX_HTML
+    assert "function applyHighlights(tweetId, anns)" in INDEX_HTML
+    assert "clearExisting" not in INDEX_HTML

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, request, send_from_directory, Response
@@ -31,6 +32,13 @@ def _get_user_ids():
     if ids:
         return ids
     return list(DEFAULT_USER_IDS)
+
+
+def _safe_remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _get_schedule_config():
@@ -138,11 +146,15 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
             return {'status': 'cancelled'}
 
         _log(f"抓取用户 {uid} 的微博...")
+        items_file = tempfile.NamedTemporaryFile(
+            suffix='.json', mode='w', delete=False, dir=script_dir)
+        items_path = items_file.name
+        items_file.close()
         cmd = [
             sys.executable, '-m', 'scrapy', 'crawl', 'tweet_spider_by_user_id',
             '-a', 'user_ids=%s' % uid,
-            '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
             '-s', 'LOG_LEVEL=INFO',
+            '-o', items_path,
         ]
         if start_time and end_time:
             cmd.extend(['-a', 'start_time=%s' % start_time, '-a', 'end_time=%s' % end_time])
@@ -157,20 +169,48 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
             if _check_cancel():
                 proc.kill(); proc.wait(timeout=2)
                 _log("用户取消了抓取")
+                _safe_remove(items_path)
                 return {'status': 'cancelled'}
             time.sleep(0.5)
 
         if proc.returncode != 0:
             _log(f"失败! 微博抓取 returncode={proc.returncode}")
+            _safe_remove(items_path)
             return {'status': 'failed', 'stage': 'tweets', 'user_id': uid,
                     'error': f'returncode={proc.returncode}'}
 
         spider_output = '\n'.join(captured)
         if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
             _log("失败: Cookie 已过期")
+            _safe_remove(items_path)
             return {'status': 'failed', 'error': 'Cookie 已过期，请更新 Cookie',
                     'stage': 'tweets', 'user_id': uid}
 
+        try:
+            with open(items_path, 'r', encoding='utf-8') as f:
+                items = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            _log(f"失败: 读取 scrapy 输出出错 {e}")
+            _safe_remove(items_path)
+            return {'status': 'failed', 'stage': 'tweets', 'user_id': uid,
+                    'error': f'items read failed: {e}'}
+
+        for it in items:
+            it['user_id'] = uid
+            if 'user' in it:
+                it['screen_name'] = it['user'].get('nick_name', '')
+                del it['user']
+            else:
+                it['screen_name'] = it.get('screen_name', '')
+        try:
+            DB.batch_insert_tweets(items)
+        except Exception as e:
+            _log(f"失败: 写入数据库出错 {e}")
+            _safe_remove(items_path)
+            return {'status': 'failed', 'stage': 'tweets', 'user_id': uid,
+                    'error': f'db insert failed: {e}'}
+
+        _safe_remove(items_path)
         tweets_after = DB.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]
         new_tweets = tweets_after - tweets_before
         _log(f"用户 {uid} 微博抓取完成 (新增 {new_tweets} 条, 总计 {tweets_after} 条)")
@@ -221,12 +261,16 @@ def _crawl_comments(scheduler=None, mode='full'):
     comments_before = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
     _log(f"开始抓取评论 ({len(tweet_ids)} 条微博, 已有 {comments_before} 条评论)")
 
+    items_file = tempfile.NamedTemporaryFile(
+        suffix='.json', mode='w', delete=False, dir=script_dir)
+    items_path = items_file.name
+    items_file.close()
     cmd = [
         sys.executable, '-m', 'scrapy', 'crawl', 'comment',
         '-a', 'tweet_ids=%s' % ','.join(tweet_ids),
         '-a', 'flow=0',
-        '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
         '-s', 'LOG_LEVEL=INFO',
+        '-o', items_path,
     ]
     if mode == 'incremental':
         cmd.extend(['-a', 'max_pages=2'])
@@ -236,21 +280,40 @@ def _crawl_comments(scheduler=None, mode='full'):
         if _check_cancel():
             proc.kill(); proc.wait(timeout=2)
             _log("用户取消了抓取")
+            _safe_remove(items_path)
             return {'status': 'cancelled'}
         time.sleep(1)
-
-    comments_after = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
-    new_comments = comments_after - comments_before
 
     spider_output = '\n'.join(captured)
     if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
         _log("失败: Cookie 已过期")
+        _safe_remove(items_path)
         return {'status': 'failed', 'error': 'Cookie 已过期，请更新 Cookie',
                 'stats': DB.stats()}
 
     if proc.returncode != 0:
         _log(f"评论抓取失败! returncode={proc.returncode}")
+        _safe_remove(items_path)
         return {'status': 'failed', 'error': f'returncode={proc.returncode}', 'stats': DB.stats()}
+
+    try:
+        with open(items_path, 'r', encoding='utf-8') as f:
+            items = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        _log(f"失败: 读取 scrapy 输出出错 {e}")
+        _safe_remove(items_path)
+        return {'status': 'failed', 'error': f'items read failed: {e}', 'stats': DB.stats()}
+
+    try:
+        DB.batch_insert_comments(items)
+    except Exception as e:
+        _log(f"失败: 写入数据库出错 {e}")
+        _safe_remove(items_path)
+        return {'status': 'failed', 'error': f'db insert failed: {e}', 'stats': DB.stats()}
+
+    _safe_remove(items_path)
+    comments_after = DB.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
+    new_comments = comments_after - comments_before
 
     _log(f"评论抓取完成 (新增 {new_comments} 条, 总计 {comments_after} 条)")
     stats = DB.stats()
@@ -404,33 +467,52 @@ def api_crawl_comments(tweet_id):
         "SELECT COUNT(*) FROM comments WHERE tweet_id=?", (tweet_id,)
     ).fetchone()[0]
 
+    items_file = tempfile.NamedTemporaryFile(
+        suffix='.json', mode='w', delete=False, dir=script_dir)
+    items_path = items_file.name
+    items_file.close()
     cmd = [
         sys.executable, '-m', 'scrapy', 'crawl', 'comment',
         '-a', 'tweet_ids=%s' % mblogid,
         '-a', 'flow=0',
-        '-s', 'ITEM_PIPELINES={"pipelines.SqlitePipeline": 300}',
         '-s', 'LOG_LEVEL=INFO',
+        '-o', items_path,
     ]
     try:
         proc = subprocess.run(cmd, cwd=script_dir, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
+        _safe_remove(items_path)
         DB.insert_log('crawl', 'single_comment_crawl',
                        detail=f'tweet={tweet_id}', status='failed', user='web')
         return jsonify({'error': '抓取超时'}), 504
 
     spider_output = (proc.stdout or '') + (proc.stderr or '')
     if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
+        _safe_remove(items_path)
         DB.insert_log('crawl', 'single_comment_crawl',
                        detail=f'tweet={tweet_id}', status='failed', user='web')
         return jsonify({'error': 'Cookie 已过期，请更新 Cookie'}), 400
 
     if proc.returncode != 0:
+        _safe_remove(items_path)
         tail = spider_output[-500:] if spider_output else ''
         DB.insert_log('crawl', 'single_comment_crawl',
                        detail=f'tweet={tweet_id} returncode={proc.returncode}',
                        status='failed', user='web')
         return jsonify({'error': f'scrapy failed (returncode={proc.returncode})', 'output': tail}), 500
 
+    try:
+        with open(items_path, 'r', encoding='utf-8') as f:
+            items = json.load(f)
+        DB.batch_insert_comments(items)
+    except Exception as e:
+        _safe_remove(items_path)
+        DB.insert_log('crawl', 'single_comment_crawl',
+                       detail=f'tweet={tweet_id} read/insert failed: {e}',
+                       status='failed', user='web')
+        return jsonify({'error': f'读取或写入数据失败: {e}'}), 500
+
+    _safe_remove(items_path)
     comments = DB.get_comments(tweet_id, sort='hot')
     new_count = len(comments) - comments_before
     if new_count == 0 and len(comments) == 0:

@@ -224,6 +224,111 @@ class TweetDB:
             finally:
                 self._release_file_lock()
 
+    def batch_insert_tweets(self, items):
+        """Insert a list of tweet items in a single transaction.
+
+        Items are dicts produced by the tweet spider (parse_tweet_info).
+        This is called by the Flask main process after reading scrapy's JSON
+        output, so only this process writes to the DB.
+        """
+        if not items:
+            return 0
+        crawl_time = int(time.time())
+        rows = []
+        for item in items:
+            is_retweet = int(item.get('is_retweet', False))
+            user_id = str(item.get('user_id', ''))
+            retweet_user_id = str(item.get('retweet_user_id', ''))
+            if is_retweet == 0:
+                deleted = 0
+            elif is_retweet == 1:
+                deleted = 0 if (retweet_user_id and retweet_user_id == user_id) else 1
+            else:
+                deleted = 1
+            rows.append((
+                item['_id'], item.get('mblogid'),
+                item['content'], user_id,
+                item.get('created_at'),
+                item.get('reposts_count', 0), item.get('comments_count', 0),
+                item.get('attitudes_count', 0),
+                json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
+                item.get('pic_num', 0), item.get('source', ''),
+                item.get('ip_location', '') or '', is_retweet,
+                item.get('retweet_id'),
+                deleted,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S') if deleted else None,
+                item.get('url', ''),
+                item.get('crawl_time', crawl_time),
+                item.get('screen_name', ''),
+                item.get('retweet_content', ''),
+                item.get('retweet_user', ''),
+                retweet_user_id,
+                json.dumps(item.get('retweet_pic_urls', [])) if isinstance(item.get('retweet_pic_urls'), list) else (item.get('retweet_pic_urls') or '[]'),
+                int(item.get('retweet_has_video', False)),
+            ))
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (batch_insert_tweets)")
+            try:
+                self.conn.executemany("""
+        INSERT INTO tweets
+            (id, mblogid, content, user_id, created_at, reposts_count,
+             comments_count, attitudes_count, pic_urls, pic_num,
+             source, ip_location, is_retweet, retweet_id, deleted,
+             deleted_at, url, crawl_time, screen_name, retweet_content,
+             retweet_user, retweet_user_id, retweet_pic_urls, retweet_has_video)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            content=excluded.content,
+            reposts_count=excluded.reposts_count,
+            comments_count=excluded.comments_count,
+            attitudes_count=excluded.attitudes_count,
+            retweet_content=excluded.retweet_content,
+            retweet_user=excluded.retweet_user,
+            retweet_user_id=excluded.retweet_user_id,
+            retweet_pic_urls=excluded.retweet_pic_urls,
+            crawl_time=excluded.crawl_time
+        """, rows)
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
+        return len(rows)
+
+    def batch_insert_comments(self, items):
+        """Insert a list of comment items in a single transaction.
+
+        Items are dicts produced by the comment spider.
+        """
+        if not items:
+            return 0
+        crawl_time = int(time.time())
+        rows = []
+        for item in items:
+            rows.append((
+                item['_id'], item['tweet_id'], item['content'],
+                item.get('created_at'), item.get('like_counts', 0),
+                item.get('ip_location', ''),
+                json.dumps(item.get('comment_user', {})) if isinstance(item.get('comment_user'), dict) else (item.get('comment_user') or '{}'),
+                json.dumps(item.get('reply_comment')) if isinstance(item.get('reply_comment'), dict) else (item.get('reply_comment')),
+                item.get('crawl_time', crawl_time),
+                item.get('parent_comment_id'),
+                item.get('sort_order', 0),
+            ))
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (batch_insert_comments)")
+            try:
+                self.conn.executemany("""
+        INSERT OR REPLACE INTO comments
+            (id, tweet_id, content, created_at, like_counts,
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows)
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
+        return len(rows)
+
     def get_tweets(self, page=1, per_page=20, sort='desc', deleted='exclude', user_id=None):
         with self._lock:
             offset = (page - 1) * per_page

@@ -290,6 +290,9 @@ class TweetDB:
             crawl_time=excluded.crawl_time
         """, rows)
                 self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
         return len(rows)
@@ -325,6 +328,9 @@ class TweetDB:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
                 self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
         return len(rows)

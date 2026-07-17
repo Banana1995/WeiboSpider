@@ -167,7 +167,9 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
         proc, _t, captured = _run_scrapy_with_log(cmd)
         while proc.poll() is None:
             if _check_cancel():
-                proc.kill(); proc.wait(timeout=2)
+                proc.kill()
+                try: proc.wait(timeout=2)
+                except subprocess.TimeoutExpired: pass
                 _log("用户取消了抓取")
                 _safe_remove(items_path)
                 return {'status': 'cancelled'}
@@ -278,7 +280,9 @@ def _crawl_comments(scheduler=None, mode='full'):
     proc, _t, captured = _run_scrapy_with_log(cmd)
     while proc.poll() is None:
         if _check_cancel():
-            proc.kill(); proc.wait(timeout=2)
+            proc.kill()
+            try: proc.wait(timeout=2)
+            except subprocess.TimeoutExpired: pass
             _log("用户取消了抓取")
             _safe_remove(items_path)
             return {'status': 'cancelled'}

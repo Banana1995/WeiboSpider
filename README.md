@@ -155,6 +155,35 @@ WeiboSpider/
 - **PDF 生成**：Headless Chrome + Google Fonts (Noto Sans SC)
 - **实时通信**：Server-Sent Events (SSE)
 
+## 一键部署到服务器
+
+详见 [docs/deploy-prep.md](docs/deploy-prep.md) 完整准备步骤。
+
+### 首次部署
+
+在服务器上执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Banana1995/WeiboSpider/master/install.sh | sudo bash
+```
+
+### 自动更新
+
+push 到 `master` 分支后，GitHub Actions 自动 SSH 到服务器执行 `update.sh`，邮件通知部署结果。
+
+需在仓库 Secrets 配置 `SSH_HOST`、`SSH_USER`、`SSH_KEY`、`SMTP_*`、`MAIL_TO`。
+
+### 手动更新
+
+```bash
+ssh deploy@<服务器IP>
+cd /opt/weibospider && ./update.sh
+```
+
+### 数据持久化
+
+数据在 `/opt/weibospider/data/`，更新不丢。
+
 ## License
 
 MIT

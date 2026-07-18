@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  weibospider:
+    build: .
+    container_name: weibospider
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./data:/app/weibospider/data
+    restart: unless-stopped
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+      - DB_PATH=/app/weibospider/data/data.db

@@ -3,6 +3,7 @@ import json
 import uuid
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -816,6 +817,21 @@ h1{font-size:18px;margin-bottom:4px}
     return html
 
 
+def _get_chrome_path():
+    """探测 Chrome/Chromium 可执行路径，环境变量优先。"""
+    env_path = os.environ.get('CHROME_PATH')
+    if env_path and os.path.exists(env_path):
+        return env_path
+    mac_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if os.path.exists(mac_path):
+        return mac_path
+    for name in ['google-chrome', 'chromium', 'chromium-browser']:
+        found = shutil.which(name)
+        if found:
+            return found
+    raise RuntimeError('未找到 Chrome/Chromium，请设置 CHROME_PATH 环境变量')
+
+
 def _render_export_pdf(tweets, start, end):
     """Generate PDF using headless Chrome with embedded CJK fonts."""
     import tempfile
@@ -825,7 +841,7 @@ def _render_export_pdf(tweets, start, end):
         f.write(html_str)
         html_path = f.name
     pdf_path = html_path.replace('.html', '.pdf')
-    chrome_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    chrome_path = _get_chrome_path()
     try:
         subprocess.run(
             [chrome_path, '--headless', '--disable-gpu', '--no-pdf-header-footer',

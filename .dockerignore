@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+*.plock
+.pytest_cache/
+.git/
+.idea/
+server.log
+crawl.log
+cookie.txt
+data/
+docs/
+tests/
+*.md

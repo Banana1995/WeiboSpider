@@ -825,7 +825,7 @@ def _get_chrome_path():
     mac_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if os.path.exists(mac_path):
         return mac_path
-    for name in ['google-chrome', 'chromium', 'chromium-browser']:
+    for name in ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']:
         found = shutil.which(name)
         if found:
             return found

@@ -27,6 +27,15 @@ class TestChromePath:
         monkeypatch.setattr(shutil, 'which', lambda name: f'/usr/bin/{name}' if name == 'chromium' else None)
         assert _get_chrome_path() == '/usr/bin/chromium'
 
+    def test_env_var_set_but_not_exist_falls_through(self, monkeypatch):
+        from app import _get_chrome_path
+        monkeypatch.setenv('CHROME_PATH', '/nonexistent/chrome')
+        monkeypatch.setattr(os.path, 'exists', lambda p: p == '/usr/bin/chromium')
+        import shutil
+        monkeypatch.setattr(shutil, 'which', lambda name: f'/usr/bin/{name}' if name == 'chromium' else None)
+        # env var set but file missing → should fall through to which() fallback
+        assert _get_chrome_path() == '/usr/bin/chromium'
+
     def test_raises_when_nothing_found(self, monkeypatch):
         from app import _get_chrome_path
         monkeypatch.delenv('CHROME_PATH', raising=False)

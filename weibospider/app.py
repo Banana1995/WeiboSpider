@@ -325,6 +325,43 @@ def _crawl_comments(scheduler=None, mode='full'):
     return {'status': 'completed', 'stats': stats}
 
 
+_img_cache = {}
+_img_cache_lock = threading.Lock()
+
+
+@app.route('/api/img')
+def api_img():
+    url = request.args.get('url', '')
+    if not url.startswith(('https://wx1.sinaimg.cn/', 'https://wx2.sinaimg.cn/',
+                           'https://wx3.sinaimg.cn/', 'https://wx4.sinaimg.cn/',
+                           'https://wx1.sinaimg.cn/')):
+        return Response('invalid url', status=400)
+
+    with _img_cache_lock:
+        cached = _img_cache.get(url)
+    if cached:
+        data, ctype = cached
+        return Response(data, mimetype=ctype, headers={'Cache-Control': 'public, max-age=86400'})
+
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://weibo.com/',
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+            ctype = resp.headers.get_content_type() or 'image/jpeg'
+    except Exception as e:
+        return Response('image fetch failed: %s' % e, status=502)
+
+    with _img_cache_lock:
+        if len(_img_cache) > 200:
+            _img_cache.clear()
+        _img_cache[url] = (data, ctype)
+    return Response(data, mimetype=ctype, headers={'Cache-Control': 'public, max-age=86400'})
+
+
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')

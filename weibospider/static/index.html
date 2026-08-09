@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
 <title>微博管理器</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -572,7 +573,7 @@ function renderCard(t) {
       </div>
       <div class="card-content" data-field="content" data-tweet-id="${t.id}">${esc(t.content)}</div>
       ${t.retweet_content ? renderRetweet(t) : ''}
-      ${pics.length ? `<div class="card-images">${pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('')}</div>` : ''}
+      ${pics.length ? `<div class="card-images">${pics.map(p => `<img src="${esc(p)}" loading="lazy" referrerpolicy="no-referrer">`).join('')}</div>` : ''}
       <div class="card-actions">
         <span>转发 ${t.reposts_count}</span>
         <span>赞 ${t.attitudes_count}</span>
@@ -639,7 +640,7 @@ function renderRetweet(t) {
   const pics = t.retweet_pic_urls || [];
   return `<div class="retweet-block" data-field="retweet_content" data-tweet-id="${t.id}" style="background:#f0f0f0;border-left:3px solid #ddd;padding:8px 10px;margin:6px 0;border-radius:4px;">
     <span style="color:#e67e22;">@${esc(t.retweet_user||'')}</span>: <span style="font-size:13px;color:#666;">${esc(t.retweet_content)}</span>
-    ${pics.length ? '<div class="card-images" style="margin-top:6px;">' + pics.map(p => `<img src="${esc(p)}" loading="lazy">`).join('') + '</div>' : ''}
+    ${pics.length ? '<div class="card-images" style="margin-top:6px;">' + pics.map(p => `<img src="${esc(p)}" loading="lazy" referrerpolicy="no-referrer">`).join('') + '</div>' : ''}
   </div>`;
 }
 

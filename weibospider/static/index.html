@@ -53,7 +53,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn-del:hover { background: #c0392b; }
 .card-content { line-height: 1.7; margin-bottom: 8px; color: #333; font-size: 14px; word-break: break-word; }
 .card-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.card-images img { max-width: 180px; max-height: 180px; border-radius: 6px; object-fit: cover; background: #f0f0f0; }
+.card-images img { max-width: 180px; max-height: 180px; border-radius: 6px; object-fit: cover; background: #f0f0f0; cursor: zoom-in; }
+
+/* Lightbox */
+.lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 10000; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox.show { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 4px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); cursor: default; }
+.lightbox .lb-close { position: fixed; top: 16px; right: 24px; color: #fff; font-size: 40px; cursor: pointer; line-height: 1; opacity: 0.8; user-select: none; }
+.lightbox .lb-close:hover { opacity: 1; }
+.lightbox .lb-loading { color: #fff; font-size: 14px; }
 .card-actions { display: flex; gap: 16px; color: #999; font-size: 12px; align-items: center; }
 
 /* Comments */
@@ -368,6 +376,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()">
+  <span class="lb-close" onclick="closeLightbox()">&times;</span>
+  <img id="lightbox-img" alt="">
+  <div class="lb-loading" id="lightbox-loading" style="display:none;">加载中...</div>
+</div>
 
 <script>
 let currentPage = 1;
@@ -697,6 +711,50 @@ function proxyImg(u) {
   }
   return u;
 }
+
+function toFullSize(u) {
+  if (u && u.indexOf('sinaimg.cn') !== -1) {
+    return u.replace(/\/(orj960|wap720|mw690|bmiddle|thumbnail)\//, '/large/');
+  }
+  return u;
+}
+
+function openLightbox(thumbUrl) {
+  const fullUrl = toFullSize(thumbUrl);
+  const img = $('lightbox-img');
+  const loading = $('lightbox-loading');
+  $('lightbox').classList.add('show');
+  img.style.display = 'none';
+  loading.style.display = 'block';
+  img.onload = () => { loading.style.display = 'none'; img.style.display = 'block'; };
+  img.onerror = () => {
+    img.src = proxyImg(thumbUrl);
+    img.onload = () => { loading.style.display = 'none'; img.style.display = 'block'; };
+    img.onerror = () => { loading.style.display = 'none'; loading.textContent = '图片加载失败'; loading.style.display = 'block'; };
+  };
+  img.src = proxyImg(fullUrl);
+}
+
+function closeLightbox() {
+  $('lightbox').classList.remove('show');
+  $('lightbox-img').removeAttribute('src');
+}
+
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.card-images img');
+  if (img) {
+    let orig = img.getAttribute('src');
+    const m = orig.match(/url=([^&]+)/);
+    if (m) orig = decodeURIComponent(m[1]);
+    openLightbox(orig);
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('lightbox').classList.contains('show')) {
+    closeLightbox();
+  }
+});
 
 function onScroll() {
   if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400) {

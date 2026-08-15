@@ -82,6 +82,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .sub-collapse-btn:hover { text-decoration: underline; }
 .sub-hidden { display: none; }
 .comment-time { color: #bbb; font-size: 10px; margin-left: 6px; }
+.comment-images { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 6px; }
+.comment-pic { max-width: 220px; max-height: 220px; border-radius: 4px; cursor: zoom-in; border: 1px solid #eee; }
+.comment-reply .comment-images .comment-pic { max-width: 160px; max-height: 160px; }
 
 /* Loading */
 .loader { text-align: center; padding: 30px; color: #aaa; font-size: 13px; }
@@ -816,8 +819,10 @@ function renderComment(c) {
   } else if (subs.length > 0) {
     subHtml = subs.map(s => renderSubComment(s)).join('');
   }
+  const pics = (c.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
   return `<div class="comment">
     ${replyLine}<span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
+    ${pics ? `<div class="comment-images">${pics}</div>` : ''}
     ${subHtml}
   </div>`;
 }
@@ -830,7 +835,15 @@ function renderSubCommentInner(s) {
   const user = (s.comment_user||{}).nick_name||'用户';
   const replyTo = s.reply_comment ? esc((s.reply_comment.user||{}).nick_name||'用户') : '';
   const replyLine = replyTo ? `回复 @${replyTo} ` : '';
-  return `<div class="comment-reply"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}</div>`;
+  const pics = (s.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
+  return `<div class="comment-reply"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}${pics ? `<div class="comment-images">${pics}</div>` : ''}</div>`;
+}
+
+function openLightboxFromComment(img) {
+  let src = img.getAttribute('src') || '';
+  const m = src.match(/url=([^&]+)/);
+  if (m) src = decodeURIComponent(m[1]);
+  openLightbox(src);
 }
 
 function toggleSubs(el) {

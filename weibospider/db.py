@@ -85,6 +85,7 @@ class TweetDB:
             "ALTER TABLE annotations ADD COLUMN ranges TEXT",
             "ALTER TABLE tweets ADD COLUMN platform TEXT DEFAULT 'weibo'",
             "ALTER TABLE comments ADD COLUMN platform TEXT DEFAULT 'weibo'",
+            "ALTER TABLE comments ADD COLUMN pic_urls TEXT DEFAULT '[]'",
             ]:
                 try:
                     self.conn.execute(sql)
@@ -104,7 +105,8 @@ class TweetDB:
             crawl_time      INTEGER,
             parent_comment_id TEXT,
             sort_order      INTEGER DEFAULT 0,
-            platform        TEXT DEFAULT 'weibo'
+            platform        TEXT DEFAULT 'weibo',
+            pic_urls        TEXT DEFAULT '[]'
         );
         CREATE TABLE IF NOT EXISTS config (
             key   TEXT PRIMARY KEY,
@@ -219,8 +221,8 @@ class TweetDB:
                 self.conn.execute("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
                 item['_id'], item['tweet_id'], item['content'],
                 item.get('created_at'), item.get('like_counts', 0),
@@ -231,6 +233,7 @@ class TweetDB:
                 item.get('parent_comment_id'),
                 item.get('sort_order', 0),
                 item.get('platform', 'weibo'),
+                json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
             ))
                 self.conn.commit()
             finally:
@@ -329,6 +332,7 @@ class TweetDB:
                 item.get('parent_comment_id'),
                 item.get('sort_order', 0),
                 item.get('platform', 'weibo'),
+                json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
             ))
         with self._lock:
             if not self._acquire_file_lock():
@@ -337,8 +341,8 @@ class TweetDB:
                 self.conn.executemany("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
                 self.conn.commit()
             except Exception:
@@ -442,6 +446,7 @@ class TweetDB:
             for row in all_rows:
                 d = dict(row)
                 d['comment_user'] = json.loads(d.get('comment_user', '{}') or '{}')
+                d['pic_urls'] = json.loads(d.get('pic_urls', '[]') or '[]')
                 if d.get('reply_comment'):
                     d['reply_comment'] = json.loads(d['reply_comment'])
                 if d.get('parent_comment_id'):

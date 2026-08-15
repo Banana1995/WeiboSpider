@@ -74,6 +74,32 @@ class TestXueqiuCommentToItem:
         item = app_module._xueqiu_comment_to_item(cm, 'xq9')
         assert item['created_at'] is None
 
+    def test_extracts_pic_field(self):
+        cm = {
+            'id': 419916424,
+            'user_id': 1054212627,
+            'created_at': 1786757651000,
+            'text': '带图评论',
+            'like_count': 281,
+            'ip_location': '上海',
+            'pic': 'https://xqimg.imedao.com/19fb746d013be2993f966c7e.png!thumb.jpg',
+            'user': {'id': 1054212627, 'screen_name': '我的猪没头发'},
+        }
+        item = app_module._xueqiu_comment_to_item(cm, 'xq403122366')
+        assert item['pic_urls'] == ['https://xqimg.imedao.com/19fb746d013be2993f966c7e.png!thumb.jpg']
+
+    def test_no_pic_gives_empty_list(self):
+        cm = {'id': 1, 'user_id': 1, 'created_at': 1786757651000,
+              'text': '无图评论', 'like_count': 0, 'ip_location': '', 'user': {}}
+        item = app_module._xueqiu_comment_to_item(cm, 'xq1')
+        assert item['pic_urls'] == []
+
+    def test_comment_pic_urls_key_present(self):
+        cm = {'id': 1, 'user_id': 1, 'created_at': 1786757651000,
+              'text': '评论', 'like_count': 0, 'ip_location': '', 'user': {}}
+        item = app_module._xueqiu_comment_to_item(cm, 'xq1')
+        assert 'pic_urls' in item
+
 
 class TestFlattenXueqiuComments:
     def test_flattens_child_comments_under_parent(self):
@@ -117,14 +143,14 @@ class TestSelectTopXueqiuItems:
             'reply_screenName': '某用户' if in_reply_to else None,
         }
 
-    def test_caps_at_max_top_and_sorts_by_heat(self):
+    def test_caps_at_max_top_by_api_order(self):
         comments = [self._cm(i, i) for i in range(1, 105)]  # 104 comments
         items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
-        # only 100 kept, hottest first
+        # only 100 kept, preserving API (server hot) order
         assert len(items) == 100
-        assert items[0]['_id'] == 'xc104'
-        assert items[99]['_id'] == 'xc5'
-        # sort_order is heat rank
+        assert items[0]['_id'] == 'xc1'
+        assert items[99]['_id'] == 'xc100'
+        # sort_order is the preserved API order rank
         assert items[0]['sort_order'] == 0
         assert items[99]['sort_order'] == 99
 
@@ -144,7 +170,7 @@ class TestSelectTopXueqiuItems:
         comments = [self._cm(i, i) for i in range(1, 10)]
         items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
         assert len(items) == 9
-        assert items[0]['_id'] == 'xc9'
+        assert items[0]['_id'] == 'xc1'
 
     def test_zero_like_comments_kept_until_cap(self):
         comments = [self._cm(1, 0), self._cm(2, 0), self._cm(3, 0)]
@@ -169,19 +195,39 @@ class TestSelectTopWithInlineReplies:
         }
 
     def test_ranks_only_top_level_by_heat(self):
-        # top-level A (10 likes), top-level B (1 like), reply C (999 likes, belongs to A)
+        # V3 type=4 returns comments already in server-side hot order.
+        # Selection preserves that order for top-level comments (no re-sort).
         comments = [
             self._cm(1, 10),
             self._cm(2, 1),
-            self._cm(3, 999, in_reply_to=1),
+            self._cm(3, 999, in_reply_to=1),   # reply to A, appears after A
         ]
         items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=10)
         ids = [i['_id'] for i in items]
-        # top-level ranked by heat: xc1(10), xc2(1); reply xc3 attached under xc1
         assert ids == ['xc1', 'xc3', 'xc2']
         assert items[0]['parent_comment_id'] is None
         assert items[1]['parent_comment_id'] == 'xc1'
         assert items[2]['parent_comment_id'] is None
+
+    def test_preserves_api_hot_order(self):
+        # Even if a later comment has more likes, API order wins (server hot sort)
+        comments = [
+            self._cm(1, 10),
+            self._cm(2, 999),   # later in API order but more likes
+            self._cm(3, 5),
+        ]
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=10)
+        ids = [i['_id'] for i in items]
+        assert ids == ['xc1', 'xc2', 'xc3']
+
+    def test_caps_at_max_top_by_api_order(self):
+        comments = [self._cm(i, i) for i in range(1, 105)]
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
+        assert len(items) == 100
+        assert items[0]['_id'] == 'xc1'
+        assert items[99]['_id'] == 'xc100'
+        assert items[0]['sort_order'] == 0
+        assert items[99]['sort_order'] == 99
 
     def test_reply_chained_to_reply_resolves_to_root(self):
         # A top-level (id 10), reply R1->A (id 20), reply R2->R1 (id 30)
@@ -215,13 +261,73 @@ class TestSelectTopWithInlineReplies:
         comments = []
         for i in range(1, 106):
             comments.append(self._cm(i, i))
-        # reply attached to hottest (id 105) does not consume top-level quota
-        comments.append(self._cm(1000, 0, in_reply_to=105))
+        # reply attached to first top-level (id 1) does not consume quota
+        comments.append(self._cm(1000, 0, in_reply_to=1))
         items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
         assert len(items) == 101
-        assert items[0]['_id'] == 'xc105'
+        assert items[0]['_id'] == 'xc1'
         assert items[1]['_id'] == 'xc1000'
-        assert items[1]['parent_comment_id'] == 'xc105'
+        assert items[1]['parent_comment_id'] == 'xc1'
         # exactly 100 top-level
         tops = [i for i in items if i['parent_comment_id'] is None]
         assert len(tops) == 100
+
+
+class TestFetchXueqiuCommentsV3:
+    """Pagination: cursor via max_id/next_max_id; -1 terminates; hot=type=4."""
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+        def read(self):
+            return self._body.encode('utf-8')
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    def _make_pages(self):
+        """Simulate 2 pages: page1 2 comments, next_max_id=500; page2 stops with -1."""
+        p1 = {'next_max_id': 500, 'comments': [
+            {'id': 1, 'like_count': 10, 'text': 'a', 'user': {'screen_name': 'U1'}},
+            {'id': 2, 'like_count': 5, 'text': 'b', 'user': {'screen_name': 'U2'}},
+        ]}
+        p2 = {'next_max_id': -1, 'comments': [
+            {'id': 3, 'like_count': 8, 'text': 'c', 'user': {'screen_name': 'U3'}},
+        ]}
+        return [p1, p2]
+
+    def test_paginates_and_stops_at_neg_one(self, monkeypatch):
+        import json
+        pages = self._make_pages()
+        urls_called = []
+
+        def fake_urlopen(req, timeout=20):
+            urls_called.append(req.full_url)
+            return self._Resp(json.dumps(pages[len(urls_called) - 1]))
+
+        monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
+        comments, pages_done = app_module._fetch_xueqiu_comments_v3(
+            '403122366', {'User-Agent': 'x'}, hot=True)
+        assert len(comments) == 3
+        assert pages_done == 2
+        # first call uses type=2 (最热) and max_id=-1
+        assert 'type=2' in urls_called[0]
+        assert 'max_id=-1' in urls_called[0]
+        # second call passes next_max_id
+        assert 'max_id=500' in urls_called[1]
+
+    def test_hot_uses_type2(self, monkeypatch):
+        import json
+        calls = []
+
+        def fake_urlopen(req, timeout=20):
+            calls.append(req.full_url)
+            return self._Resp(json.dumps({'next_max_id': -1, 'comments': []}))
+
+        monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
+        app_module._fetch_xueqiu_comments_v3('1', {'User-Agent': 'x'}, hot=True)
+        assert 'type=2' in calls[0]
+        calls.clear()
+        app_module._fetch_xueqiu_comments_v3('1', {'User-Agent': 'x'}, hot=False)
+        assert 'type=1' in calls[0]

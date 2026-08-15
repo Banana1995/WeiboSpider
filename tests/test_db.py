@@ -226,6 +226,44 @@ class TestTweetDB:
         row = db.conn.execute("SELECT platform FROM comments WHERE id='xc1'").fetchone()
         assert row[0] == 'xueqiu'
 
+    def test_comment_pic_urls_roundtrip(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        pics = ['https://xqimg.imedao.com/19fb746d013be2993f966c7e.png!thumb.jpg']
+        db.insert_comment({
+            '_id': 'xc1', 'tweet_id': 'xq1', 'content': '带图评论',
+            'created_at': '2026-01-01 11:00:00', 'like_counts': 281,
+            'ip_location': '', 'comment_user': '{}', 'reply_comment': None,
+            'crawl_time': 0, 'platform': 'xueqiu', 'pic_urls': pics,
+        })
+        comments = db.get_comments('xq1', sort='hot')
+        assert len(comments) == 1
+        assert comments[0]['pic_urls'] == pics
+
+    def test_comment_pic_urls_default_empty(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        db.insert_comment({
+            '_id': 'xc1', 'tweet_id': 'xq1', 'content': '无图',
+            'created_at': '2026-01-01 11:00:00', 'like_counts': 0,
+            'ip_location': '', 'comment_user': '{}', 'reply_comment': None,
+            'crawl_time': 0, 'platform': 'xueqiu',
+        })
+        comments = db.get_comments('xq1')
+        assert comments[0]['pic_urls'] == []
+
     def _insert_xq_comment(self, db, tweet_id, cid, likes, parent=None):
         db.insert_comment({
             '_id': cid, 'tweet_id': tweet_id, 'content': f'评论 {cid}',

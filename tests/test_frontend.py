@@ -57,6 +57,14 @@ def test_xueqiu_comments_button_exists():
     assert "data.xueqiu_comment" in INDEX_HTML
 
 
+def test_comment_images_rendered():
+    assert 'c.pic_urls' in INDEX_HTML
+    assert 's.pic_urls' in INDEX_HTML
+    assert 'class="comment-pic"' in INDEX_HTML
+    assert 'comment-images' in INDEX_HTML
+    assert 'openLightboxFromComment' in INDEX_HTML
+
+
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
     assert 'id="schedule-start-hour"' in INDEX_HTML

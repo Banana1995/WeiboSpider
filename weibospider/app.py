@@ -414,6 +414,7 @@ def _xueqiu_comment_to_item(cm, tweet_id):
             '_id': str(cm.get('user_id', '')),
             'nick_name': user.get('screen_name', ''),
         },
+        'pic_urls': [p for p in [cm.get('pic')] if p],
         'reply_comment': None,
         'crawl_time': int(time.time()),
         'parent_comment_id': None,
@@ -463,18 +464,21 @@ MAX_XUEQIU_COMMENTS = 100
 def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
     """Select the top `max_top` hottest xueqiu comments and flatten them.
 
-    The xueqiu comments API returns a FLAT list mixing top-level comments and
-    inline replies (replies carry `in_reply_to_comment_id`, which may chain to
-    another reply). So we:
+    We use the v3 comments API with type=4, which the server returns ALREADY
+    SORTED in "最热" (hottest) order — identical to the website's 最热 tab.
+    So we preserve that API order (no local re-sort).
+
+    The v3 API returns a FLAT list mixing top-level comments and inline replies
+    (replies carry `in_reply_to_comment_id`, which may chain to another reply).
+    So we:
 
       1. separate top-level comments from replies;
-      2. rank ONLY top-level comments by like_count desc (hottest first);
-      3. keep the top `max_top` top-level comments;
-      4. resolve every reply to its ROOT top-level parent and attach it as a
+      2. keep the first `max_top` top-level comments in API order;
+      3. resolve every reply to its ROOT top-level parent and attach it as a
          sub-comment under that parent (dropping replies whose root isn't kept);
 
-    sort_order becomes the heat rank (0 = hottest) for top-level comments,
-    which `get_comments` with sort='hot' uses to display hottest-first.
+    sort_order becomes the API-order rank (0 = hottest), which `get_comments`
+    with sort='hot' uses to display hottest-first.
     """
     by_id = {}
     top_level = []
@@ -501,12 +505,8 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
             return None
         return _root_id(parent, depth + 1)
 
-    top_level.sort(
-        key=lambda c: (-int(c.get('like_count') or 0), str(c.get('id', ''))),
-    )
     selected = top_level[:max_top]
     selected_ids = {str(c.get('id')) for c in selected}
-    selected_by_id = {str(c.get('id')): c for c in selected}
 
     # group replies by root top-level id
     replies_by_root = {}
@@ -531,16 +531,53 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
     return items
 
 
+def _fetch_xueqiu_comments_v3(xq_id, headers, hot=True, max_pages=50):
+    """Fetch all pages of xueqiu comments via the v3 comments API.
+
+    hot=True uses type=2 → server returns "最热" (hottest) order, exactly what
+    the website's 最热 tab shows. (type=4/type=0 also map to 最热; type=1 is
+    time order.) Hot mode returns only top-level comments (no inline replies).
+    Pagination is cursor-based via max_id / next_max_id; next_max_id == -1
+    signals the end.
+
+    Returns the flat list of comment dicts in API order.
+    """
+    import urllib.request
+    ctype = 2 if hot else 1
+    all_comments = []
+    max_id = -1
+    page = 0
+    while page < max_pages:
+        url = (f'https://api.xueqiu.com/statuses/v3/comments.json'
+               f'?id={xq_id}&type={ctype}&size=20&max_id={max_id}')
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+            data = json.loads(body)
+        except Exception as e:
+            return all_comments, page + 1
+        comments = data.get('comments') or []
+        if not comments:
+            break
+        all_comments.extend(comments)
+        page += 1
+        nxt = data.get('next_max_id')
+        if nxt == -1 or not nxt:
+            break
+        max_id = nxt
+        time.sleep(0.6)
+    return all_comments, page
+
+
 def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
-    """Crawl xueqiu comments via api.xueqiu.com (bypasses main-domain WAF).
+    """Crawl xueqiu comments via api.xueqiu.com v3 type=4 (最热 order).
 
     mode='ps' targets xueqiu PS图 posts (small batch); 'all' targets every
-    xueqiu post. Keeps only the top MAX_XUEQIU_COMMENTS hottest comments per
-    post (like weibo's top-100 hot comment view).
-
-    For posts that already have stored comments (from a previous complete
-    crawl), this prunes existing data by like_counts — no network needed.
-    Only posts with zero stored comments are fetched fresh.
+    xueqiu post. The v3 API returns comments already sorted by server-side
+    "最热" (hot) ranking, matching the website's 最热 tab. We keep only the top
+    MAX_XUEQIU_COMMENTS top-level comments per post (like weibo's top-100 hot
+    view), attach their replies, and replace any previously stored comments.
     """
     cookie = DB.get_config('xq_cookie', '')
     if not cookie:
@@ -563,68 +600,24 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9',
     }
-    import urllib.request
 
     total_kept = 0
     fetched_posts = 0
-    pruned_posts = 0
     for idx, (tweet_id, xq_id) in enumerate(targets, 1):
         if scheduler is not None and getattr(scheduler, 'xueqiu_cancelled', False):
             _log("用户取消了雪球评论抓取")
             return {'status': 'cancelled'}
-        existing = DB.conn.execute(
-            "SELECT COUNT(*) FROM comments WHERE tweet_id=? AND platform='xueqiu'",
-            (tweet_id,)
-        ).fetchone()[0]
-
-        if existing > 0:
-            # Already crawled completely → prune stored data to top hot.
-            # (Skip pruning posts already under the cap to avoid churn.)
-            if existing > MAX_XUEQIU_COMMENTS:
-                DB.prune_xueqiu_comments(tweet_id, max_top=MAX_XUEQIU_COMMENTS)
-                pruned_posts += 1
-            kept = DB.conn.execute(
-                "SELECT COUNT(*) FROM comments WHERE tweet_id=? AND platform='xueqiu'",
-                (tweet_id,)
-            ).fetchone()[0]
-            total_kept += kept
-            _log(f"[{idx}/{len(targets)}] {tweet_id} 已有 {existing} 条，裁剪保留热度前{kept} 条")
-            continue
-
-        # Zero stored → fetch all pages then keep top hot
-        all_comments = []
-        page = 1
-        while page <= 100:
-            url = (f'https://api.xueqiu.com/statuses/comments.json'
-                   f'?id={xq_id}&count=50&page={page}')
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    body = resp.read().decode('utf-8', 'replace')
-                data = json.loads(body)
-            except Exception as e:
-                _log(f"[{idx}/{len(targets)}] {tweet_id} page={page} 请求失败: {e}，停止该帖")
-                break
-            comments = data.get('comments') or []
-            if not comments:
-                break
-            all_comments.extend(comments)
-            max_page = data.get('maxPage') or page
-            if page >= max_page:
-                break
-            page += 1
-            time.sleep(0.8)
+        all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
         items = _select_top_xueqiu_items(all_comments, tweet_id)
         if items:
             DB.delete_xueqiu_comments(tweet_id)
             DB.batch_insert_comments(items)
             total_kept += len(items)
             fetched_posts += 1
-        _log(f"[{idx}/{len(targets)}] {tweet_id} 抓取 {len(items)} 条 (热度前{MAX_XUEQIU_COMMENTS}, pages={page})")
-    _log(f"雪球评论抓取完成 (保留 {total_kept} 条, 抓取 {fetched_posts} 帖, 裁剪 {pruned_posts} 帖)")
+        _log(f"[{idx}/{len(targets)}] {tweet_id} 评论 {len(items)} 条 (最热前{MAX_XUEQIU_COMMENTS}, pages={pages})")
+    _log(f"雪球评论抓取完成 (保留 {total_kept} 条, 抓取 {fetched_posts} 帖)")
     return {'status': 'completed', 'stats': {
-        'new': total_kept, 'tweets': len(targets),
-        'fetched': fetched_posts, 'pruned': pruned_posts,
+        'new': total_kept, 'tweets': len(targets), 'fetched': fetched_posts,
     }}
 
 
@@ -897,10 +890,11 @@ def api_delete_annotation(ann_id):
 
 
 def _crawl_single_xueqiu_comments(tweet_id):
-    """Crawl comments for one xueqiu tweet via api.xueqiu.com (WAF-free).
+    """Crawl comments for one xueqiu tweet via api.xueqiu.com v3 (最热 order).
 
-    Fetches all pages then keeps only the top MAX_XUEQIU_COMMENTS by heat
-    (like_count), replacing any previously stored xueqiu comments.
+    Fetches the server-sorted "最热" comments, keeps the top
+    MAX_XUEQIU_COMMENTS top-level comments with their replies, and replaces
+    any previously stored xueqiu comments.
     """
     cookie = DB.get_config('xq_cookie', '')
     if not cookie:
@@ -915,32 +909,8 @@ def _crawl_single_xueqiu_comments(tweet_id):
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9',
     }
-    import urllib.request
 
-    all_comments = []
-    page = 1
-    try:
-        while page <= 100:
-            url = (f'https://api.xueqiu.com/statuses/comments.json'
-                   f'?id={xq_id}&count=50&page={page}')
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                body = resp.read().decode('utf-8', 'replace')
-            data = json.loads(body)
-            comments = data.get('comments') or []
-            if not comments:
-                break
-            all_comments.extend(comments)
-            max_page = data.get('maxPage') or page
-            if page >= max_page:
-                break
-            page += 1
-            time.sleep(0.8)
-    except Exception as e:
-        DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
-                       detail=f'tweet={tweet_id} error={e}', status='failed', user='web')
-        return jsonify({'error': f'雪球评论抓取失败: {e}'}), 500
-
+    all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
     items = _select_top_xueqiu_items(all_comments, tweet_id)
     if items:
         DB.delete_xueqiu_comments(tweet_id)
@@ -948,7 +918,7 @@ def _crawl_single_xueqiu_comments(tweet_id):
     comments = DB.get_comments(tweet_id, sort='hot')
     new_count = len(comments)
     DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
-                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
+                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)} pages={pages}',
                    status='success', user='web')
     return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
 

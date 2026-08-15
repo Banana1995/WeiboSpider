@@ -331,6 +331,62 @@ class TestSelectTopWithChildComments:
         assert items[1]['pic_urls'] == ['https://xqimg.imedao.com/abc.png!thumb.jpg']
 
 
+class TestFetchXueqiuChildCommentsV3:
+    """子回复用 comment_id + child_type=2 单独拉取（父评论内嵌的 child_comments
+    只给前几条，完整的要分页拉）。"""
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+        def read(self):
+            return self._body.encode('utf-8')
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    def test_paginates_child_comments(self, monkeypatch):
+        import json
+        # simulate 2 pages, each returns the parent with different child_comments
+        p1 = {'next_max_id': 500, 'comments': [
+            {'id': 418384119, 'like_count': 281, 'text': '父', 'user': {'screen_name': 'P'},
+             'child_comments': [{'id': 101, 'like_count': 5, 'text': 'r1', 'user': {'screen_name': 'A'}}]},
+        ]}
+        p2 = {'next_max_id': -1, 'comments': [
+            {'id': 418384119, 'like_count': 281, 'text': '父', 'user': {'screen_name': 'P'},
+             'child_comments': [{'id': 102, 'like_count': 3, 'text': 'r2', 'user': {'screen_name': 'B'}}]},
+        ]}
+        pages = [p1, p2]
+        urls = []
+
+        def fake_urlopen(req, timeout=20):
+            urls.append(req.full_url)
+            return self._Resp(json.dumps(pages[len(urls) - 1]))
+
+        monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
+        children = app_module._fetch_xueqiu_child_comments_v3(
+            418384119, '403122366', {'User-Agent': 'x'})
+        assert len(children) == 2
+        assert children[0]['id'] == 101
+        assert children[1]['id'] == 102
+        # URL uses comment_id + child_type=2
+        assert 'comment_id=418384119' in urls[0]
+        assert 'child_type=2' in urls[0]
+        assert 'max_id=500' in urls[1]
+
+    def test_empty_page_stops(self, monkeypatch):
+        import json
+        urls = []
+
+        def fake_urlopen(req, timeout=20):
+            urls.append(req.full_url)
+            return self._Resp(json.dumps({'next_max_id': -1, 'comments': []}))
+
+        monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
+        children = app_module._fetch_xueqiu_child_comments_v3(1, '2', {'User-Agent': 'x'})
+        assert children == []
+
+
 class TestFetchXueqiuCommentsV3:
     """Pagination: cursor via max_id/next_max_id; -1 terminates; hot=type=4."""
 

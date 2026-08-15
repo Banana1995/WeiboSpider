@@ -577,6 +577,49 @@ def _fetch_xueqiu_comments_v3(xq_id, headers, hot=True, max_pages=50):
     return all_comments, page
 
 
+def _fetch_xueqiu_child_comments_v3(parent_id, xq_id, headers, max_pages=20):
+    """Fetch ALL child replies of a comment via the v3 comments API.
+
+    The top-level comments.json only embeds the first few child replies in
+    child_comments. The full list requires a separate call with
+    `comment_id=<parent>&type=4&child_type=2&id=<status>` and cursor
+    pagination via max_id / next_max_id (-1 = end).
+
+    Returns a flat list of child comment dicts in API order.
+    """
+    import urllib.request
+    children = []
+    max_id = -1
+    page = 0
+    while page < max_pages:
+        url = (f'https://api.xueqiu.com/statuses/v3/comments.json'
+               f'?comment_id={parent_id}&type=4&child_type=2'
+               f'&id={xq_id}&max_id={max_id}')
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+            data = json.loads(body)
+        except Exception as e:
+            return children
+        comments = data.get('comments') or []
+        if not comments:
+            break
+        got = 0
+        for cm in comments:
+            for ch in cm.get('child_comments') or []:
+                if isinstance(ch, dict):
+                    children.append(ch)
+                    got += 1
+        page += 1
+        nxt = data.get('next_max_id')
+        if nxt == -1 or not nxt:
+            break
+        max_id = nxt
+        time.sleep(0.6)
+    return children
+
+
 def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     """Crawl xueqiu comments via api.xueqiu.com v3 type=4 (最热 order).
 
@@ -615,6 +658,15 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
             _log("用户取消了雪球评论抓取")
             return {'status': 'cancelled'}
         all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
+        # 顶层评论内嵌的 child_comments 只含前几条，完整的子回复需单独拉取
+        for cm in all_comments:
+            declared = int(cm.get('comment_reply_count') or 0)
+            embedded = len(cm.get('child_comments') or [])
+            if declared > embedded:
+                full_children = _fetch_xueqiu_child_comments_v3(
+                    cm.get('id'), xq_id, headers)
+                if full_children:
+                    cm['child_comments'] = full_children
         items = _select_top_xueqiu_items(all_comments, tweet_id)
         if items:
             DB.delete_xueqiu_comments(tweet_id)
@@ -918,6 +970,14 @@ def _crawl_single_xueqiu_comments(tweet_id):
     }
 
     all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
+    for cm in all_comments:
+        declared = int(cm.get('comment_reply_count') or 0)
+        embedded = len(cm.get('child_comments') or [])
+        if declared > embedded:
+            full_children = _fetch_xueqiu_child_comments_v3(
+                cm.get('id'), xq_id, headers)
+            if full_children:
+                cm['child_comments'] = full_children
     items = _select_top_xueqiu_items(all_comments, tweet_id)
     if items:
         DB.delete_xueqiu_comments(tweet_id)

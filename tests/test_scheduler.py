@@ -41,6 +41,16 @@ class TestScheduler:
         assert 'incremental' in calls['tweet']
         assert 'incremental' in calls['comment']
 
+    def test_manual_incremental_runs_tweet_before_comment(self, scheduler):
+        sch, calls = scheduler
+        order = []
+        sch.crawl_tweets_func = lambda sch, mode='incremental', user_id=None: order.append('tweet')
+        sch.crawl_comments_func = lambda sch, mode='incremental': order.append('comment')
+        result = sch.manual_incremental()
+        assert result['status'] == 'started'
+        time.sleep(0.3)
+        assert order == ['tweet', 'comment']
+
     def test_manual_crawl_rejected_when_running(self, scheduler):
         sch, calls = scheduler
         sch.manual_crawl()

@@ -16,6 +16,9 @@ class CrawlScheduler:
         # Independent locks
         self._tweet_lock = threading.Lock()
         self._comment_lock = threading.Lock()
+        # 全局串行锁：推文/评论抓取不并发。评论抓取必须在推文抓取完成（新微博入库）之后再选目标，
+        # 否则并发时评论抓取看不到本次新抓到的微博（手动增量同步曾因此漏抓评论）。
+        self._crawl_lock = threading.Lock()
         self._tweet_running = False
         self._comment_running = False
         self._tweet_cancelled = False
@@ -175,17 +178,12 @@ class CrawlScheduler:
         return {'status': 'started', 'message': f'全量抓取已启动 ({"用户 " + user_id if user_id else "全部用户"})'}
 
     def manual_incremental(self):
-        """Incremental crawl: tweets + comments in parallel."""
-        if self._tweet_running and self._comment_running:
-            return {'status': 'rejected', 'message': '推文和评论抓取均在运行中'}
-        if self._tweet_running:
-            return {'status': 'rejected', 'message': '推文抓取正在运行中'}
-        if self._comment_running:
-            return {'status': 'rejected', 'message': '评论抓取正在运行中'}
+        """Incremental crawl: tweets then comments sequentially (comments must see the new tweets)."""
+        if self._tweet_running or self._comment_running:
+            return {'status': 'rejected', 'message': '已有抓取任务在运行'}
         self._tweet_cancelled = False
         self._comment_cancelled = False
-        threading.Thread(target=self._execute_tweet_job, kwargs={'mode': 'incremental'}, daemon=True).start()
-        threading.Thread(target=self._execute_comment_job, kwargs={'mode': 'incremental'}, daemon=True).start()
+        threading.Thread(target=self._execute_incremental, daemon=True).start()
         return {'status': 'started', 'message': '增量同步已启动'}
 
     def cancel(self):
@@ -209,17 +207,27 @@ class CrawlScheduler:
         self._execute_tweet_job(mode='full', user_id=user_id)
         self._execute_comment_job(mode='full')
 
+    def _execute_incremental(self):
+        """Run tweets then comments in incremental mode, sequentially.
+
+        顺序保证：评论抓取选目标（get_tweets_for_comment_crawl）时，本次推文抓取的
+        新微博已经写入数据库，否则并发会导致新微博的评论漏抓。
+        """
+        self._execute_tweet_job(mode='incremental')
+        self._execute_comment_job(mode='incremental')
+
     def _execute_tweet_job(self, mode='incremental', user_id=None):
         if not self._tweet_lock.acquire(blocking=False):
             logger.warning("Tweet crawl already running, skip")
             return
         try:
-            self._tweet_running = True
-            self._tweet_cancelled = False
-            self._tweet_last_result = None
-            result = self.crawl_tweets_func(self, mode=mode, user_id=user_id)
-            self._tweet_last_result = result
-            logger.info("Tweet crawl finished: %s", result)
+            with self._crawl_lock:
+                self._tweet_running = True
+                self._tweet_cancelled = False
+                self._tweet_last_result = None
+                result = self.crawl_tweets_func(self, mode=mode, user_id=user_id)
+                self._tweet_last_result = result
+                logger.info("Tweet crawl finished: %s", result)
         except Exception as e:
             self._tweet_last_result = {'error': str(e)}
             logger.error("Tweet crawl failed: %s", e)
@@ -232,12 +240,13 @@ class CrawlScheduler:
             logger.warning("Comment crawl already running, skip")
             return
         try:
-            self._comment_running = True
-            self._comment_cancelled = False
-            self._comment_last_result = None
-            result = self.crawl_comments_func(self, mode=mode)
-            self._comment_last_result = result
-            logger.info("Comment crawl finished: %s", result)
+            with self._crawl_lock:
+                self._comment_running = True
+                self._comment_cancelled = False
+                self._comment_last_result = None
+                result = self.crawl_comments_func(self, mode=mode)
+                self._comment_last_result = result
+                logger.info("Comment crawl finished: %s", result)
         except Exception as e:
             self._comment_last_result = {'error': str(e)}
             logger.error("Comment crawl failed: %s", e)

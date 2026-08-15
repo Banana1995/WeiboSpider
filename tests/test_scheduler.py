@@ -51,6 +51,21 @@ class TestScheduler:
         time.sleep(0.3)
         assert order == ['tweet', 'comment']
 
+    def test_manual_xueqiu(self, scheduler):
+        sch, calls = scheduler
+        xq_calls = []
+        sch.crawl_xueqiu_func = lambda sch, mode='full': xq_calls.append(mode)
+        result = sch.manual_xueqiu(mode='full')
+        assert result['status'] == 'started'
+        time.sleep(0.3)
+        assert xq_calls == ['full']
+        assert sch.status['xueqiu']['running'] is False
+
+    def test_manual_xueqiu_unconfigured(self, scheduler):
+        sch, calls = scheduler
+        result = sch.manual_xueqiu()
+        assert result['status'] == 'error'
+
     def test_manual_crawl_rejected_when_running(self, scheduler):
         sch, calls = scheduler
         sch.manual_crawl()

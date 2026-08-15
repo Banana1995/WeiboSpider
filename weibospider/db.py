@@ -68,7 +68,8 @@ class TweetDB:
             deleted         INTEGER DEFAULT 0,
             deleted_at      TEXT,
             url             TEXT,
-            crawl_time      INTEGER
+            crawl_time      INTEGER,
+            platform        TEXT DEFAULT 'weibo'
         );
         """)
             self.conn.commit()
@@ -82,6 +83,7 @@ class TweetDB:
             "ALTER TABLE tweets ADD COLUMN retweet_user_id TEXT DEFAULT ''",
             "ALTER TABLE comments ADD COLUMN sort_order INTEGER DEFAULT 0",
             "ALTER TABLE annotations ADD COLUMN ranges TEXT",
+            "ALTER TABLE tweets ADD COLUMN platform TEXT DEFAULT 'weibo'",
             ]:
                 try:
                     self.conn.execute(sql)
@@ -167,8 +169,9 @@ class TweetDB:
              comments_count, attitudes_count, pic_urls, pic_num,
              source, ip_location, is_retweet, retweet_id, deleted,
              deleted_at, url, crawl_time, screen_name, retweet_content,
-             retweet_user, retweet_user_id, retweet_pic_urls, retweet_has_video)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             retweet_user, retweet_user_id, retweet_pic_urls, retweet_has_video,
+             platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             content=excluded.content,
             reposts_count=excluded.reposts_count,
@@ -178,7 +181,8 @@ class TweetDB:
             retweet_user=excluded.retweet_user,
             retweet_user_id=excluded.retweet_user_id,
             retweet_pic_urls=excluded.retweet_pic_urls,
-            crawl_time=excluded.crawl_time
+            crawl_time=excluded.crawl_time,
+            platform=excluded.platform
         """, (
                 item['_id'], item.get('mblogid'),
                 item['content'], item.get('user_id', ''),
@@ -199,6 +203,7 @@ class TweetDB:
                 item.get('retweet_user_id', ''),
                 json.dumps(item.get('retweet_pic_urls', [])) if isinstance(item.get('retweet_pic_urls'), list) else (item.get('retweet_pic_urls') or '[]'),
                 int(item.get('retweet_has_video', False)),
+                item.get('platform', 'weibo'),
             ))
                 self.conn.commit()
             finally:
@@ -339,7 +344,7 @@ class TweetDB:
                 self._release_file_lock()
         return len(rows)
 
-    def get_tweets(self, page=1, per_page=20, sort='desc', deleted='exclude', user_id=None):
+    def get_tweets(self, page=1, per_page=20, sort='desc', deleted='exclude', user_id=None, platform=None):
         with self._lock:
             offset = (page - 1) * per_page
             order = 'DESC' if sort == 'desc' else 'ASC'
@@ -352,6 +357,9 @@ class TweetDB:
             if user_id:
                 conditions.append('user_id = ?')
                 params.append(user_id)
+            if platform and platform != 'all':
+                conditions.append('platform = ?')
+                params.append(platform)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
             sql = f"SELECT * FROM tweets {where} ORDER BY created_at {order} LIMIT ? OFFSET ?"
             rows = self.conn.execute(sql, params + [per_page, offset]).fetchall()
@@ -365,7 +373,7 @@ class TweetDB:
                 results.append(d)
             return results
 
-    def count_tweets(self, deleted='exclude', user_id=None):
+    def count_tweets(self, deleted='exclude', user_id=None, platform=None):
         """Return total number of tweets matching the same filters as get_tweets."""
         with self._lock:
             conditions = []
@@ -377,6 +385,9 @@ class TweetDB:
             if user_id:
                 conditions.append('user_id = ?')
                 params.append(user_id)
+            if platform and platform != 'all':
+                conditions.append('platform = ?')
+                params.append(platform)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
             row = self.conn.execute(f"SELECT COUNT(*) FROM tweets {where}", params).fetchone()
             return row[0]
@@ -517,6 +528,15 @@ class TweetDB:
             ).fetchone()
             return row[0] if row else None
 
+    def get_latest_xueqiu_id(self):
+        """Return the most recently crawled xueqiu post id, or None."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM tweets WHERE platform='xueqiu' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            return row[0] if row else None
+
     def get_tweets_for_comment_crawl(self, hours=8):
         """Return (id, mblogid) tuples for tweets eligible for comment crawl:
         non-deleted, within the last `hours` hours, and with <100 comments.
@@ -561,12 +581,12 @@ class TweetDB:
                 now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 self.conn.execute("""
                     UPDATE tweets SET deleted=1, deleted_at=?
-                    WHERE is_retweet=1 AND deleted=0
+                    WHERE platform='weibo' AND is_retweet=1 AND deleted=0
                       AND retweet_user_id != '' AND retweet_user_id != user_id
                 """, [now])
                 self.conn.execute("""
                     UPDATE tweets SET deleted=1, deleted_at=?
-                    WHERE is_retweet=1 AND deleted=0
+                    WHERE platform='weibo' AND is_retweet=1 AND deleted=0
                       AND (retweet_user_id = '' OR retweet_user_id IS NULL)
                       AND retweet_user != '' AND retweet_user != screen_name
                 """, [now])

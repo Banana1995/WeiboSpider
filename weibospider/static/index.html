@@ -88,6 +88,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .hidden { display: none; }
 #cards-container.ps-mode .card > input[type=checkbox],
 #cards-container.ps-mode .card .btn-del { display: none; }
+.platform-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; color: #fff; vertical-align: 1px; margin-right: 4px; }
+.platform-badge.weibo { background: #e67e22; }
+.platform-badge.xueqiu { background: #3377aa; }
 .pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 16px; font-size: 13px; }
 .pagination .page-btn { padding: 5px 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: #333; cursor: pointer; font-size: 12px; }
 .pagination .page-btn:hover { background: #f0f0f0; }
@@ -257,6 +260,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <div class="toolbar-actions">
         <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
         <button class="btn btn-primary" id="btn-incremental" style="background:#27ae60;">增量同步</button>
+        <button class="btn btn-primary" id="btn-xueqiu" style="background:#3377aa;">雪球同步</button>
+        <button class="btn btn-primary" id="btn-xueqiu-inc" style="background:#5a9bd5;">雪球增量</button>
         <div style="position:relative;display:inline-block;">
           <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
         </div>
@@ -268,6 +273,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="tabs">
       <button class="tab active" data-tab="active">微博列表</button>
       <button class="tab" data-tab="trash">回收站</button>
+      <button class="tab" data-tab="xueqiu">雪球</button>
       <button class="tab" data-tab="logs">操作日志</button>
       <button class="tab" data-tab="ps">PS图</button>
     </div>
@@ -296,6 +302,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="uid-input-row">
           <input type="text" id="cookie-input" placeholder="粘贴微博 Cookie">
           <button class="btn btn-sm btn-primary" onclick="saveCookie()">保存</button>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>雪球 Cookie</h3>
+        <div id="xq-cookie-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
+        <div class="uid-input-row">
+          <input type="text" id="xq-cookie-input" placeholder="粘贴雪球 Cookie">
+          <button class="btn btn-sm btn-primary" onclick="saveXqCookie()">保存</button>
+        </div>
+        <div class="uid-input-row" style="margin-top:6px;">
+          <input type="text" id="xq-user-id-input" placeholder="雪球用户 ID（默认 8790885129）" style="flex:1;">
+          <button class="btn btn-sm" onclick="saveXqCookie()">保存用户</button>
         </div>
       </div>
 
@@ -420,6 +439,8 @@ let activeUserFilter = '';  // empty = show all
 
 document.getElementById('btn-crawl').addEventListener('click', () => triggerCrawl());
 document.getElementById('btn-incremental').addEventListener('click', () => triggerIncremental());
+document.getElementById('btn-xueqiu').addEventListener('click', () => triggerXueqiu('full'));
+document.getElementById('btn-xueqiu-inc').addEventListener('click', () => triggerXueqiu('incremental'));
 document.getElementById('btn-export').addEventListener('click', exportPDF);
 document.getElementById('btn-batch-delete').addEventListener('click', batchDelete);
 document.getElementById('btn-batch-restore').addEventListener('click', batchRestore);
@@ -471,6 +492,14 @@ async function loadConfig() {
     } else {
       expiryEl.style.display = 'none';
     }
+    if (data.xq_cookie) {
+      $('xq-cookie-status').textContent = '已保存雪球 Cookie: ' + data.xq_cookie_masked;
+      $('xq-cookie-status').style.color = '#27ae60';
+    } else {
+      $('xq-cookie-status').textContent = '未设置雪球 Cookie（雪球同步将失败）';
+      $('xq-cookie-status').style.color = '#e74c3c';
+    }
+    $('xq-user-id-input').value = data.xq_user_id || '8790885129';
     if (data.schedule_enabled !== undefined) {
       $('schedule-enabled').checked = data.schedule_enabled;
       $('schedule-start-hour').value = data.schedule_start_hour;
@@ -529,6 +558,24 @@ async function saveCookie() {
   } catch(e) { toast('保存失败', true); }
 }
 
+async function saveXqCookie() {
+  const payload = {};
+  const cookie = $('xq-cookie-input').value.trim();
+  const uid = $('xq-user-id-input').value.trim();
+  if (cookie) payload.xq_cookie = cookie;
+  if (uid) payload.xq_user_id = uid;
+  if (Object.keys(payload).length === 0) { toast('请粘贴雪球 Cookie 或输入用户 ID', true); return; }
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    toast('雪球配置已保存');
+    loadConfig();
+  } catch(e) { toast('保存失败', true); }
+}
+
 function renderUidTags() {
   const container = $('uid-list');
   container.innerHTML = userIDs.map(uid => `
@@ -569,10 +616,12 @@ async function saveUids() {
 
 async function loadTweets() {
   $('loader').classList.remove('hidden');
+  const isXq = currentTab === 'xueqiu';
   const deleted = currentTab === 'trash' ? 'only' : 'exclude';
+  const platform = isXq ? 'xueqiu' : 'weibo';
   try {
-    const uidParam = activeUserFilter ? '&user_id=' + activeUserFilter : '';
-    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=${perPage}&deleted=${deleted}${uidParam}`);
+    const uidParam = !isXq && activeUserFilter ? '&user_id=' + activeUserFilter : '';
+    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=${perPage}&deleted=${deleted}&platform=${platform}${uidParam}`);
     const data = await resp.json();
     totalCount = data.total || 0;
     totalPages = Math.max(1, Math.ceil(totalCount / perPage));
@@ -671,7 +720,7 @@ function renderCard(t) {
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
     <div class="card-body">
       <div class="card-meta">
-        <span class="card-meta-left">${esc(t.screen_name || '')} &bull; ${esc(t.created_at)} &bull; ${esc(t.source)}</span>
+        <span class="card-meta-left"><span class="platform-badge ${t.platform === 'xueqiu' ? 'xueqiu' : 'weibo'}">${t.platform === 'xueqiu' ? '雪球' : '微博'}</span>${esc(t.screen_name || '')} &bull; ${esc(t.created_at)} &bull; ${esc(t.source)}</span>
         <span class="card-meta-right">
           <button class="btn-del" onclick="deleteOne('${t.id}')">&times;</button>
         </span>
@@ -798,7 +847,7 @@ function esc(s) {
 }
 
 function proxyImg(u) {
-  if (u && u.indexOf('sinaimg.cn') !== -1) {
+  if (u && (u.indexOf('sinaimg.cn') !== -1 || u.indexOf('xqimg.imedao.com') !== -1 || u.indexOf('img.xueqiu.com') !== -1)) {
     return '/api/img?url=' + encodeURIComponent(u);
   }
   return u;
@@ -989,6 +1038,29 @@ async function triggerIncremental() {
   btn.textContent = '增量同步';
 }
 
+async function triggerXueqiu(mode) {
+  const btn = mode === 'full' ? $('btn-xueqiu') : $('btn-xueqiu-inc');
+  btn.disabled = true;
+  btn.textContent = mode === 'full' ? '同步中...' : '增量中...';
+  $('crawl-log').classList.remove('collapsed', 'error');
+  $('crawl-log-toggle').textContent = '收起 ▲';
+  $('crawl-log-body').textContent = '正在启动雪球同步...';
+  try {
+    const resp = await fetch('/api/crawl/xueqiu', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode}),
+    });
+    const data = await resp.json();
+    if (data.status === 'started') {
+      toast('雪球同步已启动');
+      $('crawl-log-body').textContent = '等待日志...';
+    } else toast(data.message || data.error, true);
+  } catch(e) { toast('请求失败', true); }
+  btn.disabled = false;
+  btn.textContent = mode === 'full' ? '雪球同步' : '雪球增量';
+}
+
 let lastCrawlResult = null;
 let lastLogText = null;
 
@@ -1001,12 +1073,15 @@ async function pollCrawlStatus() {
 
   const tweetRunning = data.tweet && data.tweet.running;
   const commentRunning = data.comment && data.comment.running;
-  const anyRunning = tweetRunning || commentRunning;
+  const xqRunning = data.xueqiu && data.xueqiu.running;
+  const anyRunning = tweetRunning || commentRunning || xqRunning;
 
   if (anyRunning) {
     $('crawl-banner').classList.add('show');
     $('btn-crawl').disabled = true;
     $('btn-incremental').disabled = true;
+    $('btn-xueqiu').disabled = true;
+    $('btn-xueqiu-inc').disabled = true;
     $('crawl-log').classList.remove('collapsed');
     $('crawl-log-toggle').textContent = '收起 ▲';
   } else {
@@ -1015,10 +1090,13 @@ async function pollCrawlStatus() {
     $('btn-crawl').textContent = '立即抓取';
     $('btn-incremental').disabled = false;
     $('btn-incremental').textContent = '增量同步';
+    $('btn-xueqiu').disabled = false;
+    $('btn-xueqiu-inc').disabled = false;
     const tweetResult = data.tweet && data.tweet.last_result;
     const commentResult = data.comment && data.comment.last_result;
-    if (tweetResult || commentResult) {
-      const key = JSON.stringify({t: tweetResult, c: commentResult});
+    const xqResult = data.xueqiu && data.xueqiu.last_result;
+    if (tweetResult || commentResult || xqResult) {
+      const key = JSON.stringify({t: tweetResult, c: commentResult, x: xqResult});
       if (key !== lastCrawlResult) {
         lastCrawlResult = key;
         reloadList();
@@ -1072,13 +1150,15 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const isLogs = tab === 'logs';
   const isPs = tab === 'ps';
-  const hideListExtras = isLogs || isPs;
-  $('select-all-row').style.display = hideListExtras ? 'none' : '';
-  $('btn-batch-delete').style.display = hideListExtras ? 'none' : (tab === 'trash' ? 'none' : '');
-  $('btn-batch-restore').style.display = hideListExtras ? 'none' : (tab === 'trash' ? '' : 'none');
+  const isXq = tab === 'xueqiu';
+  const hideBatch = isLogs || isPs || isXq;
+  const hidePagination = isLogs || isPs;
+  $('select-all-row').style.display = hideBatch ? 'none' : '';
+  $('btn-batch-delete').style.display = hideBatch ? 'none' : (tab === 'trash' ? 'none' : '');
+  $('btn-batch-restore').style.display = hideBatch ? 'none' : (tab === 'trash' ? '' : 'none');
   $('cards-container').style.display = isLogs ? 'none' : '';
   $('loader').style.display = isLogs ? 'none' : '';
-  $('pagination').style.display = hideListExtras ? 'none' : '';
+  $('pagination').style.display = hidePagination ? 'none' : '';
   $('logs-container').style.display = isLogs ? 'block' : 'none';
   $('cards-container').classList.toggle('ps-mode', isPs);
   if (isLogs) {

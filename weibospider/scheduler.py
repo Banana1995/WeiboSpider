@@ -9,22 +9,27 @@ logger = logging.getLogger(__name__)
 
 
 class CrawlScheduler:
-    def __init__(self, crawl_tweets_func, crawl_comments_func, keepalive_func=None):
+    def __init__(self, crawl_tweets_func, crawl_comments_func, keepalive_func=None, crawl_xueqiu_func=None):
         self.crawl_tweets_func = crawl_tweets_func
         self.crawl_comments_func = crawl_comments_func
         self.keepalive_func = keepalive_func
+        self.crawl_xueqiu_func = crawl_xueqiu_func
         # Independent locks
         self._tweet_lock = threading.Lock()
         self._comment_lock = threading.Lock()
         # 全局串行锁：推文/评论抓取不并发。评论抓取必须在推文抓取完成（新微博入库）之后再选目标，
         # 否则并发时评论抓取看不到本次新抓到的微博（手动增量同步曾因此漏抓评论）。
         self._crawl_lock = threading.Lock()
+        self._xq_lock = threading.Lock()
         self._tweet_running = False
         self._comment_running = False
+        self._xq_running = False
         self._tweet_cancelled = False
         self._comment_cancelled = False
+        self._xq_cancelled = False
         self._tweet_last_result = None
         self._comment_last_result = None
+        self._xq_last_result = None
         self._keepalive_last_result = None
         self._config = {}
         self._scheduler = BackgroundScheduler()
@@ -186,11 +191,22 @@ class CrawlScheduler:
         threading.Thread(target=self._execute_incremental, daemon=True).start()
         return {'status': 'started', 'message': '增量同步已启动'}
 
+    def manual_xueqiu(self, mode='full'):
+        """Crawl xueqiu user timeline. mode='full' or 'incremental'."""
+        if self.crawl_xueqiu_func is None:
+            return {'status': 'error', 'message': '雪球抓取未配置'}
+        if self._xq_running:
+            return {'status': 'rejected', 'message': '雪球抓取正在运行中'}
+        self._xq_cancelled = False
+        threading.Thread(target=self._execute_xueqiu_job, kwargs={'mode': mode}, daemon=True).start()
+        return {'status': 'started', 'message': '雪球同步已启动'}
+
     def cancel(self):
-        if not self._tweet_running and not self._comment_running:
+        if not (self._tweet_running or self._comment_running or self._xq_running):
             return {'status': 'error', 'message': '没有正在运行的抓取任务'}
         self._tweet_cancelled = True
         self._comment_cancelled = True
+        self._xq_cancelled = True
         logger.info("Cancelling all crawl tasks...")
         return {'status': 'cancelling', 'message': '正在取消抓取...'}
 
@@ -201,6 +217,28 @@ class CrawlScheduler:
     @property
     def comment_cancelled(self):
         return self._comment_cancelled
+
+    @property
+    def xueqiu_cancelled(self):
+        return self._xq_cancelled
+
+    def _execute_xueqiu_job(self, mode='full'):
+        if not self._xq_lock.acquire(blocking=False):
+            logger.warning("Xueqiu crawl already running, skip")
+            return
+        try:
+            self._xq_running = True
+            self._xq_cancelled = False
+            self._xq_last_result = None
+            result = self.crawl_xueqiu_func(self, mode=mode)
+            self._xq_last_result = result
+            logger.info("Xueqiu crawl finished: %s", result)
+        except Exception as e:
+            self._xq_last_result = {'error': str(e)}
+            logger.error("Xueqiu crawl failed: %s", e)
+        finally:
+            self._xq_running = False
+            self._xq_lock.release()
 
     def _execute_full(self, user_id=None):
         """Run tweets then comments in full mode, sequentially."""
@@ -264,6 +302,10 @@ class CrawlScheduler:
             'comment': {
                 'running': self._comment_running,
                 'last_result': self._comment_last_result,
+            },
+            'xueqiu': {
+                'running': self._xq_running,
+                'last_result': self._xq_last_result,
             },
         }
 

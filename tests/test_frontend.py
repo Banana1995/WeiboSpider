@@ -35,6 +35,20 @@ def test_load_ps_function_exists():
     assert "loadPs();" in INDEX_HTML
 
 
+def test_xueqiu_tab_exists():
+    assert 'data-tab="xueqiu"' in INDEX_HTML
+    assert '雪球同步' in INDEX_HTML
+    assert 'platform-badge' in INDEX_HTML
+
+
+def test_xueqiu_functions_exist():
+    assert "async function triggerXueqiu(mode)" in INDEX_HTML
+    assert "async function saveXqCookie()" in INDEX_HTML
+    assert "fetch('/api/crawl/xueqiu'" in INDEX_HTML
+    assert "fetch(`/api/tweets?page=${currentPage}&per_page=${perPage}&deleted=${deleted}&platform=${platform}${uidParam}`)" in INDEX_HTML
+    assert "xqimg.imedao.com" in INDEX_HTML
+
+
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
     assert 'id="schedule-start-hour"' in INDEX_HTML

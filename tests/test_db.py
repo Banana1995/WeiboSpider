@@ -141,6 +141,37 @@ class TestTweetDB:
         assert db.count_tweets(deleted='only') == 2
         assert db.count_tweets(deleted='all') == 5
 
+    def test_get_tweets_filters_by_platform(self, db):
+        def ins(_id, content, platform):
+            db.insert_tweet({
+                '_id': _id, 'mblogid': f'Mb{_id}', 'user_id': '1087770692',
+                'content': content, 'created_at': '2026-01-01 10:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+                'platform': platform,
+            })
+        ins('1', '微博内容', 'weibo')
+        ins('2', '雪球内容', 'xueqiu')
+        assert len(db.get_tweets(page=1, per_page=10, platform='weibo')) == 1
+        assert len(db.get_tweets(page=1, per_page=10, platform='xueqiu')) == 1
+        assert len(db.get_tweets(page=1, per_page=10, platform='all')) == 2
+        assert db.count_tweets(platform='xueqiu') == 1
+
+    def test_migrate_retweet_trash_skips_xueqiu(self, db):
+        # 雪球"转发他人"的帖子不应被微博的迁移逻辑扔进回收站
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '转发他人内容', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 1, 'retweet_id': '999', 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu', 'retweet_user_id': '123456', 'retweet_user': '别人',
+            'screen_name': '博主',
+        })
+        db.migrate_retweet_trash()
+        assert db.count_tweets(deleted='exclude', platform='xueqiu') == 1
+
     def test_get_ps_tweets_filters_by_keyword(self, db):
         def ins(_id, content, created_at):
             db.insert_tweet({

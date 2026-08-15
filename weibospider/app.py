@@ -325,6 +325,159 @@ def _crawl_comments(scheduler=None, mode='full'):
     return {'status': 'completed', 'stats': stats}
 
 
+XUEQIU_UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+             'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36')
+
+
+def _xueqiu_clean_html(h):
+    """Strip HTML tags and unescape entities from xueqiu description/text."""
+    import re as _re
+    import html as _html
+    if not h:
+        return ''
+    h = _re.sub(r'<[^>]+>', '', h)
+    return _html.unescape(h).strip()
+
+
+def _xueqiu_to_item(s):
+    """Convert a xueqiu timeline status dict into our tweets-table item dict."""
+    created = None
+    if s.get('created_at'):
+        created = datetime.fromtimestamp(s['created_at'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    title = (s.get('title') or '').strip()
+    text = _xueqiu_clean_html(s.get('text') or s.get('description') or '')
+    content = title
+    if text and text != title:
+        content = (title + '\n' + text) if title else text
+    content = content.strip() or '(无内容)'
+    pics = [p for p in (s.get('pic') or '').split(',') if p]
+    rid = s.get('retweeted_status') or {}
+    retweet_content, retweet_user, retweet_user_id, retweet_pics = '', '', '', []
+    if rid:
+        rtitle = (rid.get('title') or '').strip()
+        rtext = _xueqiu_clean_html(rid.get('text') or rid.get('description') or '')
+        if rtext and rtext != rtitle:
+            retweet_content = (rtitle + '\n' + rtext).strip() if rtitle else rtext
+        else:
+            retweet_content = rtitle or rtext
+        ruser = rid.get('user') or {}
+        retweet_user = ruser.get('screen_name') or ''
+        retweet_user_id = str(ruser.get('id') or '')
+        retweet_pics = [p for p in (rid.get('pic') or '').split(',') if p]
+    user = s.get('user') or {}
+    ext = s.get('extend_st_home_page') or {}
+    return {
+        '_id': 'xq' + str(s['id']),
+        'mblogid': str(s['id']),
+        'content': content,
+        'user_id': str(s.get('user_id') or ''),
+        'created_at': created,
+        'reposts_count': s.get('retweet_count', 0),
+        'comments_count': s.get('reply_count', 0),
+        'attitudes_count': s.get('fav_count', 0),
+        'pic_urls': pics,
+        'pic_num': len(pics),
+        'source': '雪球',
+        'ip_location': ext.get('ip_location', ''),
+        'is_retweet': bool(rid),
+        'retweet_id': str(rid.get('id')) if rid else None,
+        'url': 'https://xueqiu.com' + (s.get('target') or ''),
+        'crawl_time': int(time.time()),
+        'screen_name': user.get('screen_name') or '',
+        'retweet_content': retweet_content,
+        'retweet_user': retweet_user,
+        'retweet_user_id': retweet_user_id,
+        'retweet_pic_urls': retweet_pics,
+        'retweet_has_video': 0,
+        'platform': 'xueqiu',
+    }
+
+
+def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
+    """Crawl xueqiu user timeline via user_timeline.json.
+
+    mode='full' paginates until the last page; 'incremental' stops once it
+    reaches the newest already-stored post. max_pages caps the pages fetched.
+    """
+    cookie = DB.get_config('xq_cookie', '')
+    if not cookie:
+        return {'status': 'failed', 'error': '未配置雪球 Cookie'}
+    user_id = DB.get_config('xq_user_id', '8790885129') or '8790885129'
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'crawl.log')
+    _log, _ = _make_log_helpers('xueqiu', log_file, {})
+    _log(f"====== 开始抓取雪球 (mode={mode}, user={user_id}) ======")
+
+    stop_id = None
+    if mode == 'incremental':
+        stop_id = DB.get_latest_xueqiu_id()
+        _log(f"增量模式: 最新已存帖子 {stop_id}")
+
+    import urllib.request
+    headers = {
+        'User-Agent': XUEQIU_UA,
+        'Cookie': cookie,
+        'Referer': f'https://xueqiu.com/u/{user_id}',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+    page = 1
+    new_count = 0
+    stopped = False
+    page_limit = max_pages or 3000
+    while page <= page_limit:
+        if scheduler is not None and getattr(scheduler, 'xueqiu_cancelled', False):
+            _log("用户取消了雪球抓取")
+            return {'status': 'cancelled'}
+        url = (f'https://xueqiu.com/statuses/user_timeline.json'
+               f'?user_id={user_id}&page={page}')
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+        except Exception as e:
+            _log(f"page={page} 请求失败: {e}，重试一次")
+            time.sleep(2)
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    body = resp.read().decode('utf-8', 'replace')
+            except Exception as e2:
+                _log(f"page={page} 重试仍失败: {e2}，停止")
+                break
+        try:
+            data = json.loads(body)
+        except Exception:
+            _log(f"page={page} 返回非 JSON（可能被 WAF 拦截），停止")
+            break
+        statuses = data.get('statuses') or []
+        if not statuses:
+            break
+        for s in statuses:
+            if stop_id:
+                try:
+                    if int(s['id']) <= int(stop_id[2:]):
+                        stopped = True
+                        break
+                except (KeyError, ValueError, TypeError):
+                    pass
+            try:
+                DB.insert_tweet(_xueqiu_to_item(s))
+                new_count += 1
+            except Exception as e:
+                _log(f"写入失败 xq{s.get('id')}: {e}")
+        if stopped:
+            _log(f"已到达最新已存帖子，停止 (page={page})")
+            break
+        max_page = data.get('maxPage') or page
+        if page >= max_page:
+            break
+        page += 1
+        time.sleep(1)
+    _log(f"雪球抓取完成 (新增 {new_count} 条, 共 {page} 页)")
+    return {'status': 'completed', 'stats': {'new': new_count, 'pages': page}}
+
+
 _img_cache = {}
 _img_cache_lock = threading.Lock()
 
@@ -334,8 +487,11 @@ def api_img():
     url = request.args.get('url', '')
     if not url.startswith(('https://wx1.sinaimg.cn/', 'https://wx2.sinaimg.cn/',
                            'https://wx3.sinaimg.cn/', 'https://wx4.sinaimg.cn/',
-                           'https://wx1.sinaimg.cn/')):
+                           'https://xqimg.imedao.com/', 'https://img.xueqiu.com/',
+                           'https://xueqiu.com/')):
         return Response('invalid url', status=400)
+
+    referer = 'https://xueqiu.com/' if url.startswith('https://xqimg.') or url.startswith('https://img.xueqiu.com/') or url.startswith('https://xueqiu.com/') else 'https://weibo.com/'
 
     with _img_cache_lock:
         cached = _img_cache.get(url)
@@ -347,7 +503,7 @@ def api_img():
         import urllib.request
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://weibo.com/',
+            'Referer': referer,
         })
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = resp.read()
@@ -382,13 +538,15 @@ def api_tweets():
     sort = request.args.get('sort', 'desc')
     deleted = request.args.get('deleted', 'exclude')
     user_id = request.args.get('user_id')  # optional filter
+    platform = request.args.get('platform', 'weibo')  # weibo/xueqiu/all
 
     page = max(page, 1)
     per_page = min(max(per_page, 1), 200)
 
-    tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted, user_id=user_id)
+    tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted,
+                           user_id=user_id, platform=platform)
     _attach_comments_annotations(tweets)
-    total = DB.count_tweets(deleted=deleted, user_id=user_id)
+    total = DB.count_tweets(deleted=deleted, user_id=user_id, platform=platform)
     return jsonify({'tweets': tweets, 'total': total, 'page': page, 'per_page': per_page})
 
 
@@ -604,6 +762,16 @@ def api_crawl_incremental():
     return jsonify(result)
 
 
+@app.route('/api/crawl/xueqiu', methods=['POST'])
+def api_crawl_xueqiu():
+    if SCHEDULER is None:
+        return jsonify({'status': 'error', 'message': 'Scheduler not available'})
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'full')
+    DB.insert_log('crawl', 'xueqiu_' + mode, detail=f'mode={mode}', user='web')
+    return jsonify(SCHEDULER.manual_xueqiu(mode=mode))
+
+
 def _read_log_tail(max_lines=200, log_file=None):
     """Read the last max_lines non-empty lines from crawl.log for polling display."""
     if log_file is None:
@@ -626,6 +794,7 @@ def api_crawl_status():
         status = {
             'tweet': {'running': False, 'last_result': None},
             'comment': {'running': False, 'last_result': None},
+            'xueqiu': {'running': False, 'last_result': None},
         }
     else:
         status = SCHEDULER.status
@@ -666,6 +835,8 @@ def api_get_config():
     from keepalive import get_alf_expiry
     cookie = DB.get_config('cookie', '')
     masked = cookie[:20] + '...' + cookie[-10:] if len(cookie) > 30 else cookie
+    xq_cookie = DB.get_config('xq_cookie', '')
+    xq_masked = xq_cookie[:20] + '...' + xq_cookie[-10:] if len(xq_cookie) > 30 else xq_cookie
     config = _get_schedule_config()
     alf_ts = get_alf_expiry(cookie)
     cookie_expiry = None
@@ -680,6 +851,9 @@ def api_get_config():
         'cookie_masked': masked,
         'cookie_expiry': cookie_expiry,
         'cookie_days_left': cookie_days_left,
+        'xq_cookie': xq_cookie,
+        'xq_cookie_masked': xq_masked,
+        'xq_user_id': DB.get_config('xq_user_id', '8790885129'),
         'start_date': DB.get_config('start_date', ''),
         'end_date': DB.get_config('end_date', ''),
         **config,
@@ -696,6 +870,13 @@ def api_set_config():
         DB.set_config('cookie', data['cookie'])
         updated['cookie'] = True
         DB.insert_log('config', 'set_cookie', status='success', user='web')
+    if 'xq_cookie' in data:
+        DB.set_config('xq_cookie', data['xq_cookie'])
+        updated['xq_cookie'] = True
+        DB.insert_log('config', 'set_xq_cookie', status='success', user='web')
+    if 'xq_user_id' in data:
+        DB.set_config('xq_user_id', str(data['xq_user_id']))
+        updated['xq_user_id'] = data['xq_user_id']
     if 'user_ids' in data:
         user_ids = data['user_ids']
         if isinstance(user_ids, str):
@@ -937,7 +1118,8 @@ def create_app(db_path=None, debug=False):
             from keepalive import refresh_cookie
             _keepalive = lambda: refresh_cookie(DB)
             SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments,
-                                       keepalive_func=_keepalive)
+                                       keepalive_func=_keepalive,
+                                       crawl_xueqiu_func=_crawl_xueqiu)
             SCHEDULER._log_to_db = lambda cat, act, detail=None, status=None, user='scheduler': \
                 DB.insert_log(cat, act, detail=detail, status=status, user=user)
             SCHEDULER._get_cookie = lambda: DB.get_config('cookie', '') or ''

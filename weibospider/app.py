@@ -393,6 +393,136 @@ def _xueqiu_to_item(s):
     }
 
 
+def _xueqiu_comment_to_item(cm, tweet_id):
+    """Convert a xueqiu comments.json comment dict into a comments-table item.
+
+    xq comment ids are prefixed 'xc' + numeric id to avoid collisions with
+    weibo comment ids (both tables share the same comments table).
+    """
+    created = None
+    if cm.get('created_at'):
+        created = datetime.fromtimestamp(cm['created_at'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    user = cm.get('user') or {}
+    item = {
+        '_id': 'xc' + str(cm.get('id', '')),
+        'tweet_id': tweet_id,
+        'content': _xueqiu_clean_html(cm.get('text') or cm.get('description') or ''),
+        'created_at': created,
+        'like_counts': cm.get('like_count', 0),
+        'ip_location': cm.get('ip_location', ''),
+        'comment_user': {
+            '_id': str(cm.get('user_id', '')),
+            'nick_name': user.get('screen_name', ''),
+        },
+        'reply_comment': None,
+        'crawl_time': int(time.time()),
+        'parent_comment_id': None,
+        'sort_order': 0,
+        'platform': 'xueqiu',
+    }
+    reply_id = cm.get('in_reply_to_comment_id')
+    if reply_id:
+        item['parent_comment_id'] = 'xc' + str(reply_id)
+        item['reply_comment'] = {
+            '_id': str(reply_id),
+            'text': '',
+            'user': {'_id': '', 'nick_name': cm.get('reply_screenName') or ''},
+        }
+    return item
+
+
+def _flatten_xueqiu_comments(comments, tweet_id):
+    """Flatten a page of xueqiu comments (with child_comments) into flat items.
+
+    Top-level comments keep sort_order 0..n; each child is appended after its
+    parent with parent_comment_id pointing at the parent's stored 'xc' id.
+    """
+    items = []
+    seq = 0
+    for cm in comments:
+        if not isinstance(cm, dict):
+            continue
+        item = _xueqiu_comment_to_item(cm, tweet_id)
+        item['sort_order'] = seq
+        seq += 1
+        items.append(item)
+        for child in cm.get('child_comments') or []:
+            if not isinstance(child, dict):
+                continue
+            citem = _xueqiu_comment_to_item(child, tweet_id)
+            citem['parent_comment_id'] = 'xc' + str(cm.get('id', ''))
+            citem['sort_order'] = seq
+            seq += 1
+            items.append(citem)
+    return items
+
+
+def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
+    """Crawl xueqiu comments via api.xueqiu.com (bypasses main-domain WAF).
+
+    mode='ps' targets xueqiu PS图 posts (small batch); 'all' targets every
+    xueqiu post. Paginates comments.json per tweet, flattens nested replies,
+    and stores them into the shared comments table with platform='xueqiu'.
+    """
+    cookie = DB.get_config('xq_cookie', '')
+    if not cookie:
+        return {'status': 'failed', 'error': '未配置雪球 Cookie'}
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'crawl.log')
+    _log, _ = _make_log_helpers('xueqiu_comment', log_file, {})
+    _log(f"====== 开始抓取雪球评论 (mode={mode}) ======")
+
+    targets = DB.get_xueqiu_tweets_for_comment_crawl(ps_only=(mode == 'ps'))
+    _log(f"目标帖子数: {len(targets)}")
+    if not targets:
+        _log("没有需要抓评论的雪球帖子")
+        return {'status': 'completed', 'stats': {'new': 0, 'tweets': 0}}
+
+    headers = {
+        'User-Agent': XUEQIU_UA,
+        'Cookie': cookie,
+        'Referer': 'https://xueqiu.com/',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+    import urllib.request
+
+    total_new = 0
+    for idx, (tweet_id, xq_id) in enumerate(targets, 1):
+        if scheduler is not None and getattr(scheduler, 'xueqiu_cancelled', False):
+            _log("用户取消了雪球评论抓取")
+            return {'status': 'cancelled'}
+        page = 1
+        tweet_new = 0
+        while page <= 100:
+            url = (f'https://api.xueqiu.com/statuses/comments.json'
+                   f'?id={xq_id}&count=50&page={page}')
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    body = resp.read().decode('utf-8', 'replace')
+                data = json.loads(body)
+            except Exception as e:
+                _log(f"[{idx}/{len(targets)}] {tweet_id} page={page} 请求失败: {e}，停止该帖")
+                break
+            comments = data.get('comments') or []
+            if not comments:
+                break
+            items = _flatten_xueqiu_comments(comments, tweet_id)
+            if items:
+                DB.batch_insert_comments(items)
+                tweet_new += len(items)
+            max_page = data.get('maxPage') or page
+            if page >= max_page:
+                break
+            page += 1
+            time.sleep(0.8)
+        total_new += tweet_new
+        _log(f"[{idx}/{len(targets)}] {tweet_id} 评论 {tweet_new} 条 (page={page})")
+    _log(f"雪球评论抓取完成 (新增 {total_new} 条)")
+    return {'status': 'completed', 'stats': {'new': total_new, 'tweets': len(targets)}}
+
+
 def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
     """Crawl xueqiu user timeline via user_timeline.json.
 
@@ -661,12 +791,75 @@ def api_delete_annotation(ann_id):
     return jsonify({'deleted': True})
 
 
+def _crawl_single_xueqiu_comments(tweet_id):
+    """Crawl comments for one xueqiu tweet via api.xueqiu.com (WAF-free)."""
+    cookie = DB.get_config('xq_cookie', '')
+    if not cookie:
+        return jsonify({'error': '未配置雪球 Cookie'}), 400
+    xq_id = tweet_id[2:] if tweet_id.startswith('xq') else tweet_id
+
+    comments_before = DB.conn.execute(
+        "SELECT COUNT(*) FROM comments WHERE tweet_id=?", (tweet_id,)
+    ).fetchone()[0]
+
+    headers = {
+        'User-Agent': XUEQIU_UA,
+        'Cookie': cookie,
+        'Referer': 'https://xueqiu.com/',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+    import urllib.request
+
+    all_items = []
+    page = 1
+    try:
+        while page <= 100:
+            url = (f'https://api.xueqiu.com/statuses/comments.json'
+                   f'?id={xq_id}&count=50&page={page}')
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+            data = json.loads(body)
+            comments = data.get('comments') or []
+            if not comments:
+                break
+            all_items.extend(_flatten_xueqiu_comments(comments, tweet_id))
+            max_page = data.get('maxPage') or page
+            if page >= max_page:
+                break
+            page += 1
+            time.sleep(0.8)
+    except Exception as e:
+        DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
+                       detail=f'tweet={tweet_id} error={e}', status='failed', user='web')
+        return jsonify({'error': f'雪球评论抓取失败: {e}'}), 500
+
+    if all_items:
+        DB.batch_insert_comments(all_items)
+    comments = DB.get_comments(tweet_id, sort='hot')
+    new_count = len(comments) - comments_before
+    DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
+                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
+                   status='success', user='web')
+    return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
+
+
 @app.route('/api/tweets/<tweet_id>/crawl-comments', methods=['POST'])
 def api_crawl_comments(tweet_id):
-    """Crawl hot-sorted comments for a single tweet on demand."""
+    """Crawl hot-sorted comments for a single tweet on demand.
+
+    Weibo tweets use the scrapy comment spider; xueqiu tweets use the
+    api.xueqiu.com comments endpoint (bypasses main-domain WAF).
+    """
     tweet = DB.get_tweet(tweet_id)
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
+
+    if tweet.get('platform') == 'xueqiu':
+        return _crawl_single_xueqiu_comments(tweet_id)
+
     mblogid = tweet.get('mblogid')
     if not mblogid:
         return jsonify({'error': 'tweet has no mblogid'}), 400
@@ -770,6 +963,16 @@ def api_crawl_xueqiu():
     mode = data.get('mode', 'full')
     DB.insert_log('crawl', 'xueqiu_' + mode, detail=f'mode={mode}', user='web')
     return jsonify(SCHEDULER.manual_xueqiu(mode=mode))
+
+
+@app.route('/api/crawl/xueqiu-comments', methods=['POST'])
+def api_crawl_xueqiu_comments():
+    if SCHEDULER is None:
+        return jsonify({'status': 'error', 'message': 'Scheduler not available'})
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'ps')
+    DB.insert_log('crawl', 'xueqiu_comments_' + mode, detail=f'mode={mode}', user='web')
+    return jsonify(SCHEDULER.manual_xueqiu_comments(mode=mode))
 
 
 def _read_log_tail(max_lines=200, log_file=None):
@@ -1119,7 +1322,8 @@ def create_app(db_path=None, debug=False):
             _keepalive = lambda: refresh_cookie(DB)
             SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments,
                                        keepalive_func=_keepalive,
-                                       crawl_xueqiu_func=_crawl_xueqiu)
+                                       crawl_xueqiu_func=_crawl_xueqiu,
+                                       crawl_xueqiu_comments_func=_crawl_xueqiu_comments)
             SCHEDULER._log_to_db = lambda cat, act, detail=None, status=None, user='scheduler': \
                 DB.insert_log(cat, act, detail=detail, status=status, user=user)
             SCHEDULER._get_cookie = lambda: DB.get_config('cookie', '') or ''

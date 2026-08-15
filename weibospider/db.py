@@ -84,6 +84,7 @@ class TweetDB:
             "ALTER TABLE comments ADD COLUMN sort_order INTEGER DEFAULT 0",
             "ALTER TABLE annotations ADD COLUMN ranges TEXT",
             "ALTER TABLE tweets ADD COLUMN platform TEXT DEFAULT 'weibo'",
+            "ALTER TABLE comments ADD COLUMN platform TEXT DEFAULT 'weibo'",
             ]:
                 try:
                     self.conn.execute(sql)
@@ -102,7 +103,8 @@ class TweetDB:
             reply_comment   TEXT,
             crawl_time      INTEGER,
             parent_comment_id TEXT,
-            sort_order      INTEGER DEFAULT 0
+            sort_order      INTEGER DEFAULT 0,
+            platform        TEXT DEFAULT 'weibo'
         );
         CREATE TABLE IF NOT EXISTS config (
             key   TEXT PRIMARY KEY,
@@ -217,8 +219,8 @@ class TweetDB:
                 self.conn.execute("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
                 item['_id'], item['tweet_id'], item['content'],
                 item.get('created_at'), item.get('like_counts', 0),
@@ -228,6 +230,7 @@ class TweetDB:
                 item.get('crawl_time', int(time.time())),
                 item.get('parent_comment_id'),
                 item.get('sort_order', 0),
+                item.get('platform', 'weibo'),
             ))
                 self.conn.commit()
             finally:
@@ -325,6 +328,7 @@ class TweetDB:
                 item.get('crawl_time', crawl_time),
                 item.get('parent_comment_id'),
                 item.get('sort_order', 0),
+                item.get('platform', 'weibo'),
             ))
         with self._lock:
             if not self._acquire_file_lock():
@@ -333,8 +337,8 @@ class TweetDB:
                 self.conn.executemany("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
                 self.conn.commit()
             except Exception:
@@ -554,6 +558,23 @@ class TweetDB:
                 (f'-{hours} hours',)
             ).fetchall()
             return [(r[0], r[1]) for r in rows]
+
+    def get_xueqiu_tweets_for_comment_crawl(self, ps_only=True):
+        """Return (id, xq_id) tuples for xueqiu tweets eligible for comment crawl.
+
+        ps_only=True limits to non-deleted xueqiu posts whose content mentions
+        'PS图' (the small-batch target for comment crawling). Returns stored id
+        (with 'xq' prefix) and the numeric xueqiu id.
+        """
+        with self._lock:
+            sql = ("SELECT id FROM tweets WHERE platform='xueqiu' AND deleted=0")
+            params = []
+            if ps_only:
+                sql += " AND content LIKE ?"
+                params.append('%PS图%')
+            sql += " ORDER BY created_at DESC"
+            rows = self.conn.execute(sql, params).fetchall()
+            return [(r[0], r[0][2:]) for r in rows]
 
     def stats(self):
         with self._lock:

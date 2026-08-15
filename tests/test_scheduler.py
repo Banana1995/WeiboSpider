@@ -66,6 +66,21 @@ class TestScheduler:
         result = sch.manual_xueqiu()
         assert result['status'] == 'error'
 
+    def test_manual_xueqiu_comments(self, scheduler):
+        sch, calls = scheduler
+        xq_calls = []
+        sch.crawl_xueqiu_comments_func = lambda sch, mode='ps': xq_calls.append(mode)
+        result = sch.manual_xueqiu_comments(mode='ps')
+        assert result['status'] == 'started'
+        time.sleep(0.3)
+        assert xq_calls == ['ps']
+        assert sch.status['xueqiu_comment']['running'] is False
+
+    def test_manual_xueqiu_comments_unconfigured(self, scheduler):
+        sch, calls = scheduler
+        result = sch.manual_xueqiu_comments()
+        assert result['status'] == 'error'
+
     def test_manual_crawl_rejected_when_running(self, scheduler):
         sch, calls = scheduler
         sch.manual_crawl()

@@ -208,6 +208,57 @@ class TestTweetDB:
         comments = db.get_comments('1')
         assert len(comments) == 3
 
+    def test_insert_comment_platform_column(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        db.insert_comment({
+            '_id': 'xc1', 'tweet_id': 'xq1', 'content': '雪球评论',
+            'created_at': '2026-01-01 11:00:00', 'like_counts': 1,
+            'ip_location': '上海', 'comment_user': '{"nick_name":"鹿公"}',
+            'reply_comment': None, 'crawl_time': 0, 'platform': 'xueqiu',
+        })
+        row = db.conn.execute("SELECT platform FROM comments WHERE id='xc1'").fetchone()
+        assert row[0] == 'xueqiu'
+
+    def test_get_xueqiu_tweets_for_comment_crawl(self, db):
+        from datetime import datetime, timedelta
+        recent = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+        def ins(_id, content, platform, deleted=False):
+            db.insert_tweet({
+                '_id': _id, 'mblogid': _id, 'user_id': '8790885129',
+                'content': content, 'created_at': recent,
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+                'platform': platform,
+            })
+            if deleted:
+                db.batch_delete([_id])
+        ins('xq1', '游戏仓6月PS图 本月收盘1696W', 'xueqiu')
+        ins('xq2', '游戏仓5月PS图 本月收盘1999.1W', 'xueqiu')
+        ins('xq3', '普通雪球讨论帖', 'xueqiu')
+        ins('xq4', '游戏仓4月PS图（已删除）', 'xueqiu', deleted=True)
+        ins('w1', '微博PS图内容', 'weibo')
+
+        # ps_only=True → only non-deleted xueqiu PS图 posts
+        result = db.get_xueqiu_tweets_for_comment_crawl(ps_only=True)
+        assert ('xq1', '1') in result
+        assert ('xq2', '2') in result
+        assert ('xq3', '3') not in result
+        assert ('xq4', '4') not in result
+        assert ('w1', '1') not in result
+
+        # ps_only=False → all non-deleted xueqiu posts
+        result_all = db.get_xueqiu_tweets_for_comment_crawl(ps_only=False)
+        assert ('xq3', '3') in result_all
+        assert ('w1', '1') not in result_all
+
     def test_batch_delete(self, db):
         for i in range(3):
             db.insert_tweet({

@@ -262,6 +262,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <button class="btn btn-primary" id="btn-incremental" style="background:#27ae60;">增量同步</button>
         <button class="btn btn-primary" id="btn-xueqiu" style="background:#3377aa;">雪球同步</button>
         <button class="btn btn-primary" id="btn-xueqiu-inc" style="background:#5a9bd5;">雪球增量</button>
+        <button class="btn btn-primary" id="btn-xueqiu-comments" style="background:#7a3d9e;">雪球评论</button>
         <div style="position:relative;display:inline-block;">
           <button class="btn btn-primary" id="btn-export" style="background:#555;">导出 PDF</button>
         </div>
@@ -441,6 +442,7 @@ document.getElementById('btn-crawl').addEventListener('click', () => triggerCraw
 document.getElementById('btn-incremental').addEventListener('click', () => triggerIncremental());
 document.getElementById('btn-xueqiu').addEventListener('click', () => triggerXueqiu('full'));
 document.getElementById('btn-xueqiu-inc').addEventListener('click', () => triggerXueqiu('incremental'));
+document.getElementById('btn-xueqiu-comments').addEventListener('click', () => triggerXueqiuComments('ps'));
 document.getElementById('btn-export').addEventListener('click', exportPDF);
 document.getElementById('btn-batch-delete').addEventListener('click', batchDelete);
 document.getElementById('btn-batch-restore').addEventListener('click', batchRestore);
@@ -1061,6 +1063,29 @@ async function triggerXueqiu(mode) {
   btn.textContent = mode === 'full' ? '雪球同步' : '雪球增量';
 }
 
+async function triggerXueqiuComments(mode) {
+  const btn = $('btn-xueqiu-comments');
+  btn.disabled = true;
+  btn.textContent = '抓取中...';
+  $('crawl-log').classList.remove('collapsed', 'error');
+  $('crawl-log-toggle').textContent = '收起 ▲';
+  $('crawl-log-body').textContent = '正在抓取雪球评论...';
+  try {
+    const resp = await fetch('/api/crawl/xueqiu-comments', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode}),
+    });
+    const data = await resp.json();
+    if (data.status === 'started') {
+      toast('雪球评论抓取已启动');
+      $('crawl-log-body').textContent = '等待日志...';
+    } else toast(data.message || data.error, true);
+  } catch(e) { toast('请求失败', true); }
+  btn.disabled = false;
+  btn.textContent = '雪球评论';
+}
+
 let lastCrawlResult = null;
 let lastLogText = null;
 
@@ -1074,7 +1099,8 @@ async function pollCrawlStatus() {
   const tweetRunning = data.tweet && data.tweet.running;
   const commentRunning = data.comment && data.comment.running;
   const xqRunning = data.xueqiu && data.xueqiu.running;
-  const anyRunning = tweetRunning || commentRunning || xqRunning;
+  const xqCommentRunning = data.xueqiu_comment && data.xueqiu_comment.running;
+  const anyRunning = tweetRunning || commentRunning || xqRunning || xqCommentRunning;
 
   if (anyRunning) {
     $('crawl-banner').classList.add('show');
@@ -1082,6 +1108,7 @@ async function pollCrawlStatus() {
     $('btn-incremental').disabled = true;
     $('btn-xueqiu').disabled = true;
     $('btn-xueqiu-inc').disabled = true;
+    $('btn-xueqiu-comments').disabled = true;
     $('crawl-log').classList.remove('collapsed');
     $('crawl-log-toggle').textContent = '收起 ▲';
   } else {
@@ -1092,11 +1119,13 @@ async function pollCrawlStatus() {
     $('btn-incremental').textContent = '增量同步';
     $('btn-xueqiu').disabled = false;
     $('btn-xueqiu-inc').disabled = false;
+    $('btn-xueqiu-comments').disabled = false;
     const tweetResult = data.tweet && data.tweet.last_result;
     const commentResult = data.comment && data.comment.last_result;
     const xqResult = data.xueqiu && data.xueqiu.last_result;
-    if (tweetResult || commentResult || xqResult) {
-      const key = JSON.stringify({t: tweetResult, c: commentResult, x: xqResult});
+    const xqCommentResult = data.xueqiu_comment && data.xueqiu_comment.last_result;
+    if (tweetResult || commentResult || xqResult || xqCommentResult) {
+      const key = JSON.stringify({t: tweetResult, c: commentResult, x: xqResult, qc: xqCommentResult});
       if (key !== lastCrawlResult) {
         lastCrawlResult = key;
         reloadList();
@@ -1127,6 +1156,9 @@ async function cancelCrawl() {
     $('btn-crawl').textContent = '立即抓取';
     $('btn-incremental').disabled = false;
     $('btn-incremental').textContent = '增量同步';
+    $('btn-xueqiu').disabled = false;
+    $('btn-xueqiu-inc').disabled = false;
+    $('btn-xueqiu-comments').disabled = false;
     $('crawl-log-body').textContent = '抓取已取消';
     $('crawl-log').classList.remove('collapsed');
     $('crawl-log-toggle').textContent = '收起 ▲';

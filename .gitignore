@@ -9,3 +9,5 @@ crawl.log
 server.log
 *.db-shm
 *.db-wal
+venv/
+*.pid

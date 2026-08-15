@@ -49,6 +49,14 @@ def test_xueqiu_functions_exist():
     assert "xqimg.imedao.com" in INDEX_HTML
 
 
+def test_xueqiu_comments_button_exists():
+    assert 'id="btn-xueqiu-comments"' in INDEX_HTML
+    assert '雪球评论' in INDEX_HTML
+    assert "async function triggerXueqiuComments(mode)" in INDEX_HTML
+    assert "fetch('/api/crawl/xueqiu-comments'" in INDEX_HTML
+    assert "data.xueqiu_comment" in INDEX_HTML
+
+
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
     assert 'id="schedule-start-hour"' in INDEX_HTML

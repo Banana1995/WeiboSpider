@@ -9,6 +9,15 @@
 - **技术栈**：Python 3.9 / Scrapy 2.5 / Flask 2.3 / Waitress / APScheduler / SQLite / SSE / Headless Chrome（PDF）
 - **License**：MIT
 - **仓库**：https://github.com/Banana1995/WeiboSpider（公有仓库，master 分支）
+- **前端**：原生 JS SPA（无框架，单文件 `weibospider/static/index.html`），Flask 提供静态文件
+
+## 当前状态（2026-08-14 快照）
+
+- **部署**：线上正常运行，容器 Up，服务端一切健康（页面 /api/tweets /api/stats 均 200）
+- **GitHub Actions**：自动部署全绿，push master 即自动部署 + 邮件通知
+- **数据量**：微博 4954 条（已删 2449），评论 109083 条
+- **已有功能**：定时抓取、热度评论、PDF 导出、批量管理、图片代理、**图片灯箱（点击看大图）**
+- **HTTPS**：未启用（纯 IP 无法签发可信证书，保留 HTTP；无密码类敏感数据，风险可控）
 
 ## 目录结构
 
@@ -151,6 +160,29 @@ gh run view <run_id> -R Banana1995/WeiboSpider --log   # 完整日志
 ```
 - 邮件通知步骤失败会导致整体标红，但**部署本身可能已成功**（看 Deploy via SSH 步骤是否 `✓ 更新成功`）。
 - Secrets 在 push 之前才配置时，本次运行会因拿不到值失败，重新 push 即可。
+
+### 6. 图片灯箱（已实现）——点击缩略图看大图
+
+纯前端功能，位于 `weibospider/static/index.html`：
+
+- **CSS**：`.lightbox` 全屏遮罩（`rgba(0,0,0,0.9)`，z-index 10000），`.lb-close` 关闭按钮，`.lb-loading` 加载提示。
+- **HTML**：`<div id="lightbox">` 内含 `#lightbox-img` 和 `#lightbox-loading`，位于页面底部（toast 之后）。
+- **JS 函数**：
+  - `toFullSize(u)`：把 sinaimg URL 的尺寸后缀 `orj960/wap720/mw690/bmiddle/thumbnail` 替换为 `large`（原图，清晰度更高）。
+  - `openLightbox(thumbUrl)`：先加载 `large` 原图（经 `proxyImg` 代理），失败自动回退到缩略图，成功则隐藏 loading。
+  - `closeLightbox()`：移除 `show` class 并清空 `img src`。
+  - 事件：`document` 委托 click（`e.target.closest('.card-images img')`）打开灯箱，从 `src` 中解析 `url=` 参数还原原始图片 URL；keydown Esc 关闭。
+- **注意**：缩略图 `src` 是代理地址（`/api/img?url=...`），打开灯箱时必须用 `decodeURIComponent` 从 `url=` 参数还原真实 sinaimg URL 再传给 `openLightbox`。
+
+### 7. 页面"加载中"排查（经验）
+
+**现象**：页面能打开但卡在"加载中"，列表不渲染。
+
+**排查流程**（区分服务端 vs 浏览器端）：
+1. 先验证服务端：`curl -s -o /dev/null -w "%{http_code}" http://43.130.247.183:5050/api/tweets` — 200 说明后端正常。
+2. 看容器日志：`ssh weibo 'docker compose logs --tail 50'` — 确认抓取/调度正常。
+3. 用浏览器 DevTools 检查：Network 里 `/api/tweets` 是否 200；Console 是否有 JS 异常。
+4. **常见误判**：`favicon.ico` 的 404 是正常的，与崩溃无关；"加载中"可能只是瞬间状态或浏览器缓存，先强刷（Cmd/Ctrl+Shift+R）再判断。
 
 ## 安全约定
 

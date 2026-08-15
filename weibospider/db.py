@@ -576,6 +576,75 @@ class TweetDB:
             rows = self.conn.execute(sql, params).fetchall()
             return [(r[0], r[0][2:]) for r in rows]
 
+    def delete_xueqiu_comments(self, tweet_id):
+        """Delete all platform='xueqiu' comments for a tweet. Returns count deleted."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (delete_xueqiu_comments)")
+            try:
+                cur = self.conn.execute(
+                    "DELETE FROM comments WHERE tweet_id=? AND platform='xueqiu'",
+                    (tweet_id,)
+                )
+                self.conn.commit()
+                return cur.rowcount
+            finally:
+                self._release_file_lock()
+
+    def prune_xueqiu_comments(self, tweet_id, max_top=100):
+        """Keep only the top `max_top` hottest (by like_counts) xueqiu comments
+        for a tweet, along with any child replies of kept top-level comments.
+        Re-ranks kept comments' sort_order by heat (0 = hottest) so that
+        get_comments(sort='hot') displays them hottest-first.
+        Returns count of comments deleted.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, parent_comment_id, like_counts, created_at FROM comments "
+                "WHERE tweet_id=? AND platform='xueqiu'",
+                (tweet_id,)
+            ).fetchall()
+            if not rows:
+                return 0
+            top_level = [r for r in rows if not r['parent_comment_id']]
+            top_level.sort(key=lambda r: (-r['like_counts'], r['id']))
+            keep_ids = set()
+            for r in top_level[:max_top]:
+                keep_ids.add(r['id'])
+            # keep children whose parent is kept
+            children = [r for r in rows if r['parent_comment_id']]
+            keep_children = set()
+            for r in children:
+                if r['parent_comment_id'] in keep_ids:
+                    keep_children.add(r['id'])
+            keep_ids |= keep_children
+            delete_ids = [r['id'] for r in rows if r['id'] not in keep_ids]
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (prune_xueqiu_comments)")
+            try:
+                if delete_ids:
+                    placeholders = ','.join(['?'] * len(delete_ids))
+                    cur = self.conn.execute(
+                        f"DELETE FROM comments WHERE id IN ({placeholders})",
+                        list(delete_ids)
+                    )
+                else:
+                    cur = None
+                # Re-rank kept top-level comments by heat (0 = hottest)
+                rank = 0
+                for r in top_level[:max_top]:
+                    if r['id'] not in keep_ids:
+                        continue
+                    self.conn.execute(
+                        "UPDATE comments SET sort_order=? WHERE id=?",
+                        (rank, r['id'])
+                    )
+                    rank += 1
+                self.conn.commit()
+                return cur.rowcount if cur is not None else 0
+            finally:
+                self._release_file_lock()
+
     def stats(self):
         with self._lock:
             total = self.conn.execute("SELECT COUNT(*) FROM tweets").fetchone()[0]

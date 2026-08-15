@@ -105,3 +105,44 @@ class TestFlattenXueqiuComments:
         }
         items = app_module._flatten_xueqiu_comments([parent], 'xq1')
         assert [i['_id'] for i in items] == ['xc100']
+
+
+class TestSelectTopXueqiuItems:
+    def _cm(self, cid, likes, created=None, children=None):
+        return {
+            'id': cid, 'user_id': 1, 'created_at': created or (1786757651000 + cid),
+            'text': f'评论{cid}', 'like_count': likes, 'ip_location': '',
+            'user': {'screen_name': f'U{cid}'},
+            'child_comments': children or [],
+        }
+
+    def test_caps_at_max_top_and_sorts_by_heat(self):
+        comments = [self._cm(i, i) for i in range(1, 105)]  # 104 comments
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
+        # only 100 kept, hottest first
+        assert len(items) == 100
+        assert items[0]['_id'] == 'xc104'
+        assert items[99]['_id'] == 'xc5'
+        # sort_order is heat rank
+        assert items[0]['sort_order'] == 0
+        assert items[99]['sort_order'] == 99
+
+    def test_keeps_children_of_selected_top(self):
+        hot = self._cm(10, 99, children=[self._cm(101, 0), self._cm(102, 0)])
+        cold = self._cm(11, 0)
+        items = app_module._select_top_xueqiu_items([hot, cold], 'xq1', max_top=1)
+        ids = [i['_id'] for i in items]
+        assert ids == ['xc10', 'xc101', 'xc102']
+        assert items[1]['parent_comment_id'] == 'xc10'
+        assert items[2]['parent_comment_id'] == 'xc10'
+
+    def test_all_kept_when_under_limit(self):
+        comments = [self._cm(i, i) for i in range(1, 10)]
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
+        assert len(items) == 9
+        assert items[0]['_id'] == 'xc9'
+
+    def test_zero_like_comments_kept_until_cap(self):
+        comments = [self._cm(1, 0), self._cm(2, 0), self._cm(3, 0)]
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=2)
+        assert len(items) == 2

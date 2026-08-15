@@ -457,12 +457,34 @@ def _flatten_xueqiu_comments(comments, tweet_id):
     return items
 
 
+MAX_XUEQIU_COMMENTS = 100
+
+
+def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
+    """Select the top `max_top` hottest xueqiu comments (by like_count desc)
+    from all fetched pages, then flatten them with their child replies.
+
+    sort_order becomes the heat rank (0 = hottest), which `get_comments`
+    with sort='hot' uses to display hottest-first.
+    """
+    top_level = [c for c in comments if isinstance(c, dict)]
+    top_level.sort(
+        key=lambda c: (-int(c.get('like_count') or 0), str(c.get('id', ''))),
+    )
+    selected = top_level[:max_top]
+    return _flatten_xueqiu_comments(selected, tweet_id)
+
+
 def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     """Crawl xueqiu comments via api.xueqiu.com (bypasses main-domain WAF).
 
     mode='ps' targets xueqiu PS图 posts (small batch); 'all' targets every
-    xueqiu post. Paginates comments.json per tweet, flattens nested replies,
-    and stores them into the shared comments table with platform='xueqiu'.
+    xueqiu post. Keeps only the top MAX_XUEQIU_COMMENTS hottest comments per
+    post (like weibo's top-100 hot comment view).
+
+    For posts that already have stored comments (from a previous complete
+    crawl), this prunes existing data by like_counts — no network needed.
+    Only posts with zero stored comments are fetched fresh.
     """
     cookie = DB.get_config('xq_cookie', '')
     if not cookie:
@@ -487,13 +509,35 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     }
     import urllib.request
 
-    total_new = 0
+    total_kept = 0
+    fetched_posts = 0
+    pruned_posts = 0
     for idx, (tweet_id, xq_id) in enumerate(targets, 1):
         if scheduler is not None and getattr(scheduler, 'xueqiu_cancelled', False):
             _log("用户取消了雪球评论抓取")
             return {'status': 'cancelled'}
+        existing = DB.conn.execute(
+            "SELECT COUNT(*) FROM comments WHERE tweet_id=? AND platform='xueqiu'",
+            (tweet_id,)
+        ).fetchone()[0]
+
+        if existing > 0:
+            # Already crawled completely → prune stored data to top hot.
+            # (Skip pruning posts already under the cap to avoid churn.)
+            if existing > MAX_XUEQIU_COMMENTS:
+                DB.prune_xueqiu_comments(tweet_id, max_top=MAX_XUEQIU_COMMENTS)
+                pruned_posts += 1
+            kept = DB.conn.execute(
+                "SELECT COUNT(*) FROM comments WHERE tweet_id=? AND platform='xueqiu'",
+                (tweet_id,)
+            ).fetchone()[0]
+            total_kept += kept
+            _log(f"[{idx}/{len(targets)}] {tweet_id} 已有 {existing} 条，裁剪保留热度前{kept} 条")
+            continue
+
+        # Zero stored → fetch all pages then keep top hot
+        all_comments = []
         page = 1
-        tweet_new = 0
         while page <= 100:
             url = (f'https://api.xueqiu.com/statuses/comments.json'
                    f'?id={xq_id}&count=50&page={page}')
@@ -508,19 +552,24 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
             comments = data.get('comments') or []
             if not comments:
                 break
-            items = _flatten_xueqiu_comments(comments, tweet_id)
-            if items:
-                DB.batch_insert_comments(items)
-                tweet_new += len(items)
+            all_comments.extend(comments)
             max_page = data.get('maxPage') or page
             if page >= max_page:
                 break
             page += 1
             time.sleep(0.8)
-        total_new += tweet_new
-        _log(f"[{idx}/{len(targets)}] {tweet_id} 评论 {tweet_new} 条 (page={page})")
-    _log(f"雪球评论抓取完成 (新增 {total_new} 条)")
-    return {'status': 'completed', 'stats': {'new': total_new, 'tweets': len(targets)}}
+        items = _select_top_xueqiu_items(all_comments, tweet_id)
+        if items:
+            DB.delete_xueqiu_comments(tweet_id)
+            DB.batch_insert_comments(items)
+            total_kept += len(items)
+            fetched_posts += 1
+        _log(f"[{idx}/{len(targets)}] {tweet_id} 抓取 {len(items)} 条 (热度前{MAX_XUEQIU_COMMENTS}, pages={page})")
+    _log(f"雪球评论抓取完成 (保留 {total_kept} 条, 抓取 {fetched_posts} 帖, 裁剪 {pruned_posts} 帖)")
+    return {'status': 'completed', 'stats': {
+        'new': total_kept, 'tweets': len(targets),
+        'fetched': fetched_posts, 'pruned': pruned_posts,
+    }}
 
 
 def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
@@ -792,15 +841,15 @@ def api_delete_annotation(ann_id):
 
 
 def _crawl_single_xueqiu_comments(tweet_id):
-    """Crawl comments for one xueqiu tweet via api.xueqiu.com (WAF-free)."""
+    """Crawl comments for one xueqiu tweet via api.xueqiu.com (WAF-free).
+
+    Fetches all pages then keeps only the top MAX_XUEQIU_COMMENTS by heat
+    (like_count), replacing any previously stored xueqiu comments.
+    """
     cookie = DB.get_config('xq_cookie', '')
     if not cookie:
         return jsonify({'error': '未配置雪球 Cookie'}), 400
     xq_id = tweet_id[2:] if tweet_id.startswith('xq') else tweet_id
-
-    comments_before = DB.conn.execute(
-        "SELECT COUNT(*) FROM comments WHERE tweet_id=?", (tweet_id,)
-    ).fetchone()[0]
 
     headers = {
         'User-Agent': XUEQIU_UA,
@@ -812,7 +861,7 @@ def _crawl_single_xueqiu_comments(tweet_id):
     }
     import urllib.request
 
-    all_items = []
+    all_comments = []
     page = 1
     try:
         while page <= 100:
@@ -825,7 +874,7 @@ def _crawl_single_xueqiu_comments(tweet_id):
             comments = data.get('comments') or []
             if not comments:
                 break
-            all_items.extend(_flatten_xueqiu_comments(comments, tweet_id))
+            all_comments.extend(comments)
             max_page = data.get('maxPage') or page
             if page >= max_page:
                 break
@@ -836,10 +885,12 @@ def _crawl_single_xueqiu_comments(tweet_id):
                        detail=f'tweet={tweet_id} error={e}', status='failed', user='web')
         return jsonify({'error': f'雪球评论抓取失败: {e}'}), 500
 
-    if all_items:
-        DB.batch_insert_comments(all_items)
+    items = _select_top_xueqiu_items(all_comments, tweet_id)
+    if items:
+        DB.delete_xueqiu_comments(tweet_id)
+        DB.batch_insert_comments(items)
     comments = DB.get_comments(tweet_id, sort='hot')
-    new_count = len(comments) - comments_before
+    new_count = len(comments)
     DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
                    detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
                    status='success', user='web')

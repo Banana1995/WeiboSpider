@@ -226,6 +226,91 @@ class TestTweetDB:
         row = db.conn.execute("SELECT platform FROM comments WHERE id='xc1'").fetchone()
         assert row[0] == 'xueqiu'
 
+    def _insert_xq_comment(self, db, tweet_id, cid, likes, parent=None):
+        db.insert_comment({
+            '_id': cid, 'tweet_id': tweet_id, 'content': f'评论 {cid}',
+            'created_at': '2026-01-01 10:00:00', 'like_counts': likes,
+            'ip_location': '', 'comment_user': '{}', 'reply_comment': None,
+            'crawl_time': 0, 'parent_comment_id': parent, 'platform': 'xueqiu',
+        })
+
+    def test_delete_xueqiu_comments(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        db.insert_tweet({
+            '_id': 'xq2', 'mblogid': '2', 'user_id': '8790885129',
+            'content': '另一个雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        self._insert_xq_comment(db, 'xq1', 'xc1', 1)
+        self._insert_xq_comment(db, 'xq1', 'xc2', 2)
+        self._insert_xq_comment(db, 'xq2', 'xc3', 3)
+        deleted = db.delete_xueqiu_comments('xq1')
+        assert deleted == 2
+        assert db.conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0] == 1
+
+    def test_prune_xueqiu_comments_keeps_top_hot(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        # 5 top-level with likes 10..50, plus a child on the top one
+        for i in range(5):
+            self._insert_xq_comment(db, 'xq1', f'xc{i}', (i + 1) * 10)
+        self._insert_xq_comment(db, 'xq1', 'xc_child', 0, parent='xc4')
+        deleted = db.prune_xueqiu_comments('xq1', max_top=3)
+        remaining = db.conn.execute(
+            "SELECT id FROM comments WHERE tweet_id='xq1' ORDER BY like_counts DESC"
+        ).fetchall()
+        ids = [r[0] for r in remaining]
+        # top 3 by likes: xc4(50) xc3(40) xc2(30), plus child of xc4 kept
+        assert deleted == 2
+        assert 'xc4' in ids and 'xc3' in ids and 'xc2' in ids
+        assert 'xc1' not in ids and 'xc0' not in ids
+        assert 'xc_child' in ids
+
+    def test_prune_reranks_sort_order_by_heat(self, db):
+        db.insert_tweet({
+            '_id': 'xq1', 'mblogid': '1', 'user_id': '8790885129',
+            'content': '雪球帖', 'created_at': '2026-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            'platform': 'xueqiu',
+        })
+        # Insert out of heat order with distinct sort_order (as old time-ordered crawl would)
+        # xc_old1 (like 5) gets sort_order 0, xc_old2 (like 50) gets sort_order 1
+        for cid, likes, order in [('xc_old1', 5, 0), ('xc_old2', 50, 1)]:
+            db.insert_comment({
+                '_id': cid, 'tweet_id': 'xq1', 'content': f'评论 {cid}',
+                'created_at': '2026-01-01 10:00:00', 'like_counts': likes,
+                'ip_location': '', 'comment_user': '{}', 'reply_comment': None,
+                'crawl_time': 0, 'parent_comment_id': None, 'platform': 'xueqiu',
+                'sort_order': order,
+            })
+        db.prune_xueqiu_comments('xq1', max_top=100)  # no deletion, but re-rank
+        rows = db.conn.execute(
+            "SELECT id, sort_order FROM comments WHERE tweet_id='xq1' ORDER BY sort_order"
+        ).fetchall()
+        # hottest (xc_old2, 50 likes) should now be rank 0
+        assert rows[0][0] == 'xc_old2'
+        assert rows[0][1] == 0
+        assert rows[1][0] == 'xc_old1'
+        assert rows[1][1] == 1
+
     def test_get_xueqiu_tweets_for_comment_crawl(self, db):
         from datetime import datetime, timedelta
         recent = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')

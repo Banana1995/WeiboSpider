@@ -464,37 +464,36 @@ MAX_XUEQIU_COMMENTS = 100
 def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
     """Select the top `max_top` hottest xueqiu comments and flatten them.
 
-    We use the v3 comments API with type=4, which the server returns ALREADY
+    We use the v3 comments API with type=2, which the server returns ALREADY
     SORTED in "最热" (hottest) order — identical to the website's 最热 tab.
     So we preserve that API order (no local re-sort).
 
-    The v3 API returns a FLAT list mixing top-level comments and inline replies
-    (replies carry `in_reply_to_comment_id`, which may chain to another reply).
-    So we:
+    The v3 API returns top-level comments; each may carry nested child replies
+    in `child_comments` (recursively). Some endpoints also return flat inline
+    replies via `in_reply_to_comment_id`. We handle both:
 
-      1. separate top-level comments from replies;
-      2. keep the first `max_top` top-level comments in API order;
-      3. resolve every reply to its ROOT top-level parent and attach it as a
-         sub-comment under that parent (dropping replies whose root isn't kept);
+      1. keep the first `max_top` top-level comments in API order;
+      2. flatten each kept comment's child_comments (and inline replies whose
+         root resolves to it) as sub-comments under it.
 
     sort_order becomes the API-order rank (0 = hottest), which `get_comments`
     with sort='hot' uses to display hottest-first.
     """
     by_id = {}
     top_level = []
-    replies = []
+    flat_replies = []
     for cm in comments:
         if not isinstance(cm, dict):
             continue
         cid = str(cm.get('id'))
         by_id[cid] = cm
         if cm.get('in_reply_to_comment_id'):
-            replies.append(cm)
+            flat_replies.append(cm)
         else:
             top_level.append(cm)
 
     def _root_id(cm, depth=0):
-        """Resolve a comment to its root top-level id, or None."""
+        """Resolve a flat reply to its root top-level id, or None."""
         if depth > 10:
             return None
         pid = cm.get('in_reply_to_comment_id')
@@ -508,23 +507,31 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
     selected = top_level[:max_top]
     selected_ids = {str(c.get('id')) for c in selected}
 
-    # group replies by root top-level id
-    replies_by_root = {}
-    for r in replies:
-        root = _root_id(r)
-        if root in selected_ids:
-            replies_by_root.setdefault(root, []).append(r)
+    def _collect_children(cm, out):
+        """Recursively collect nested child_comments into `out`."""
+        for ch in cm.get('child_comments') or []:
+            if not isinstance(ch, dict):
+                continue
+            out.append(ch)
+            _collect_children(ch, out)
 
     items = []
     seq = 0
     for cm in selected:
+        cid = str(cm.get('id'))
         item = _xueqiu_comment_to_item(cm, tweet_id)
         item['sort_order'] = seq
         seq += 1
         items.append(item)
-        for child in replies_by_root.get(str(cm.get('id')), []):
+        children = []
+        _collect_children(cm, children)
+        # also include flat inline replies whose root is this top-level
+        for r in flat_replies:
+            if _root_id(r) == cid:
+                children.append(r)
+        for child in children:
             citem = _xueqiu_comment_to_item(child, tweet_id)
-            citem['parent_comment_id'] = 'xc' + str(cm.get('id'))
+            citem['parent_comment_id'] = 'xc' + cid
             citem['sort_order'] = seq
             seq += 1
             items.append(citem)

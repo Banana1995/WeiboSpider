@@ -273,6 +273,64 @@ class TestSelectTopWithInlineReplies:
         assert len(tops) == 100
 
 
+class TestSelectTopWithChildComments:
+    """V3 最热模式把子回复放在 child_comments 嵌套字段里（不是扁平 in_reply_to）。
+    必须把这些 child_comments 作为 sub_comments 挂到顶层评论下。"""
+
+    def _cm(self, cid, likes, children=None):
+        return {
+            'id': cid, 'user_id': 1, 'created_at': 1786757651000,
+            'text': f'评论{cid}', 'like_count': likes, 'ip_location': '',
+            'user': {'screen_name': f'U{cid}'},
+            'child_comments': children or [],
+        }
+
+    def test_attaches_child_comments_under_top(self):
+        hot = self._cm(10, 99, children=[
+            {'id': 101, 'user_id': 2, 'created_at': 1786757652000,
+             'text': '回复1', 'like_count': 32, 'ip_location': '',
+             'user': {'screen_name': 'C1'}, 'child_comments': []},
+            {'id': 102, 'user_id': 3, 'created_at': 1786757653000,
+             'text': '回复2', 'like_count': 5, 'ip_location': '',
+             'user': {'screen_name': 'C2'}, 'child_comments': []},
+        ])
+        cold = self._cm(11, 0)
+        items = app_module._select_top_xueqiu_items([hot, cold], 'xq1', max_top=1)
+        ids = [i['_id'] for i in items]
+        assert ids == ['xc10', 'xc101', 'xc102']
+        assert items[1]['parent_comment_id'] == 'xc10'
+        assert items[2]['parent_comment_id'] == 'xc10'
+        assert items[1]['like_counts'] == 32
+
+    def test_child_comments_preserved_for_kept_top(self):
+        # 50 top-level, first has 2 children → should be kept
+        comments = []
+        for i in range(1, 51):
+            comments.append(self._cm(i, i))
+        comments[0]['child_comments'] = [
+            {'id': 1001, 'user_id': 9, 'created_at': 1786757652000,
+             'text': '回复', 'like_count': 3, 'ip_location': '',
+             'user': {'screen_name': 'R'}, 'child_comments': []},
+        ]
+        items = app_module._select_top_xueqiu_items(comments, 'xq1', max_top=100)
+        ids = [i['_id'] for i in items]
+        assert 'xc1001' in ids
+        assert ids[1] == 'xc1001'
+        assert items[1]['parent_comment_id'] == 'xc1'
+
+    def test_child_with_pic_url(self):
+        top = self._cm(10, 99, children=[
+            {'id': 101, 'user_id': 2, 'created_at': 1786757652000,
+             'text': '带图回复', 'like_count': 32, 'ip_location': '',
+             'user': {'screen_name': 'C1'},
+             'pic': 'https://xqimg.imedao.com/abc.png!thumb.jpg',
+             'child_comments': []},
+        ])
+        items = app_module._select_top_xueqiu_items([top], 'xq1', max_top=100)
+        assert items[1]['_id'] == 'xc101'
+        assert items[1]['pic_urls'] == ['https://xqimg.imedao.com/abc.png!thumb.jpg']
+
+
 class TestFetchXueqiuCommentsV3:
     """Pagination: cursor via max_id/next_max_id; -1 terminates; hot=type=4."""
 

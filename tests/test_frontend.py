@@ -65,6 +65,12 @@ def test_comment_images_rendered():
     assert 'openLightboxFromComment' in INDEX_HTML
 
 
+def test_xqimg_fullsize_uses_raw():
+    assert r"!thumb\.jpg" in INDEX_HTML
+    assert "!raw.jpg" in INDEX_HTML
+    assert "xqimg.imedao.com" in INDEX_HTML
+
+
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
     assert 'id="schedule-start-hour"' in INDEX_HTML

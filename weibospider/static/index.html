@@ -872,6 +872,9 @@ function toFullSize(u) {
   if (u && u.indexOf('sinaimg.cn') !== -1) {
     return u.replace(/\/(orj960|wap720|mw690|bmiddle|thumbnail)\//, '/large/');
   }
+  if (u && u.indexOf('xqimg.imedao.com') !== -1) {
+    return u.replace(/!thumb\.jpg$/, '!raw.jpg');
+  }
   return u;
 }
 

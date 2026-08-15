@@ -367,6 +367,14 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
+def _attach_comments_annotations(tweets):
+    """Attach comments and annotation lists to a list of tweet dicts."""
+    for t in tweets:
+        comments = DB.get_comments(t['id'], sort='hot')
+        t['comments_list'] = comments
+        t['annotations_list'] = DB.get_annotations(t['id'])
+
+
 @app.route('/api/tweets')
 def api_tweets():
     page = request.args.get('page', 1, type=int)
@@ -379,13 +387,17 @@ def api_tweets():
     per_page = min(max(per_page, 1), 200)
 
     tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted, user_id=user_id)
-    # Attach comments and annotations for each tweet
-    for t in tweets:
-        comments = DB.get_comments(t['id'], sort='hot')
-        t['comments_list'] = comments
-        t['annotations_list'] = DB.get_annotations(t['id'])
+    _attach_comments_annotations(tweets)
     total = DB.count_tweets(deleted=deleted, user_id=user_id)
     return jsonify({'tweets': tweets, 'total': total, 'page': page, 'per_page': per_page})
+
+
+@app.route('/api/ps')
+def api_ps():
+    """PS图 tab：返回博主每月交易总结微博（内容含 'PS图'）。"""
+    tweets = DB.get_ps_tweets()
+    _attach_comments_annotations(tweets)
+    return jsonify(tweets)
 
 
 @app.route('/api/tweets/<tweet_id>')

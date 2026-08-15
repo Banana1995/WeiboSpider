@@ -23,6 +23,18 @@ def test_incremental_sync_button_exists():
     assert '增量同步' in INDEX_HTML
 
 
+def test_ps_tab_exists():
+    assert 'data-tab="ps"' in INDEX_HTML
+    assert 'PS图' in INDEX_HTML
+    assert 'ps-mode' in INDEX_HTML
+
+
+def test_load_ps_function_exists():
+    assert "async function loadPs()" in INDEX_HTML
+    assert "fetch('/api/ps')" in INDEX_HTML
+    assert "loadPs();" in INDEX_HTML
+
+
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
     assert 'id="schedule-start-hour"' in INDEX_HTML

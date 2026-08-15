@@ -86,6 +86,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Loading */
 .loader { text-align: center; padding: 30px; color: #aaa; font-size: 13px; }
 .hidden { display: none; }
+#cards-container.ps-mode .card > input[type=checkbox],
+#cards-container.ps-mode .card .btn-del { display: none; }
 .pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 16px; font-size: 13px; }
 .pagination .page-btn { padding: 5px 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: #333; cursor: pointer; font-size: 12px; }
 .pagination .page-btn:hover { background: #f0f0f0; }
@@ -267,6 +269,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <button class="tab active" data-tab="active">微博列表</button>
       <button class="tab" data-tab="trash">回收站</button>
       <button class="tab" data-tab="logs">操作日志</button>
+      <button class="tab" data-tab="ps">PS图</button>
     </div>
   </div>
 
@@ -592,6 +595,7 @@ function reloadList() {
   currentPage = 1;
   selected.clear();
   updateBatchBtn();
+  if (currentTab === 'ps') { loadPs(); return; }
   loadTweets();
 }
 
@@ -1067,20 +1071,42 @@ function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const isLogs = tab === 'logs';
-  $('select-all-row').style.display = isLogs ? 'none' : (tab === 'trash' ? '' : '');
-  $('btn-batch-delete').style.display = isLogs ? 'none' : (tab === 'trash' ? 'none' : '');
-  $('btn-batch-restore').style.display = isLogs ? 'none' : (tab === 'trash' ? '' : 'none');
+  const isPs = tab === 'ps';
+  const hideListExtras = isLogs || isPs;
+  $('select-all-row').style.display = hideListExtras ? 'none' : '';
+  $('btn-batch-delete').style.display = hideListExtras ? 'none' : (tab === 'trash' ? 'none' : '');
+  $('btn-batch-restore').style.display = hideListExtras ? 'none' : (tab === 'trash' ? '' : 'none');
   $('cards-container').style.display = isLogs ? 'none' : '';
   $('loader').style.display = isLogs ? 'none' : '';
-  $('pagination').style.display = isLogs ? 'none' : '';
+  $('pagination').style.display = hideListExtras ? 'none' : '';
   $('logs-container').style.display = isLogs ? 'block' : 'none';
+  $('cards-container').classList.toggle('ps-mode', isPs);
   if (isLogs) {
     loadLogs(1);
+  } else if (isPs) {
+    selected.clear();
+    updateBatchBtn();
+    loadPs();
   } else {
     selected.clear();
     updateBatchBtn();
     reloadList();
   }
+}
+
+async function loadPs() {
+  $('loader').classList.remove('hidden');
+  try {
+    const resp = await fetch('/api/ps');
+    const tweets = await resp.json();
+    $('cards-container').innerHTML = '';
+    if (!tweets || tweets.length === 0) {
+      $('cards-container').innerHTML = '<div style="text-align:center;padding:40px;color:#aaa;font-size:13px;">暂无 PS图 微博</div>';
+    } else {
+      tweets.forEach(t => renderCard(t));
+    }
+  } catch(e) { console.error(e); }
+  $('loader').classList.add('hidden');
 }
 
 let logsPage = 1;

@@ -53,6 +53,22 @@ class TestAPI:
         assert len(data['tweets']) == 3
         assert data['total'] == 3
 
+    def test_ps_endpoint_returns_ps_tweets(self, client):
+        import app as app_module
+        for _id, content in [('1', '游戏仓6月PS图 本月收盘1696W'),
+                             ('2', '普通微博内容')]:
+            app_module.DB.insert_tweet({
+                '_id': _id, 'mblogid': f'Mb{_id}', 'user_id': '1087770692',
+                'content': content, 'created_at': '2026-06-30 15:13:17',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        rv = client.get('/api/ps')
+        data = json.loads(rv.data)
+        assert len(data) == 1
+        assert 'PS图' in data[0]['content']
+
     def test_get_tweet_with_comments(self, client):
         import app as app_module
         app_module.DB.insert_tweet({

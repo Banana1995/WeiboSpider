@@ -381,6 +381,26 @@ class TweetDB:
             row = self.conn.execute(f"SELECT COUNT(*) FROM tweets {where}", params).fetchone()
             return row[0]
 
+    def get_ps_tweets(self):
+        """Return non-deleted monthly 'PS图' summary tweets (content contains 'PS图').
+
+        Used by the PS图 tab to show the blogger's monthly trading summaries.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM tweets WHERE deleted = 0 AND content LIKE '%PS图%' "
+                "ORDER BY created_at DESC"
+            ).fetchall()
+            results = []
+            for row in rows:
+                d = dict(row)
+                d['pic_urls'] = json.loads(d.get('pic_urls', '[]') or '[]')
+                d['retweet_pic_urls'] = json.loads(d.get('retweet_pic_urls', '[]') or '[]')
+                d['is_retweet'] = bool(d.get('is_retweet'))
+                d['deleted'] = bool(d.get('deleted'))
+                results.append(d)
+            return results
+
     def get_tweet(self, tweet_id):
         with self._lock:
             row = self.conn.execute("SELECT * FROM tweets WHERE id=?", (tweet_id,)).fetchone()

@@ -330,6 +330,49 @@ class TestSelectTopWithChildComments:
         assert items[1]['_id'] == 'xc101'
         assert items[1]['pic_urls'] == ['https://xqimg.imedao.com/abc.png!thumb.jpg']
 
+    def test_child_reply_comment_resolves_screen_name(self):
+        # 子回复 reply_to=父评论(10)，父评论 user 是 U10
+        top = {
+            'id': 10, 'user_id': 1, 'created_at': 1786757651000,
+            'text': '父评论', 'like_count': 99, 'ip_location': '',
+            'user': {'screen_name': 'U10'},
+            'in_reply_to_comment_id': None,
+            'child_comments': [
+                {'id': 101, 'user_id': 2, 'created_at': 1786757652000,
+                 'text': '回复', 'like_count': 5, 'ip_location': '',
+                 'user': {'screen_name': 'C1'},
+                 'in_reply_to_comment_id': 10,
+                 'child_comments': []},
+            ],
+        }
+        items = app_module._select_top_xueqiu_items([top], 'xq1', max_top=100)
+        reply_comment = items[1]['reply_comment']
+        assert reply_comment is not None
+        assert reply_comment['user']['nick_name'] == 'U10'
+
+    def test_child_reply_to_sibling_resolves_screen_name(self):
+        # 子回复 reply_to=另一子回复(101)，需解析到 101 的 user screen_name
+        top = {
+            'id': 10, 'user_id': 1, 'created_at': 1786757651000,
+            'text': '父评论', 'like_count': 99, 'ip_location': '',
+            'user': {'screen_name': 'U10'},
+            'child_comments': [
+                {'id': 101, 'user_id': 2, 'created_at': 1786757652000,
+                 'text': '一楼', 'like_count': 5, 'ip_location': '',
+                 'user': {'screen_name': 'C1'}, 'child_comments': []},
+                {'id': 102, 'user_id': 3, 'created_at': 1786757653000,
+                 'text': '二楼回复一楼', 'like_count': 3, 'ip_location': '',
+                 'user': {'screen_name': 'C2'},
+                 'in_reply_to_comment_id': 101,
+                 'child_comments': []},
+            ],
+        }
+        items = app_module._select_top_xueqiu_items([top], 'xq1', max_top=100)
+        # ids: xc10, xc101, xc102
+        reply_comment = items[2]['reply_comment']
+        assert reply_comment is not None
+        assert reply_comment['user']['nick_name'] == 'C1'
+
 
 class TestFetchXueqiuChildCommentsV3:
     """子回复用 comment_id + child_type=2 单独拉取（父评论内嵌的 child_comments

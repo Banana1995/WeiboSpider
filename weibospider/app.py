@@ -393,11 +393,14 @@ def _xueqiu_to_item(s):
     }
 
 
-def _xueqiu_comment_to_item(cm, tweet_id):
+def _xueqiu_comment_to_item(cm, tweet_id, reply_to_name=None):
     """Convert a xueqiu comments.json comment dict into a comments-table item.
 
     xq comment ids are prefixed 'xc' + numeric id to avoid collisions with
     weibo comment ids (both tables share the same comments table).
+
+    reply_to_name: optional screen_name this comment replies to (used when the
+    API doesn't provide reply_screenName for child replies).
     """
     created = None
     if cm.get('created_at'):
@@ -424,10 +427,11 @@ def _xueqiu_comment_to_item(cm, tweet_id):
     reply_id = cm.get('in_reply_to_comment_id')
     if reply_id:
         item['parent_comment_id'] = 'xc' + str(reply_id)
+        name = reply_to_name or cm.get('reply_screenName') or ''
         item['reply_comment'] = {
             '_id': str(reply_id),
             'text': '',
-            'user': {'_id': '', 'nick_name': cm.get('reply_screenName') or ''},
+            'user': {'_id': '', 'nick_name': name},
         }
     return item
 
@@ -515,6 +519,17 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
             out.append(ch)
             _collect_children(ch, out)
 
+    # Build a name index over every comment we will store (top-level + children)
+    # so we can resolve in_reply_to_comment_id → target screen_name.
+    name_by_id = {}
+    def _index_comments(cm):
+        name_by_id[str(cm.get('id'))] = (cm.get('user') or {}).get('screen_name', '')
+        for ch in cm.get('child_comments') or []:
+            if isinstance(ch, dict):
+                _index_comments(ch)
+    for cm in selected:
+        _index_comments(cm)
+
     items = []
     seq = 0
     for cm in selected:
@@ -530,7 +545,9 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
             if _root_id(r) == cid:
                 children.append(r)
         for child in children:
-            citem = _xueqiu_comment_to_item(child, tweet_id)
+            reply_to = child.get('in_reply_to_comment_id')
+            reply_to_name = name_by_id.get(str(reply_to)) if reply_to else None
+            citem = _xueqiu_comment_to_item(child, tweet_id, reply_to_name=reply_to_name)
             citem['parent_comment_id'] = 'xc' + cid
             citem['sort_order'] = seq
             seq += 1

@@ -461,18 +461,74 @@ MAX_XUEQIU_COMMENTS = 100
 
 
 def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
-    """Select the top `max_top` hottest xueqiu comments (by like_count desc)
-    from all fetched pages, then flatten them with their child replies.
+    """Select the top `max_top` hottest xueqiu comments and flatten them.
 
-    sort_order becomes the heat rank (0 = hottest), which `get_comments`
-    with sort='hot' uses to display hottest-first.
+    The xueqiu comments API returns a FLAT list mixing top-level comments and
+    inline replies (replies carry `in_reply_to_comment_id`, which may chain to
+    another reply). So we:
+
+      1. separate top-level comments from replies;
+      2. rank ONLY top-level comments by like_count desc (hottest first);
+      3. keep the top `max_top` top-level comments;
+      4. resolve every reply to its ROOT top-level parent and attach it as a
+         sub-comment under that parent (dropping replies whose root isn't kept);
+
+    sort_order becomes the heat rank (0 = hottest) for top-level comments,
+    which `get_comments` with sort='hot' uses to display hottest-first.
     """
-    top_level = [c for c in comments if isinstance(c, dict)]
+    by_id = {}
+    top_level = []
+    replies = []
+    for cm in comments:
+        if not isinstance(cm, dict):
+            continue
+        cid = str(cm.get('id'))
+        by_id[cid] = cm
+        if cm.get('in_reply_to_comment_id'):
+            replies.append(cm)
+        else:
+            top_level.append(cm)
+
+    def _root_id(cm, depth=0):
+        """Resolve a comment to its root top-level id, or None."""
+        if depth > 10:
+            return None
+        pid = cm.get('in_reply_to_comment_id')
+        if not pid:
+            return str(cm.get('id'))
+        parent = by_id.get(str(pid))
+        if not parent:
+            return None
+        return _root_id(parent, depth + 1)
+
     top_level.sort(
         key=lambda c: (-int(c.get('like_count') or 0), str(c.get('id', ''))),
     )
     selected = top_level[:max_top]
-    return _flatten_xueqiu_comments(selected, tweet_id)
+    selected_ids = {str(c.get('id')) for c in selected}
+    selected_by_id = {str(c.get('id')): c for c in selected}
+
+    # group replies by root top-level id
+    replies_by_root = {}
+    for r in replies:
+        root = _root_id(r)
+        if root in selected_ids:
+            replies_by_root.setdefault(root, []).append(r)
+
+    items = []
+    seq = 0
+    for cm in selected:
+        item = _xueqiu_comment_to_item(cm, tweet_id)
+        item['sort_order'] = seq
+        seq += 1
+        items.append(item)
+        for child in replies_by_root.get(str(cm.get('id')), []):
+            citem = _xueqiu_comment_to_item(child, tweet_id)
+            citem['parent_comment_id'] = 'xc' + str(cm.get('id'))
+            citem['sort_order'] = seq
+            seq += 1
+            items.append(citem)
+    return items
 
 
 def _crawl_xueqiu_comments(scheduler=None, mode='ps'):

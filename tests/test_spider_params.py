@@ -54,6 +54,42 @@ class TestTweetSpiderParams:
         assert len(results) == 1
         assert results[0]['_id'] == '111'
 
+    def _empty_response(self, page_num, chunk_total, collected, retries=0, total='346'):
+        from unittest.mock import MagicMock
+        import json
+        response = MagicMock()
+        response.text = json.dumps({'ok': 1, 'data': {'list': [], 'total': total}})
+        response.url = f'https://weibo.com/ajax/statuses/searchProfile?uid=123&page={page_num}'
+        response.meta = {
+            'page_num': page_num, 'user_id': '123',
+            'chunk_total': chunk_total, 'collected': collected, 'empty_retries': retries,
+        }
+        return response
+
+    def test_empty_page_retries_when_collected_lt_total(self):
+        """空页但收集数<窗口总数 → 重试同一页（防瞬时失败丢切片）"""
+        from spiders.tweet_by_user_id import TweetSpiderByUserID
+        spider = TweetSpiderByUserID(user_ids='123')
+        results = list(spider.parse(self._empty_response(page_num=2, chunk_total=346, collected=100)))
+        requests = [r for r in results if hasattr(r, 'url')]
+        assert len(requests) == 1
+        assert 'page=2' in requests[0].url  # 重试的是同一页
+        assert requests[0].meta['empty_retries'] == 1
+
+    def test_empty_page_stops_when_collected_reaches_total(self):
+        """空页且收集数已达窗口总数 → 正常结束，不重试"""
+        from spiders.tweet_by_user_id import TweetSpiderByUserID
+        spider = TweetSpiderByUserID(user_ids='123')
+        results = list(spider.parse(self._empty_response(page_num=4, chunk_total=346, collected=346)))
+        assert results == []
+
+    def test_empty_page_gives_up_after_max_retries(self):
+        """重试次数用尽且仍没收齐 → 放弃并停止（日志记录数据空洞）"""
+        from spiders.tweet_by_user_id import TweetSpiderByUserID
+        spider = TweetSpiderByUserID(user_ids='123')
+        results = list(spider.parse(self._empty_response(page_num=2, chunk_total=346, collected=100, retries=2)))
+        assert results == []
+
 
 class TestCommentSpiderParams:
     def test_max_pages_parsed(self):

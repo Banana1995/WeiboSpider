@@ -6,9 +6,10 @@
 
 - **定时抓取**：每日凌晨 2:00 自动抓取关注博主的微博及评论
 - **热度评论**：按微博官方热度排序抓取评论，本地保持相同排序
-- **实时日志**：抓取过程日志通过 SSE 实时推送到前端
+- **实时日志**：抓取过程日志通过轮询实时刷新到前端
 - **PDF 导出**：一键导出微博内容为 PDF，嵌入中文字体，中文完美显示
 - **批量管理**：支持批量删除/恢复微博
+- **分页浏览**：默认每页 100 条，支持页码导航和任意页跳转
 - **Web 管理界面**：SPA 单页应用，瀑布流卡片展示
 
 ## 环境要求
@@ -142,7 +143,7 @@ WeiboSpider/
 | `/api/export` | GET | 导出数据（`?format=pdf` 下载 PDF，`?start=&end=` 筛选时间） |
 | `/api/crawl` | POST | 手动触发抓取（可选 `{"user_id":"xxx"}` 抓取指定用户） |
 | `/api/crawl/cancel` | POST | 取消正在进行的抓取 |
-| `/api/crawl/events` | GET | SSE 端点，推送实时日志和抓取状态 |
+| `/api/crawl/status` | GET | 获取抓取状态（`tweet`/`comment` 运行状态 + 最近日志尾部），前端每 3s 轮询 |
 | `/api/config` | GET/POST | 读取/修改配置（cookie, user_ids, start_date, end_date） |
 | `/api/stats` | GET | 获取数据统计（微博总数、评论总数等） |
 
@@ -153,7 +154,7 @@ WeiboSpider/
 - **定时任务**：APScheduler 3.10
 - **数据库**：SQLite
 - **PDF 生成**：Headless Chrome + Google Fonts (Noto Sans SC)
-- **实时通信**：Server-Sent Events (SSE)
+- **实时通信**：前端每 3s 轮询 `/api/crawl/status`（长轮询避免 waitress 线程被长连接占满）
 
 ## 一键部署到服务器
 

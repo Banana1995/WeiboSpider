@@ -35,7 +35,8 @@ class TestAPI:
         rv = client.get('/api/tweets?page=1&per_page=20')
         assert rv.status_code == 200
         data = json.loads(rv.data)
-        assert data == []
+        assert data['tweets'] == []
+        assert data['total'] == 0
 
     def test_tweets_with_data(self, client):
         import app as app_module
@@ -49,7 +50,8 @@ class TestAPI:
             })
         rv = client.get('/api/tweets?page=1&per_page=20')
         data = json.loads(rv.data)
-        assert len(data) == 3
+        assert len(data['tweets']) == 3
+        assert data['total'] == 3
 
     def test_get_tweet_with_comments(self, client):
         import app as app_module

@@ -6,7 +6,7 @@
 
 - **项目**：微博管理器（WeiboSpider）
 - **定位**：基于 Scrapy + Flask 的微博内容抓取与管理系统。支持定时抓取、热度排序评论、PDF 导出、Web 管理界面。
-- **技术栈**：Python 3.9 / Scrapy 2.5 / Flask 2.3 / Waitress / APScheduler / SQLite / SSE / Headless Chrome（PDF）
+- **技术栈**：Python 3.9 / Scrapy 2.5 / Flask 2.3 / Waitress / APScheduler / SQLite / Headless Chrome（PDF）。前端每 3s 轮询 `/api/crawl/status` 获取抓取状态与日志（**不用 SSE**，避免 waitress 线程被长连接占满）
 - **License**：MIT
 - **仓库**：https://github.com/Banana1995/WeiboSpider（公有仓库，master 分支）
 - **前端**：原生 JS SPA（无框架，单文件 `weibospider/static/index.html`），Flask 提供静态文件
@@ -183,6 +183,22 @@ gh run view <run_id> -R Banana1995/WeiboSpider --log   # 完整日志
 2. 看容器日志：`ssh weibo 'docker compose logs --tail 50'` — 确认抓取/调度正常。
 3. 用浏览器 DevTools 检查：Network 里 `/api/tweets` 是否 200；Console 是否有 JS 异常。
 4. **常见误判**：`favicon.ico` 的 404 是正常的，与崩溃无关；"加载中"可能只是瞬间状态或浏览器缓存，先强刷（Cmd/Ctrl+Shift+R）再判断。
+
+### 8. 标签页"喔唷，崩溃啦"（已修复）——SSE 全量日志重灌 + O(n²) 前端拼接
+
+**现象**：页面长时间开着后 Chrome 标签页直接崩溃（Aw, Snap），刷新/重开标签页又能用。
+
+**根因**（2026-08-15 修复）：
+1. `crawl.log` 无限增长（线上曾达 2.4MB+/2.8 万行；只有手动"全量抓取"会清空，定时增量抓取只追加）。
+2. 旧 SSE 端点 `/api/crawl/events` 每次连接/重连都从 `last_log_pos=0` 把**整个文件**重推给浏览器。
+3. 前端 `log` 事件处理用 `body.textContent += e.data` 逐行追加 —— **O(n²)** 字符串重建 + 每行强制 reflow，行数越多主线程卡得越久，最终 renderer OOM 崩溃。
+
+**修复方案**：
+1. **SSE 改轮询（根治）**：删除 `/api/crawl/events`，前端 `setInterval(pollCrawlStatus, 3000)` 每 3s 轮询 `/api/crawl/status`（该接口返回 `SCHEDULER.status` + `logs` 尾部 200 行）。**不用 SSE 也避免 waitress 线程被长连接占满**（waitress 是同步服务器，每条 SSE 长连接永久占一个 worker 线程，`threads=8` 下开几个标签页就耗尽）。
+2. `_make_log_helpers` 每次抓取开始时清空 `crawl.log`，防止无限增长。
+3. 前端日志面板用 `body.textContent = data.logs.join('\n')` 整体替换（只在内容变化时写），不再逐行 `+=`。
+
+**排查方法**（同类问题复用）：`curl -N http://IP:5050/api/crawl/events` 数一次连接收到多少字节——旧版会立刻灌入全部历史日志（几 MB），说明连接级日志回放有问题。
 
 ## 安全约定
 

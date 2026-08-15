@@ -86,6 +86,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Loading */
 .loader { text-align: center; padding: 30px; color: #aaa; font-size: 13px; }
 .hidden { display: none; }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 16px; font-size: 13px; }
+.pagination .page-btn { padding: 5px 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: #333; cursor: pointer; font-size: 12px; }
+.pagination .page-btn:hover { background: #f0f0f0; }
+.pagination .page-btn:disabled { opacity: 0.4; cursor: default; }
+.pagination .page-numbers { display: flex; align-items: center; gap: 4px; }
+.pagination .page-num { min-width: 28px; padding: 5px 7px; text-align: center; border: 1px solid transparent; border-radius: 6px; background: #fff; color: #333; cursor: pointer; font-size: 12px; }
+.pagination .page-num:hover { background: #f0f0f0; }
+.pagination .page-num.active { background: #4a9eff; border-color: #4a9eff; color: #fff; font-weight: 600; }
+.pagination .page-ellipsis { color: #999; padding: 0 2px; }
+.pagination .page-jump { display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+.pagination .page-total { color: #888; }
+.pagination .page-jump input { width: 56px; padding: 5px 6px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 12px; text-align: center; }
 
 /* Toast */
 .toast { position: fixed; top: 20px; right: 20px; background: #27ae60; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; opacity: 0; transition: opacity 0.3s; }
@@ -334,8 +346,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   </div>
 
   <div id="cards-container"></div>
-  <div class="loader" id="loader">加载中...</div>
-  <div class="loader hidden" id="end-marker">-- 没有更多了 --</div>
+  <div class="loader hidden" id="loader">加载中...</div>
+
+  <div class="pagination" id="pagination" style="display:none;">
+    <button class="page-btn" id="page-prev" onclick="goToPage(currentPage - 1)">&lsaquo; 上一页</button>
+    <div class="page-numbers" id="page-numbers"></div>
+    <button class="page-btn" id="page-next" onclick="goToPage(currentPage + 1)">下一页 &rsaquo;</button>
+    <div class="page-jump">
+      <span class="page-total" id="page-total"></span>
+      <input type="number" id="page-input" min="1" max="1" placeholder="页码">
+      <button class="page-btn" onclick="jumpToPage()">跳转</button>
+    </div>
+  </div>
 
   <div id="logs-container" style="display:none;padding:0 16px;">
     <div id="logs-filter-bar" style="display:flex;gap:8px;align-items:center;margin:12px 0;">
@@ -385,10 +407,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 <script>
 let currentPage = 1;
+let totalPages = 1;
+let totalCount = 0;
+const perPage = 100;
 let currentTab = 'active';
 let selected = new Set();
-let isLoading = false;
-let hasMore = true;
 let userIDs = [];
 let activeUserFilter = '';  // empty = show all
 
@@ -399,12 +422,13 @@ document.getElementById('btn-batch-delete').addEventListener('click', batchDelet
 document.getElementById('btn-batch-restore').addEventListener('click', batchRestore);
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', e => switchTab(e.target.dataset.tab)));
 document.getElementById('uid-input').addEventListener('keydown', e => { if (e.key === 'Enter') addUid(); });
-window.addEventListener('scroll', onScroll);
+document.getElementById('page-input').addEventListener('keydown', e => { if (e.key === 'Enter') jumpToPage(); });
 
 loadConfig();
 loadTweets();
 loadStats();
-listenSSE();
+pollCrawlStatus();
+setInterval(pollCrawlStatus, 3000);
 
 function $(id) { return document.getElementById(id); }
 
@@ -540,25 +564,89 @@ async function saveUids() {
   } catch(e) { toast('保存失败', true); }
 }
 
-async function loadTweets(reset) {
-  if (isLoading || (!reset && !hasMore)) return;
-  isLoading = true;
-  if (reset) { currentPage = 1; hasMore = true; $('cards-container').innerHTML = ''; $('end-marker').classList.add('hidden'); selected.clear(); updateBatchBtn(); }
+async function loadTweets() {
   $('loader').classList.remove('hidden');
-
   const deleted = currentTab === 'trash' ? 'only' : 'exclude';
   try {
     const uidParam = activeUserFilter ? '&user_id=' + activeUserFilter : '';
-    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=20&deleted=${deleted}${uidParam}`);
+    const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=${perPage}&deleted=${deleted}${uidParam}`);
     const data = await resp.json();
-    if (data.length === 0) { hasMore = false; $('end-marker').classList.remove('hidden'); }
-    else {
-      data.forEach(t => renderCard(t));
-      currentPage++;
+    totalCount = data.total || 0;
+    totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+      $('cards-container').innerHTML = '';
+      selected.clear();
+      updateBatchBtn();
+      loadTweets();
+      return;
     }
+    $('cards-container').innerHTML = '';
+    (data.tweets || []).forEach(t => renderCard(t));
+    renderPagination();
   } catch(e) { console.error(e); }
   $('loader').classList.add('hidden');
-  isLoading = false;
+}
+
+function reloadList() {
+  currentPage = 1;
+  selected.clear();
+  updateBatchBtn();
+  loadTweets();
+}
+
+function renderPagination() {
+  const bar = $('pagination');
+  if (totalPages <= 1) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  $('page-total').textContent = `第 ${currentPage} / ${totalPages} 页`;
+  $('page-input').max = totalPages;
+  $('page-prev').disabled = currentPage <= 1;
+  $('page-next').disabled = currentPage >= totalPages;
+
+  const nums = [];
+  const pushNum = p => nums.push({type: 'num', page: p});
+  const pushDots = () => nums.push({type: 'dots'});
+  const windowStart = Math.max(1, currentPage - 2);
+  const windowEnd = Math.min(totalPages, currentPage + 2);
+  if (windowStart > 1) { pushNum(1); if (windowStart > 2) pushDots(); }
+  for (let p = windowStart; p <= windowEnd; p++) pushNum(p);
+  if (windowEnd < totalPages) { if (windowEnd < totalPages - 1) pushDots(); pushNum(totalPages); }
+
+  const el = $('page-numbers');
+  el.innerHTML = '';
+  nums.forEach(item => {
+    if (item.type === 'dots') {
+      const span = document.createElement('span');
+      span.className = 'page-ellipsis';
+      span.textContent = '…';
+      el.appendChild(span);
+    } else {
+      const b = document.createElement('button');
+      b.className = 'page-num' + (item.page === currentPage ? ' active' : '');
+      b.textContent = item.page;
+      b.onclick = () => goToPage(item.page);
+      el.appendChild(b);
+    }
+  });
+}
+
+function goToPage(p) {
+  if (!p || p < 1 || p > totalPages || p === currentPage) return;
+  currentPage = p;
+  selected.clear();
+  updateBatchBtn();
+  loadTweets();
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function jumpToPage() {
+  const input = $('page-input');
+  const p = parseInt(input.value, 10);
+  if (!p || p < 1) { toast('请输入有效页码', true); return; }
+  if (p > totalPages) { toast(`最大页码为 ${totalPages}`, true); return; }
+  input.value = '';
+  goToPage(p);
 }
 
 function renderCard(t) {
@@ -756,12 +844,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function onScroll() {
-  if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400) {
-    loadTweets(false);
-  }
-}
-
 function toggleSelectAll() {
   const checked = $('select-all').checked;
   document.querySelectorAll('.tweet-row .card input[type=checkbox]').forEach(cb => {
@@ -794,7 +876,7 @@ function updateBatchBtn() {
 async function deleteOne(id) {
   try {
     await fetch(`/api/tweets/${id}`, { method: 'DELETE' });
-    removeCard(id);
+    removeCardsAndAdjust([id]);
     toast('已删除');
     loadStats();
   } catch(e) { toast('删除失败', true); }
@@ -809,7 +891,7 @@ async function batchDelete() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ ids })
     });
-    ids.forEach(id => removeCard(id));
+    removeCardsAndAdjust(ids);
     selected.clear();
     updateBatchBtn();
     toast(`已删除 ${ids.length} 条`);
@@ -826,7 +908,7 @@ async function batchRestore() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ ids })
     });
-    ids.forEach(id => removeCard(id));
+    removeCardsAndAdjust(ids);
     selected.clear();
     updateBatchBtn();
     toast(`已撤回 ${ids.length} 条`);
@@ -839,10 +921,21 @@ function removeCard(id) {
   if (row) row.remove();
 }
 
+function removeCardsAndAdjust(ids) {
+  ids.forEach(id => removeCard(id));
+  totalCount = Math.max(0, totalCount - ids.length);
+  totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+  if (currentPage > totalPages) { goToPage(totalPages); return; }
+  renderPagination();
+}
+
 function filterByUser(uid) {
   activeUserFilter = uid;
   renderUidTags();
-  loadTweets(true);
+  currentPage = 1;
+  selected.clear();
+  updateBatchBtn();
+  loadTweets();
 }
 
 async function triggerCrawl(user_id) {
@@ -892,50 +985,54 @@ async function triggerIncremental() {
   btn.textContent = '增量同步';
 }
 
-let sseLastResult = null;
+let lastCrawlResult = null;
+let lastLogText = null;
 
-function listenSSE() {
-  const es = new EventSource('/api/crawl/events');
-  es.addEventListener('status', function(e) {
-    try {
-      const data = JSON.parse(e.data);
-      const tweetRunning = data.tweet && data.tweet.running;
-      const commentRunning = data.comment && data.comment.running;
-      const anyRunning = tweetRunning || commentRunning;
-      if (anyRunning) {
-        $('crawl-banner').classList.add('show');
-        $('btn-crawl').disabled = true;
-        $('btn-incremental').disabled = true;
-        $('crawl-log').classList.remove('collapsed');
-        $('crawl-log-toggle').textContent = '收起 ▲';
-      } else {
-        $('crawl-banner').classList.remove('show');
-        $('btn-crawl').disabled = false;
-        $('btn-crawl').textContent = '立即抓取';
-        $('btn-incremental').disabled = false;
-        $('btn-incremental').textContent = '增量同步';
-        const tweetResult = data.tweet && data.tweet.last_result;
-        const commentResult = data.comment && data.comment.last_result;
-        if (tweetResult || commentResult) {
-          const key = JSON.stringify({t: tweetResult, c: commentResult});
-          if (key !== sseLastResult) {
-            sseLastResult = key;
-            loadTweets(true);
-            loadStats();
-          }
-        }
+async function pollCrawlStatus() {
+  let data;
+  try {
+    const resp = await fetch('/api/crawl/status');
+    data = await resp.json();
+  } catch(e) { return; }
+
+  const tweetRunning = data.tweet && data.tweet.running;
+  const commentRunning = data.comment && data.comment.running;
+  const anyRunning = tweetRunning || commentRunning;
+
+  if (anyRunning) {
+    $('crawl-banner').classList.add('show');
+    $('btn-crawl').disabled = true;
+    $('btn-incremental').disabled = true;
+    $('crawl-log').classList.remove('collapsed');
+    $('crawl-log-toggle').textContent = '收起 ▲';
+  } else {
+    $('crawl-banner').classList.remove('show');
+    $('btn-crawl').disabled = false;
+    $('btn-crawl').textContent = '立即抓取';
+    $('btn-incremental').disabled = false;
+    $('btn-incremental').textContent = '增量同步';
+    const tweetResult = data.tweet && data.tweet.last_result;
+    const commentResult = data.comment && data.comment.last_result;
+    if (tweetResult || commentResult) {
+      const key = JSON.stringify({t: tweetResult, c: commentResult});
+      if (key !== lastCrawlResult) {
+        lastCrawlResult = key;
+        reloadList();
+        loadStats();
       }
-    } catch(e) {}
-  });
-  es.addEventListener('log', function(e) {
-    const body = $('crawl-log-body');
-    body.textContent += e.data + '\n';
-    body.scrollTop = body.scrollHeight;
-  });
-  es.onerror = function() {
-    setTimeout(listenSSE, 5000);
-    es.close();
-  };
+    }
+  }
+
+  if (Array.isArray(data.logs) && data.logs.length &&
+      (anyRunning || !$('crawl-log').classList.contains('collapsed'))) {
+    const text = data.logs.join('\n');
+    if (text !== lastLogText) {
+      lastLogText = text;
+      const body = $('crawl-log-body');
+      body.textContent = text;
+      body.scrollTop = body.scrollHeight;
+    }
+  }
 }
 
 async function cancelCrawl() {
@@ -952,7 +1049,7 @@ async function cancelCrawl() {
     $('crawl-log').classList.remove('collapsed');
     $('crawl-log-toggle').textContent = '收起 ▲';
     // reload after a delay to let the backend process the cancel
-    setTimeout(() => { loadTweets(true); loadStats(); }, 2000);
+    setTimeout(() => { reloadList(); loadStats(); }, 2000);
   } catch(e) { toast('取消失败', true); }
 }
 
@@ -975,14 +1072,14 @@ function switchTab(tab) {
   $('btn-batch-restore').style.display = isLogs ? 'none' : (tab === 'trash' ? '' : 'none');
   $('cards-container').style.display = isLogs ? 'none' : '';
   $('loader').style.display = isLogs ? 'none' : '';
-  $('end-marker').style.display = isLogs ? 'none' : '';
+  $('pagination').style.display = isLogs ? 'none' : '';
   $('logs-container').style.display = isLogs ? 'block' : 'none';
   if (isLogs) {
     loadLogs(1);
   } else {
     selected.clear();
     updateBatchBtn();
-    loadTweets(true);
+    reloadList();
   }
 }
 

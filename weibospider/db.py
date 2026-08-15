@@ -365,6 +365,22 @@ class TweetDB:
                 results.append(d)
             return results
 
+    def count_tweets(self, deleted='exclude', user_id=None):
+        """Return total number of tweets matching the same filters as get_tweets."""
+        with self._lock:
+            conditions = []
+            params = []
+            if deleted == 'exclude':
+                conditions.append('deleted = 0')
+            elif deleted == 'only':
+                conditions.append('deleted = 1')
+            if user_id:
+                conditions.append('user_id = ?')
+                params.append(user_id)
+            where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            row = self.conn.execute(f"SELECT COUNT(*) FROM tweets {where}", params).fetchone()
+            return row[0]
+
     def get_tweet(self, tweet_id):
         with self._lock:
             row = self.conn.execute("SELECT * FROM tweets WHERE id=?", (tweet_id,)).fetchone()

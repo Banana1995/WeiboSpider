@@ -58,6 +58,12 @@ def _get_schedule_config():
 
 def _make_log_helpers(tag, log_file, unbuffered_env):
     """Create _log and _run_scrapy_with_log helpers with a tag prefix."""
+    # 每次抓取开始时清空日志文件，防止 crawl.log 无限增长（SSE 会回放该文件）
+    try:
+        open(log_file, 'w').close()
+    except OSError:
+        pass
+
     def _log(msg):
         ts = datetime.now().strftime('%H:%M:%S')
         line = f"[{ts}] [{tag}] {msg}"
@@ -107,12 +113,6 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
         user_ids = [user_id]
     else:
         user_ids = all_ids
-
-    if mode == 'full':
-        try:
-            open(log_file, 'w').close()
-        except:
-            pass
 
     _log(f"====== 开始抓取推文 (mode={mode}, 用户: {user_ids}) ======")
 
@@ -375,13 +375,17 @@ def api_tweets():
     deleted = request.args.get('deleted', 'exclude')
     user_id = request.args.get('user_id')  # optional filter
 
+    page = max(page, 1)
+    per_page = min(max(per_page, 1), 200)
+
     tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted, user_id=user_id)
     # Attach comments and annotations for each tweet
     for t in tweets:
         comments = DB.get_comments(t['id'], sort='hot')
         t['comments_list'] = comments
         t['annotations_list'] = DB.get_annotations(t['id'])
-    return jsonify(tweets)
+    total = DB.count_tweets(deleted=deleted, user_id=user_id)
+    return jsonify({'tweets': tweets, 'total': total, 'page': page, 'per_page': per_page})
 
 
 @app.route('/api/tweets/<tweet_id>')
@@ -588,14 +592,33 @@ def api_crawl_incremental():
     return jsonify(result)
 
 
+def _read_log_tail(max_lines=200, log_file=None):
+    """Read the last max_lines non-empty lines from crawl.log for polling display."""
+    if log_file is None:
+        log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'crawl.log')
+    try:
+        size = os.path.getsize(log_file)
+        with open(log_file, 'rb') as f:
+            if size > 32 * 1024:
+                f.seek(size - 32 * 1024)
+            data = f.read().decode('utf-8', errors='replace')
+        lines = [line for line in data.split('\n') if line.strip()]
+        return lines[-max_lines:]
+    except OSError:
+        return []
+
+
 @app.route('/api/crawl/status')
 def api_crawl_status():
     if SCHEDULER is None:
-        return jsonify({
+        status = {
             'tweet': {'running': False, 'last_result': None},
             'comment': {'running': False, 'last_result': None},
-        })
-    return jsonify(SCHEDULER.status)
+        }
+    else:
+        status = SCHEDULER.status
+    status['logs'] = _read_log_tail()
+    return jsonify(status)
 
 
 @app.route('/api/crawl/cancel', methods=['POST'])
@@ -624,46 +647,6 @@ def api_logs():
     per_page = request.args.get('per_page', 50, type=int)
     category = request.args.get('category') or None
     return jsonify(DB.get_logs(page=page, per_page=per_page, category=category))
-
-
-@app.route('/api/crawl/events')
-def api_crawl_events():
-    """SSE endpoint: pushes crawl status and real-time log lines to the client."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    log_file = os.path.join(script_dir, 'crawl.log')
-
-    def generate():
-        last_state = None
-        last_log_pos = 0
-        while True:
-            # 1. Push status changes
-            if SCHEDULER:
-                current = SCHEDULER.status
-                state = json.dumps(current, ensure_ascii=False, default=str)
-                if state != last_state:
-                    last_state = state
-                    yield 'event: status\ndata: %s\n\n' % state
-
-            # 2. Push new log lines while crawling or right after completion
-            try:
-                if os.path.exists(log_file):
-                    file_size = os.path.getsize(log_file)
-                    if last_log_pos > file_size:
-                        last_log_pos = 0
-                    with open(log_file, 'r') as f:
-                        f.seek(last_log_pos)
-                        new_lines = f.read()
-                        if new_lines:
-                            last_log_pos = f.tell()
-                            for line in new_lines.strip().split('\n'):
-                                if line.strip():
-                                    yield 'event: log\ndata: %s\n\n' % line
-            except Exception:
-                pass
-
-            time.sleep(1)
-    return Response(generate(), mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @app.route('/api/config', methods=['GET'])

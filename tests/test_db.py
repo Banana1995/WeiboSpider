@@ -127,6 +127,20 @@ class TestTweetDB:
         assert len(results) == 1
         assert results[0]['deleted'] == 1
 
+    def test_count_tweets_matches_filters(self, db):
+        for i in range(5):
+            db.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': f'tweet {i}', 'created_at': f'2024-01-01 0{i}:00:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        db.batch_delete(['2', '3'])
+        assert db.count_tweets(deleted='exclude') == 3
+        assert db.count_tweets(deleted='only') == 2
+        assert db.count_tweets(deleted='all') == 5
+
     def test_get_comments(self, db):
         db.insert_tweet({
             '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',

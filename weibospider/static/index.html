@@ -718,8 +718,7 @@ function renderCard(t) {
   card.dataset.id = t.id;
 
   const pics = (typeof t.pic_urls === 'string' ? JSON.parse(t.pic_urls || '[]') : (t.pic_urls || []));
-  const comments = t.comments_list || [];
-  const commentCount = comments.length;
+  const commentCount = t.comments_count || 0;
 
   card.innerHTML = `
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
@@ -740,9 +739,8 @@ function renderCard(t) {
         <span class="crawl-comments-btn" onclick="crawlComments('${t.id}', this)">抓取评论</span>
       </div>
       <div class="comments-box" id="comments-${t.id}">
-        ${comments.length === 0 ? '<div class="comments-box-inner"><div class="comment" style="color:#aaa">暂无评论</div></div>' : ''}
         <div class="comments-box-inner">
-          ${comments.length === 0 ? '<div class="comment" style="color:#aaa">暂无评论</div>' : comments.map(c => renderComment(c)).join('')}
+          <div class="comment" style="color:#aaa">加载中...</div>
         </div>
       </div>
     </div>
@@ -762,8 +760,26 @@ function renderCard(t) {
   setTimeout(() => applyHighlights(t.id, anns), 0);
 }
 
-function toggleComments(el, id) {
+async function toggleComments(el, id) {
   const box = $('comments-' + id);
+  const inner = box.querySelector('.comments-box-inner');
+  if (!inner.dataset.loaded) {
+    inner.dataset.loaded = '1';
+    inner.innerHTML = '<div class="comment" style="color:#aaa">加载中...</div>';
+    try {
+      const resp = await fetch(`/api/tweets/${id}`);
+      const data = await resp.json();
+      const comments = data.comments || [];
+      inner.innerHTML = comments.length === 0
+        ? '<div class="comment" style="color:#aaa">暂无评论</div>'
+        : comments.map(c => renderComment(c)).join('');
+      const toggle = document.querySelector(`.card[data-id="${id}"] .comments-toggle`);
+      if (toggle) toggle.textContent = `评论 ${comments.length}`;
+    } catch(e) {
+      delete inner.dataset.loaded;
+      inner.innerHTML = '<div class="comment" style="color:#aaa">加载失败</div>';
+    }
+  }
   box.classList.toggle('open');
 }
 
@@ -779,6 +795,7 @@ async function crawlComments(tweetId, btn) {
       const box = $('comments-' + tweetId);
       const inner = box.querySelector('.comments-box-inner');
       if (inner) {
+        inner.dataset.loaded = '1';
         inner.innerHTML = comments.length === 0
           ? '<div class="comment" style="color:#aaa">暂无评论</div>'
           : comments.map(c => renderComment(c)).join('');

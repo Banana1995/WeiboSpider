@@ -255,6 +255,88 @@ class TestScheduleConfig:
         assert data['comment_interval_minutes'] == 60
 
 
+class TestLazyComments:
+    """A: /api/tweets and /api/ps must NOT embed comments; detail endpoint still does."""
+
+    def _insert_tweet_and_comments(self, client, content='hello'):
+        import app as app_module
+        app_module.DB.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': content, 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 3, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        for i in range(3):
+            app_module.DB.insert_comment({
+                '_id': f'c{i}', 'tweet_id': '1', 'content': f'comment {i}',
+                'created_at': '2024-01-01 11:00:00', 'like_counts': 0,
+                'ip_location': '', 'comment_user': '{}',
+                'reply_comment': None, 'crawl_time': 0,
+            })
+
+    def test_tweets_list_does_not_embed_comments(self, client):
+        self._insert_tweet_and_comments(client)
+        rv = client.get('/api/tweets?page=1&per_page=20')
+        data = json.loads(rv.data)
+        assert len(data['tweets']) == 1
+        assert 'comments_list' not in data['tweets'][0]
+        assert data['tweets'][0]['comments_count'] == 3
+
+    def test_ps_list_does_not_embed_comments(self, client):
+        self._insert_tweet_and_comments(client, content='游戏仓6月PS图 本月收盘1696W')
+        rv = client.get('/api/ps')
+        data = json.loads(rv.data)
+        assert len(data) == 1
+        assert 'comments_list' not in data[0]
+
+    def test_detail_endpoint_still_returns_comments(self, client):
+        self._insert_tweet_and_comments(client)
+        rv = client.get('/api/tweets/1')
+        data = json.loads(rv.data)
+        assert len(data['comments']) == 3
+
+
+class TestGzip:
+    """B: JSON responses are gzip-compressed when client asks for it."""
+
+    def _insert_many(self, client):
+        import app as app_module
+        for i in range(20):
+            app_module.DB.insert_tweet({
+                '_id': str(i), 'mblogid': f'Mb{i}', 'user_id': '1087770692',
+                'content': 'x' * 200, 'created_at': f'2024-01-01 10:0{i}:00',
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+
+    def test_gzip_when_accept_encoding(self, client):
+        self._insert_many(client)
+        rv = client.get('/api/tweets?page=1&per_page=20',
+                        headers={'Accept-Encoding': 'gzip'})
+        assert rv.status_code == 200
+        assert rv.headers.get('Content-Encoding') == 'gzip'
+        import gzip
+        data = json.loads(gzip.decompress(rv.data))
+        assert data['total'] == 20
+        assert len(data['tweets']) == 20
+
+    def test_no_gzip_without_accept_encoding(self, client):
+        self._insert_many(client)
+        rv = client.get('/api/tweets?page=1&per_page=20')
+        assert rv.status_code == 200
+        assert rv.headers.get('Content-Encoding') is None
+        data = json.loads(rv.data)
+        assert data['total'] == 20
+
+    def test_small_response_not_gzipped(self, client):
+        rv = client.get('/api/tweets?page=1&per_page=20',
+                        headers={'Accept-Encoding': 'gzip'})
+        assert rv.status_code == 200
+        assert rv.headers.get('Content-Encoding') is None
+
+
 class TestCrawlStatus:
     def test_status_returns_dual_structure(self, client):
         rv = client.get('/api/crawl/status')

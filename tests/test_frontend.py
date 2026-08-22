@@ -189,3 +189,22 @@ def test_pending_highlight_preserves_existing_highlights():
     assert "applyHighlights(tweetId, anns);" in INDEX_HTML
     assert "function applyHighlights(tweetId, anns)" in INDEX_HTML
     assert "clearExisting" not in INDEX_HTML
+
+
+def test_render_card_uses_comments_count_field():
+    assert "t.comments_count" in INDEX_HTML
+
+
+def test_render_card_does_not_embed_comments_inline():
+    card_start = INDEX_HTML.index("function renderCard(t)")
+    card_end = INDEX_HTML.index("function toggleComments", card_start)
+    card_body = INDEX_HTML[card_start:card_end]
+    assert "comments.map(c => renderComment(c)).join('')" not in card_body
+
+
+def test_toggle_comments_lazy_loads():
+    toggle_start = INDEX_HTML.index("function toggleComments(")
+    toggle_end = INDEX_HTML.index("async function crawlComments", toggle_start)
+    toggle_body = INDEX_HTML[toggle_start:toggle_end]
+    assert "fetch(`/api/tweets/${id}`)" in toggle_body
+    assert "renderComment" in toggle_body

@@ -1,4 +1,5 @@
 # weibospider/app.py
+import gzip
 import json
 import uuid
 import logging
@@ -22,6 +23,41 @@ logger = logging.getLogger(__name__)
 DB = None
 SCHEDULER = None
 app = Flask(__name__, static_folder='static')
+
+
+GZIP_MIN_BYTES = 500
+
+
+@app.after_request
+def gzip_response(response):
+    """Compress JSON responses with gzip when the client accepts it.
+
+    Avoids shipping multi-MB JSON payloads uncompressed over the network.
+    Only applied to compressible text/JSON above a size threshold; images
+    (served via /api/img) are left untouched.
+    """
+    accept = request.headers.get('Accept-Encoding', '')
+    if 'gzip' not in accept:
+        return response
+    if response.status_code >= 300:
+        return response
+    if getattr(response, 'direct_passthrough', False):
+        return response
+    ctype = (response.headers.get('Content-Type') or '').split(';')[0].lower()
+    if ctype not in ('application/json', 'text/html', 'text/plain',
+                     'application/javascript', 'text/css'):
+        return response
+    data = response.get_data()
+    if data is None or len(data) < GZIP_MIN_BYTES:
+        return response
+    if response.headers.get('Content-Encoding'):
+        return response
+    gz = gzip.compress(data)
+    response.set_data(gz)
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Content-Length'] = str(len(gz))
+    response.headers.setdefault('Vary', 'Accept-Encoding')
+    return response
 
 
 DEFAULT_USER_IDS = ['3962719063']
@@ -827,11 +863,9 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
-def _attach_comments_annotations(tweets):
-    """Attach comments and annotation lists to a list of tweet dicts."""
+def _attach_annotations(tweets):
+    """Attach annotation lists to a list of tweet dicts (comments are lazy-loaded)."""
     for t in tweets:
-        comments = DB.get_comments(t['id'], sort='hot')
-        t['comments_list'] = comments
         t['annotations_list'] = DB.get_annotations(t['id'])
 
 
@@ -849,7 +883,7 @@ def api_tweets():
 
     tweets = DB.get_tweets(page=page, per_page=per_page, sort=sort, deleted=deleted,
                            user_id=user_id, platform=platform)
-    _attach_comments_annotations(tweets)
+    _attach_annotations(tweets)
     total = DB.count_tweets(deleted=deleted, user_id=user_id, platform=platform)
     return jsonify({'tweets': tweets, 'total': total, 'page': page, 'per_page': per_page})
 
@@ -858,7 +892,7 @@ def api_tweets():
 def api_ps():
     """PS图 tab：返回博主每月交易总结微博（内容含 'PS图'）。"""
     tweets = DB.get_ps_tweets()
-    _attach_comments_annotations(tweets)
+    _attach_annotations(tweets)
     return jsonify(tweets)
 
 

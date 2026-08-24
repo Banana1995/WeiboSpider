@@ -373,12 +373,35 @@ class TestCrawlStatus:
         }})()
         old = app_module.SCHEDULER
         app_module.SCHEDULER = fake
+        import time as _t
+        app_module._cookie_probe_cache = {'ts': _t.time(), 'alive': True}
         try:
             rv = client.get('/api/crawl/status')
             data = json.loads(rv.data)
             assert data['cookie_expired'] is False
         finally:
             app_module.SCHEDULER = old
+            app_module._cookie_probe_cache = {'ts': 0, 'alive': None}
+
+    def test_status_cookie_expired_when_probe_says_dead(self, client):
+        """Even without a crawl error, the liveness probe flags a dead cookie."""
+        import app as app_module
+        fake = type('FakeScheduler', (), {'status': {
+            'tweet': {'running': False, 'last_result': {'status': 'completed'}},
+            'comment': {'running': False, 'last_result': None},
+            'xueqiu': {'running': False, 'last_result': None},
+            'xueqiu_comment': {'running': False, 'last_result': None},
+        }})()
+        old = app_module.SCHEDULER
+        app_module.SCHEDULER = fake
+        app_module._cookie_probe_cache = {'ts': 0, 'alive': False}
+        try:
+            rv = client.get('/api/crawl/status')
+            data = json.loads(rv.data)
+            assert data['cookie_expired'] is True
+        finally:
+            app_module.SCHEDULER = old
+            app_module._cookie_probe_cache = {'ts': 0, 'alive': None}
 
 
 class TestIncrementalEndpoint:

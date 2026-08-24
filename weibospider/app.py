@@ -1199,6 +1199,29 @@ def _cookie_expired_from_status(status):
     return False
 
 
+# Cache the liveness probe so a 3s poll loop doesn't hammer weibo.com.
+_cookie_probe_cache = {'ts': 0, 'alive': None}
+
+
+def _cookie_alive_probe():
+    """Probe real cookie liveness (cached ~5min). Returns True/False/None."""
+    now = time.time()
+    if now - _cookie_probe_cache['ts'] < 300:
+        return _cookie_probe_cache['alive']
+    try:
+        from keepalive import check_cookie_alive
+        cookie = DB.get_config('cookie', '') or ''
+        uids = _get_user_ids()
+        uid = uids[0] if uids else '3962719063'
+        alive = check_cookie_alive(cookie, uid)
+    except Exception as e:
+        logger.warning("Cookie liveness probe failed: %s", e)
+        alive = None
+    _cookie_probe_cache['ts'] = now
+    _cookie_probe_cache['alive'] = alive
+    return alive
+
+
 @app.route('/api/crawl/status')
 def api_crawl_status():
     if SCHEDULER is None:
@@ -1209,7 +1232,7 @@ def api_crawl_status():
         }
     else:
         status = SCHEDULER.status
-    status['cookie_expired'] = _cookie_expired_from_status(status)
+    status['cookie_expired'] = _cookie_expired_from_status(status) or _cookie_alive_probe() is False
     status['logs'] = _read_log_tail()
     return jsonify(status)
 

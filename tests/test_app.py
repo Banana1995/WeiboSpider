@@ -346,6 +346,40 @@ class TestCrawlStatus:
         assert 'running' in data['tweet']
         assert 'running' in data['comment']
 
+    def test_status_reports_cookie_expired_from_tweet_result(self, client):
+        import app as app_module
+        fake = type('FakeScheduler', (), {'status': {
+            'tweet': {'running': False, 'last_result': {'status': 'failed', 'error': 'Cookie 已过期，请更新 Cookie'}},
+            'comment': {'running': False, 'last_result': None},
+            'xueqiu': {'running': False, 'last_result': None},
+            'xueqiu_comment': {'running': False, 'last_result': None},
+        }})()
+        old = app_module.SCHEDULER
+        app_module.SCHEDULER = fake
+        try:
+            rv = client.get('/api/crawl/status')
+            data = json.loads(rv.data)
+            assert data['cookie_expired'] is True
+        finally:
+            app_module.SCHEDULER = old
+
+    def test_status_cookie_expired_false_when_no_error(self, client):
+        import app as app_module
+        fake = type('FakeScheduler', (), {'status': {
+            'tweet': {'running': False, 'last_result': {'status': 'completed'}},
+            'comment': {'running': False, 'last_result': None},
+            'xueqiu': {'running': False, 'last_result': None},
+            'xueqiu_comment': {'running': False, 'last_result': None},
+        }})()
+        old = app_module.SCHEDULER
+        app_module.SCHEDULER = fake
+        try:
+            rv = client.get('/api/crawl/status')
+            data = json.loads(rv.data)
+            assert data['cookie_expired'] is False
+        finally:
+            app_module.SCHEDULER = old
+
 
 class TestIncrementalEndpoint:
     def test_incremental_endpoint_exists(self, client):

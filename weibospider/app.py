@@ -1186,6 +1186,19 @@ def _read_log_tail(max_lines=200, log_file=None):
         return []
 
 
+def _cookie_expired_from_status(status):
+    """Derive cookie-expired flag from crawl status.
+
+    Returns True if any crawl reported the cookie-expired error.
+    """
+    for key in ('tweet', 'comment', 'xueqiu', 'xueqiu_comment'):
+        result = (status.get(key) or {}).get('last_result') or {}
+        error = result.get('error') or ''
+        if 'Cookie 已过期' in error:
+            return True
+    return False
+
+
 @app.route('/api/crawl/status')
 def api_crawl_status():
     if SCHEDULER is None:
@@ -1196,6 +1209,7 @@ def api_crawl_status():
         }
     else:
         status = SCHEDULER.status
+    status['cookie_expired'] = _cookie_expired_from_status(status)
     status['logs'] = _read_log_tail()
     return jsonify(status)
 

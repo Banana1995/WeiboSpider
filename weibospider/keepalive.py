@@ -3,6 +3,7 @@
 
 Uses only stdlib (urllib) to avoid adding dependencies.
 """
+import json
 import logging
 import re
 import time
@@ -16,6 +17,10 @@ USER_AGENT = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
 
 # Run keepalive daily when ALF expiry is within this many seconds
 KEEPALIVE_WINDOW_SECONDS = 3 * 24 * 3600  # 3 days
+
+# Probe the mymblog API to test real session liveness (ALF alone is not enough:
+# weibo can invalidate a session server-side while ALF still looks valid).
+PROBE_URL = 'https://weibo.com/ajax/statuses/mymblog?uid={uid}&page=1&feature=1'
 
 
 def get_alf_expiry(cookie_string):
@@ -47,6 +52,47 @@ def should_keepalive_now(cookie_string, now=None):
     if expiry is None:
         return True
     return (expiry - now) < KEEPALIVE_WINDOW_SECONDS
+
+
+def _probe_mymblog(cookie_string, uid):
+    """GET the mymblog API with the given cookie, return the response object."""
+    req = urllib.request.Request(PROBE_URL.format(uid=uid), headers={
+        'User-Agent': USER_AGENT,
+        'Cookie': cookie_string,
+        'Referer': 'https://weibo.com/',
+        'Accept': 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest',
+    })
+    return urllib.request.urlopen(req, timeout=15)
+
+
+def check_cookie_alive(cookie_string, uid='3962719063'):
+    """Probe the weibo API to check whether the session is actually alive.
+
+    Returns:
+      True   - session alive (API returned ok=1)
+      False  - session dead (ok=-100, login redirect, or empty cookie)
+      None   - unknown (network error / unparseable response)
+    """
+    if not cookie_string:
+        return False
+    try:
+        resp = _probe_mymblog(cookie_string, uid)
+    except Exception as e:
+        logger.warning("Cookie liveness probe request failed: %s", e)
+        return None
+    try:
+        raw = resp.read()
+        ctype = (resp.headers.get('Content-Type') or '')
+        if 'json' in ctype.lower():
+            data = json.loads(raw.decode('utf-8', errors='replace'))
+            ok = data.get('ok', data.get('code'))
+            return ok == 1
+        # HTML response (login redirect / captcha) means the session is dead.
+        return False
+    except Exception as e:
+        logger.warning("Cookie liveness probe parse failed: %s", e)
+        return None
 
 
 def _merge_set_cookie_into_cookie_string(old_cookie, set_cookie_headers):

@@ -208,3 +208,25 @@ def test_toggle_comments_lazy_loads():
     toggle_body = INDEX_HTML[toggle_start:toggle_end]
     assert "fetch(`/api/tweets/${id}`)" in toggle_body
     assert "renderComment" in toggle_body
+
+
+def test_cookie_expired_modal_exists():
+    assert 'id="cookie-modal"' in INDEX_HTML
+    assert 'cookie-modal-input' in INDEX_HTML
+    assert '保存并重试' in INDEX_HTML
+    assert '稍后再说' in INDEX_HTML
+
+
+def test_poll_checks_cookie_expired():
+    poll_start = INDEX_HTML.index("async function pollCrawlStatus()")
+    next_fn = INDEX_HTML.find("function ", poll_start + 10)
+    poll_body = INDEX_HTML[poll_start:next_fn if next_fn != -1 else len(INDEX_HTML)]
+    assert "cookie_expired" in poll_body
+    assert "Cookie 已过期" in poll_body
+
+
+def test_cookie_modal_save_function_exists():
+    assert "function showCookieModal(" in INDEX_HTML
+    assert "function dismissCookieModal(" in INDEX_HTML
+    assert "async function saveCookieFromModal(" in INDEX_HTML
+    assert "fetch('/api/config'" in INDEX_HTML

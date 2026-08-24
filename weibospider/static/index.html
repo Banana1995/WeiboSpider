@@ -423,6 +423,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   </div>
 </div>
 
+<div class="export-overlay" id="cookie-modal" onclick="if(event.target===this)dismissCookieModal()">
+  <div class="export-modal">
+    <h3 style="color:#e74c3c;">微博 Cookie 已过期</h3>
+    <p class="modal-desc">检测到微博 Cookie 已失效，定时抓取将无法继续。请粘贴新的微博 Cookie 后重试。</p>
+    <textarea id="cookie-modal-input" rows="6" placeholder="粘贴新的微博 Cookie" style="width:100%;padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:13px;color:#333;outline:none;box-sizing:border-box;resize:vertical;font-family:monospace;"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="dismissCookieModal()">稍后再说</button>
+      <button class="btn btn-confirm" onclick="saveCookieFromModal()">保存并重试</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()">
@@ -1177,6 +1189,52 @@ async function pollCrawlStatus() {
       body.scrollTop = body.scrollHeight;
     }
   }
+
+  if (!anyRunning && data.cookie_expired && !cookieModalDismissed) {
+    showCookieModal();
+  } else if (!anyRunning && !cookieModalDismissed) {
+    const lastRes = [data.tweet, data.comment, data.xueqiu, data.xueqiu_comment]
+      .map(r => (r && r.last_result && r.last_result.error) || '')
+      .join('');
+    if (lastRes.indexOf('Cookie 已过期') !== -1) {
+      showCookieModal();
+    }
+  }
+}
+
+let cookieModalDismissed = false;
+
+function showCookieModal() {
+  $('cookie-modal').classList.add('show');
+  $('cookie-modal-input').value = '';
+  setTimeout(() => { try { $('cookie-modal-input').focus(); } catch(e) {} }, 100);
+}
+
+function dismissCookieModal() {
+  cookieModalDismissed = true;
+  $('cookie-modal').classList.remove('show');
+}
+
+async function saveCookieFromModal() {
+  const cookie = $('cookie-modal-input').value.trim();
+  if (!cookie) { toast('请输入 Cookie', true); return; }
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cookie: cookie})
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      cookieModalDismissed = false;
+      $('cookie-modal').classList.remove('show');
+      lastCrawlResult = null;
+      loadConfig();
+      toast('Cookie 已保存');
+    } else {
+      toast(data.error || '保存失败', true);
+    }
+  } catch(e) { toast('保存失败', true); }
 }
 
 async function cancelCrawl() {

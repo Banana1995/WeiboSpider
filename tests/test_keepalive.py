@@ -110,6 +110,53 @@ class TestRefreshCookie:
         mock_ping.assert_not_called()
 
 
+class TestCheckCookieAlive:
+    """Liveness probe: hit mymblog API and judge session by real response."""
+
+    def _mock_urlopen(self, body=b'', ctype='application/json'):
+        fake = MagicMock()
+        headers = MagicMock()
+        headers.get = lambda name: ctype if name == 'Content-Type' else None
+        fake.headers = headers
+        fake.status = 200
+        fake.read.return_value = body
+        return fake
+
+    def test_alive_when_ok_1(self):
+        from keepalive import check_cookie_alive
+        import json
+        fake = self._mock_urlopen(json.dumps({'ok': 1, 'data': {'list': []}}).encode())
+        with patch('keepalive._probe_mymblog', return_value=fake):
+            assert check_cookie_alive('SUB=abc') is True
+
+    def test_dead_when_ok_negative(self):
+        from keepalive import check_cookie_alive
+        import json
+        fake = self._mock_urlopen(json.dumps({'ok': -100, 'msg': 'not logged in'}).encode())
+        with patch('keepalive._probe_mymblog', return_value=fake):
+            assert check_cookie_alive('SUB=abc') is False
+
+    def test_dead_when_html_redirect(self):
+        from keepalive import check_cookie_alive
+        fake = self._mock_urlopen(
+            '<html><title>安全验证</title><meta http-equiv="refresh" '
+            "content=\"0; url='...retcode=6102...'\"></html>".encode('utf-8'),
+            ctype='text/html')
+        with patch('keepalive._probe_mymblog', return_value=fake):
+            assert check_cookie_alive('SUB=abc') is False
+
+    def test_unknown_on_network_error(self):
+        from keepalive import check_cookie_alive
+        with patch('keepalive._probe_mymblog', side_effect=Exception('net down')):
+            assert check_cookie_alive('SUB=abc') is None
+
+    def test_dead_when_no_cookie(self):
+        from keepalive import check_cookie_alive
+        with patch('keepalive._probe_mymblog') as mock_probe:
+            assert check_cookie_alive('') is False
+        mock_probe.assert_not_called()
+
+
 class TestAlfExpiry:
     def test_get_alf_expiry_plain_timestamp(self):
         from keepalive import get_alf_expiry

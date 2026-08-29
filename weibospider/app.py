@@ -904,6 +904,37 @@ def api_notes():
     return jsonify(tweets)
 
 
+@app.route('/api/search')
+def api_search():
+    """全局搜索：微博正文/转发原文/评论/划线笔记。
+
+    关键词 >=3 字走 FTS5 MATCH（trigram 索引），<3 字走业务表 LIKE。
+    """
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({'results': [], 'total': 0, 'page': 1,
+                        'per_page': 20, 'query': '', 'elapsed_ms': 0.0})
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    source_type = request.args.get('source_type', 'all')
+    start_date = request.args.get('start_date') or None
+    end_date = request.args.get('end_date') or None
+
+    t0 = time.time()
+    try:
+        out = DB.search(q, page=page, per_page=per_page,
+                        source_type=source_type,
+                        start_date=start_date, end_date=end_date)
+    except Exception as e:
+        app.logger.exception('search failed')
+        return jsonify({'error': str(e)}), 500
+
+    out['query'] = q
+    out['elapsed_ms'] = round((time.time() - t0) * 1000, 1)
+    return jsonify(out)
+
+
 @app.route('/api/tweets/<tweet_id>')
 def api_get_tweet(tweet_id):
     tweet = DB.get_tweet(tweet_id)

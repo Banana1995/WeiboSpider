@@ -350,3 +350,29 @@ class TestDbSearch:
         seeded.delete_annotation('a1')
         got = seeded.search('笔记说量子')
         assert all(r['doc_id'] != 'a1' for r in got['results'])
+
+
+class TestSearchApiContract:
+    """The route is a thin wrapper; verify it exists and clamps params."""
+
+    def test_route_registered(self):
+        import app as app_module
+        rules = {r.rule for r in app_module.app.url_map.iter_rules()}
+        assert '/api/search' in rules
+
+    def test_per_page_is_clamped(self, seeded):
+        got = seeded.search('量子计算', per_page=9999)
+        assert got['per_page'] <= 100
+
+    def test_page_floor_is_one(self, seeded):
+        got = seeded.search('量子计算', page=0)
+        assert got['page'] == 1
+
+    def test_response_shape(self, seeded):
+        got = seeded.search('量子计算')
+        assert set(['results', 'total', 'page', 'per_page']).issubset(got.keys())
+        if got['results']:
+            r = got['results'][0]
+            for key in ('doc_id', 'source_type', 'tweet_id', 'highlight',
+                        'content', 'created_at', 'screen_name'):
+                assert key in r

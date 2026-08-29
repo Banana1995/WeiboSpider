@@ -287,6 +287,21 @@ class TestDbSearch:
         assert got['total'] > 0
         assert any(r['tweet_id'] == 't1' for r in got['results'])
 
+    def test_short_keyword_highlights_matched_source(self, seeded):
+        """LIKE path highlight must show the comment's matched text, not the tweet body."""
+        # Index the seeded comment manually (sync maintenance lands in Task 7)
+        seeded.conn.execute(
+            "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+            "VALUES ('c1','comment','t2','评论里提到量子计算的事')"
+        )
+        seeded.conn.commit()
+        got = seeded.search('量子')
+        hits = [r for r in got['results'] if r['source_type'] == 'comment']
+        assert hits, "expected a comment hit"
+        assert '评论里提到' in hits[0]['highlight']
+        assert '<mark>量子</mark>' in hits[0]['highlight']
+        assert '天气不错' not in hits[0]['highlight']  # tweet body text must NOT appear
+
     def test_short_keyword_has_highlight(self, seeded):
         got = seeded.search('量子')
         assert any('<mark>' in (r.get('highlight') or '') for r in got['results'])

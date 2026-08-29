@@ -744,8 +744,9 @@ class TweetDB:
         for r in rows:
             d = dict(r)
             if not d.get('highlight'):
-                # LIKE path (or snippet miss): highlight in Python
-                d['highlight'] = make_highlight(d.get('content') or '', q)
+                # LIKE path: highlight the actual matched source text
+                # (comment/annotation content), not just the tweet body.
+                d['highlight'] = make_highlight(d.get('matched_text') or '', q)
             else:
                 # IMPORTANT: snippet() does NOT HTML-escape tweet content.
                 # Escape it now and restore the <mark> markers, else raw

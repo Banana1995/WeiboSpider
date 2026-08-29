@@ -26,10 +26,13 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
                      start_date=None, end_date=None):
     """Build (sql, params) for a search query.
 
-    Returns rows shaped: doc_id, source_type, tweet_id, highlight,
+    Returns rows shaped: doc_id, source_type, tweet_id, matched_text, highlight,
                          id, content, created_at, user_id, screen_name, platform
     `highlight` is filled by snippet() on the MATCH path and is NULL on the
     LIKE path (the caller highlights in Python via make_highlight()).
+    `matched_text` is the concatenated source text the LIKE path searched
+    (tweet content+retweet, comment content, or annotation comment+selected
+    text), used so highlight shows the actual matched source.
     """
     page = max(int(page or 1), 1)
     per_page = min(max(int(per_page or 20), 1), 100)
@@ -69,19 +72,21 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
     # Path B: short keyword -> LIKE over source tables (never on the FTS5 table).
     like = f'%{q}%'
     sql = f"""
-        SELECT s.doc_id, s.source_type, s.tweet_id,
+        SELECT s.doc_id, s.source_type, s.tweet_id, s.matched_text,
                NULL AS highlight,
                t.id, t.content, t.created_at, t.user_id, t.screen_name, t.platform
           FROM (
-                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id
+                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id,
+                       COALESCE(content,'') || ' ' || COALESCE(retweet_content,'') AS matched_text
                   FROM tweets
                  WHERE content LIKE ? OR retweet_content LIKE ?
                 UNION ALL
-                SELECT id, 'comment', tweet_id
+                SELECT id, 'comment', tweet_id, COALESCE(content,'')
                   FROM comments
                  WHERE content LIKE ?
                 UNION ALL
-                SELECT id, 'annotation', tweet_id
+                SELECT id, 'annotation', tweet_id,
+                       COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
                   FROM annotations
                  WHERE comment LIKE ? OR selected_text LIKE ?
                ) s
@@ -130,6 +135,10 @@ def escape_snippet(hl):
     SQLite's snippet() does NOT HTML-escape the surrounding text, so a tweet
     containing `<script>` would pass it through raw. Escape everything, then
     restore the markers snippet() inserted.
+
+    Cosmetic limit: a literal `<mark>` that was already part of the original
+    content is indistinguishable from the markers snippet() inserted, so it
+    gets restored as a real tag too. Cosmetic only - it cannot execute JS.
     """
     if not hl:
         return hl

@@ -790,6 +790,10 @@ class TweetDB:
         Returns {'results': [...], 'total': int, 'page': int, 'per_page': int}.
         """
         q = (q or '').strip()
+        # Strip control chars: a bare \x00 inside fts5_quote() yields an
+        # FTS5 "unterminated string" OperationalError (500). Pasting text
+        # with control chars is common, so sanitize at the contract layer.
+        q = ''.join(ch for ch in q if ch >= '\x20' and ch != '\x7f')
         page = max(int(page or 1), 1)
         per_page = min(max(int(per_page or 20), 1), 100)
         if not q:

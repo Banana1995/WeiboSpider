@@ -351,6 +351,13 @@ class TestDbSearch:
         got = seeded.search('笔记说量子')
         assert all(r['doc_id'] != 'a1' for r in got['results'])
 
+    def test_control_chars_in_query_do_not_raise(self, seeded):
+        """Control chars (e.g. from pasted text) must not cause a 500."""
+        got = seeded.search('a\x00b\x00c')
+        assert 'results' in got
+        got2 = seeded.search('量子\x00计算')
+        assert 'results' in got2
+
 
 class TestSearchApiContract:
     """The route is a thin wrapper; verify it exists and clamps params."""

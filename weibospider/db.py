@@ -159,15 +159,17 @@ class TweetDB:
             self.conn.commit()
             self._backfill_search_index()
 
-    def _backfill_search_index(self):
+    def _backfill_search_index(self, _lock_held=False):
         """Populate search_index from existing rows if it is empty.
 
         Runs on every construction until the index is non-empty; later writes
-        keep it in sync incrementally.
+        keep it in sync incrementally. Pass _lock_held=True when the caller
+        already holds the cross-process file lock.
         """
         with self._lock:
-            if not self._acquire_file_lock():
-                raise RuntimeError("DB file lock timeout (search_index backfill)")
+            if not _lock_held:
+                if not self._acquire_file_lock():
+                    raise RuntimeError("DB file lock timeout (search_index backfill)")
             try:
                 n = self.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
                 if n > 0:
@@ -187,23 +189,28 @@ class TweetDB:
                 """)
                 self.conn.commit()
             finally:
-                self._release_file_lock()
+                if not _lock_held:
+                    self._release_file_lock()
 
     def rebuild_search_index(self):
-        """Drop and rebuild the whole search index. Returns row count."""
+        """Drop and rebuild the whole search index. Returns row count.
+
+        Holds the cross-process file lock across DELETE + backfill + count so
+        no concurrent writer can slip a row in between, which would make the
+        backfill's empty-guard skip and silently leave a partial index.
+        """
         with self._lock:
             if not self._acquire_file_lock():
                 raise RuntimeError("DB file lock timeout (rebuild_search_index)")
             try:
                 self.conn.execute("DELETE FROM search_index")
                 self.conn.commit()
+                self._backfill_search_index(_lock_held=True)
+                return self.conn.execute(
+                    "SELECT COUNT(*) FROM search_index"
+                ).fetchone()[0]
             finally:
                 self._release_file_lock()
-        self._backfill_search_index()
-        with self._lock:
-            return self.conn.execute(
-                "SELECT COUNT(*) FROM search_index"
-            ).fetchone()[0]
 
     def _index_put(self, doc_id, source_type, tweet_id, text):
         """Upsert one row into search_index (delete-then-insert; FTS5 has no upsert)."""

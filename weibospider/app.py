@@ -943,7 +943,7 @@ def api_search_reindex():
     except Exception as e:
         app.logger.exception('reindex failed')
         return jsonify({'error': str(e)}), 500
-    DB.insert_log('search', 'reindex', detail=f'rows={n}', status='ok')
+    DB.insert_log('search', 'reindex', detail=f'rows={n}', status='success')
     return jsonify({'ok': True, 'indexed': n})
 
 

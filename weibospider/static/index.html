@@ -194,6 +194,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   white-space: pre-wrap; word-break: break-word;
 }
 .annotation-comment { font-size: 13px; color: #333; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+.annotation-comment-images { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+.annotation-comment-img {
+  max-width: 90px; max-height: 90px; border-radius: 4px;
+  object-fit: cover; cursor: zoom-in; background: #f0f0f0;
+}
 .annotation-actions { margin-top: 6px; font-size: 11px; }
 .annotation-actions a { color: #4a9eff; cursor: pointer; margin-right: 8px; }
 .annotation-actions a.del { color: #e74c3c; }
@@ -1699,6 +1704,15 @@ async function loadAnnotationHighlights(tweetId) {
   } catch(e) { toast('加载高亮失败', true); }
 }
 
+function parseMarkdownImages(comment) {
+  const images = [];
+  const text = String(comment || '').replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, url) => {
+    images.push(url);
+    return '';
+  });
+  return { text: text, images: images };
+}
+
 function renderAnnotationPanel(tweetId, anns) {
   const panel = $('annotation-panel-' + tweetId);
   if (!panel) return;
@@ -1715,12 +1729,17 @@ function renderAnnotationPanel(tweetId, anns) {
     const body = document.createElement('div');
     body.className = 'annotation-card-body';
     body.id = 'ann-body-' + ann.id;
+    const parsed = parseMarkdownImages(ann.comment);
     const commentHtml = ann.comment
-      ? `<div class="annotation-comment">${esc(ann.comment)}</div>`
+      ? `<div class="annotation-comment">${esc(parsed.text)}</div>`
       : `<div class="annotation-comment" style="color:#aaa;font-style:italic;">未输入评论</div>`;
+    const imgsHtml = parsed.images.length
+      ? `<div class="annotation-comment-images">${parsed.images.map(u => `<img src="${esc(u)}" class="annotation-comment-img" loading="lazy" onclick="openLightbox(this.src)">`).join('')}</div>`
+      : '';
     body.innerHTML = `
       <div class="annotation-selected-text" onclick="scrollToHighlight('${tweetId}', '${ann.id}')">"${esc(ann.selected_text)}"</div>
       ${commentHtml}
+      ${imgsHtml}
       <div class="annotation-actions">
         <a onclick="editAnnotation('${ann.id}', '${tweetId}')">编辑</a>
         <a class="del" onclick="deleteAnnotation('${ann.id}', '${tweetId}')">删除</a>
@@ -1888,10 +1907,14 @@ function scrollToHighlight(tweetId, annId) {
 async function editAnnotation(annId, tweetId) {
   const body = $('ann-body-' + annId);
   if (!body) return;
+  let rawComment = '';
+  try {
+    const resp = await fetch(`/api/annotations/${annId}`);
+    if (resp.ok) rawComment = (await resp.json()).comment || '';
+  } catch(e) { /* keep empty */ }
   const commentDiv = body.querySelector('.annotation-comment');
-  const oldComment = commentDiv.textContent;
   const textarea = document.createElement('textarea');
-  textarea.value = oldComment;
+  textarea.value = rawComment;
   textarea.style.cssText = 'width:100%;border:1px solid #4a9eff;border-radius:6px;padding:8px;font-size:13px;resize:none;height:60px;outline:none;';
   commentDiv.replaceWith(textarea);
   textarea.focus();
@@ -1908,7 +1931,7 @@ async function saveAnnotationEdit(annId, tweetId) {
   if (!body) return;
   const textarea = body.querySelector('textarea');
   const comment = textarea.value.trim();
-  if (!comment) { toast('请输入评论', true); return; }
+  if (!comment && !body.querySelector('.annotation-comment-images')) { toast('请输入评论', true); return; }
   try {
     const resp = await fetch(`/api/annotations/${annId}`, {
       method: 'PUT',

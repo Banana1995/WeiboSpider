@@ -257,3 +257,17 @@ def test_paste_image_handler_exists():
     assert "fetch('/api/upload'" in INDEX_HTML
     assert 'insertAtCursor' in INDEX_HTML
     assert '![图片](' in INDEX_HTML
+
+
+def test_markdown_image_parser_exists():
+    assert 'function parseMarkdownImages(' in INDEX_HTML
+    assert 'annotation-comment-images' in INDEX_HTML
+    assert 'annotation-comment-img' in INDEX_HTML
+    assert 'openLightbox(this.src)' in INDEX_HTML
+
+
+def test_edit_annotation_fetches_raw_comment():
+    edit_start = INDEX_HTML.index('async function editAnnotation(')
+    edit_end = INDEX_HTML.index('async function saveAnnotationEdit(', edit_start)
+    edit_body = INDEX_HTML[edit_start:edit_end]
+    assert '`/api/annotations/${annId}`' in edit_body

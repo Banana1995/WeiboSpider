@@ -1490,6 +1490,17 @@ Expected:
 
 若写入明显变慢（超过 2 倍）：把 `batch_insert_*` 里的逐条 `_index_*` 改成一次 `executemany`。
 
+**重要发现（2026-08-29 实测）**：即使改成 `executemany`，FTS5 的 `DELETE FROM search_index WHERE doc_id=? AND source_type=?` 仍是 O(index_size) 每行（trigram 表上按非 rowid 列删除要全扫索引）。实测：索引 5k 行时删除 20k 行要 9s，索引 10k 行要 17.4s；到生产的 114k 行，一次全量评论抓取的删除阶段要 ~16 分钟。
+
+**正确解法**：加一张普通表 `search_doc(doc_id, source_type, fts_rowid, PRIMARY KEY(doc_id, source_type))` 作为 doc→FTS5 rowid 的映射。删除时先查这张表拿 rowid，再 `DELETE FROM search_index WHERE rowid=?`（O(1)）。实测同一场景降到 **76k rows/s，且不随索引大小退化**（5k 行索引下 5500 条混合批量 0.07s）。
+
+实现要点：
+1. `_create_tables` 里建 `search_doc` 表
+2. `_backfill_search_index` 回填时同步填充 `search_doc`（`SELECT doc_id, source_type, rowid FROM search_index`）
+3. `_index_put`：查 `search_doc` → 有则按 rowid 删；INSERT 后用 `last_insert_rowid()` 拿到新 rowid 写回 `search_doc`
+4. `_index_delete`：查 `search_doc` 拿 rowid 再删
+5. 批量路径：对每个 item 查 `search_doc` 判断是否存在，存在的一批按 rowid 删，新的一批直接 INSERT，`executemany` 后按 `last_insert_rowid()` 倒推 rowid 写回 `search_doc`
+
 - [ ] **Step 3: 把实测数字回写设计文档**
 
 把本次 5k+11w 真实规模的数字追加到 `docs/superpowers/specs/2026-08-29-global-search-design.md` 的 2.2 节，标注"真实规模实测"。

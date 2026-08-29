@@ -190,6 +190,48 @@ class TestTweetDB:
         assert [r['id'] for r in result] == ['1', '2']  # 只含非删除 + PS图，按时间倒序
         assert all('PS图' in r['content'] for r in result)
 
+    def test_get_annotated_tweets_only_annotated(self, db):
+        def ins(_id, content, created_at):
+            db.insert_tweet({
+                '_id': _id, 'mblogid': f'Mb{_id}', 'user_id': '1087770692',
+                'content': content, 'created_at': created_at,
+                'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+                'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+                'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+            })
+        ins('1', '有划线评论的微博A', '2026-06-30 15:13:17')
+        ins('2', '有划线评论的微博B', '2026-05-29 15:07:38')
+        ins('3', '没有划线评论的微博', '2026-07-01 10:00:00')
+        ins('4', '有划线评论但已删除', '2026-04-01 03:15:11')
+        db.insert_annotation({
+            'id': 'a1', 'tweet_id': '1',
+            'start_offset': 0, 'end_offset': 2,
+            'selected_text': '有划', 'comment': '第一条笔记', 'field': 'content',
+        })
+        db.insert_annotation({
+            'id': 'a2', 'tweet_id': '2',
+            'start_offset': 0, 'end_offset': 2,
+            'selected_text': '有划', 'comment': '第二条笔记', 'field': 'content',
+        })
+        db.insert_annotation({
+            'id': 'a3', 'tweet_id': '4',
+            'start_offset': 0, 'end_offset': 2,
+            'selected_text': '有划', 'comment': '已删除的笔记', 'field': 'content',
+        })
+        db.batch_delete(['4'])
+        result = db.get_annotated_tweets()
+        assert [r['id'] for r in result] == ['1', '2']  # 只含非删除 + 有划线评论，按时间倒序
+
+    def test_get_annotated_tweets_empty_when_no_annotations(self, db):
+        db.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': 'hello', 'created_at': '2024-01-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        assert db.get_annotated_tweets() == []
+
     def test_get_comments(self, db):
         db.insert_tweet({
             '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',

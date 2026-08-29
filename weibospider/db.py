@@ -420,6 +420,28 @@ class TweetDB:
                 results.append(d)
             return results
 
+    def get_annotated_tweets(self):
+        """Return non-deleted tweets that have at least one annotation,
+        all platforms, ordered by created_at DESC.
+
+        Used by the 笔记 tab to show tweets that have 划线评论.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM tweets WHERE deleted = 0 "
+                "AND id IN (SELECT DISTINCT tweet_id FROM annotations) "
+                "ORDER BY created_at DESC"
+            ).fetchall()
+            results = []
+            for row in rows:
+                d = dict(row)
+                d['pic_urls'] = json.loads(d.get('pic_urls', '[]') or '[]')
+                d['retweet_pic_urls'] = json.loads(d.get('retweet_pic_urls', '[]') or '[]')
+                d['is_retweet'] = bool(d.get('is_retweet'))
+                d['deleted'] = bool(d.get('deleted'))
+                results.append(d)
+            return results
+
     def get_tweet(self, tweet_id):
         with self._lock:
             row = self.conn.execute("SELECT * FROM tweets WHERE id=?", (tweet_id,)).fetchone()

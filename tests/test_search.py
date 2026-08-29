@@ -398,3 +398,88 @@ class TestReindex:
         n = seeded.rebuild_search_index()
         assert n > 0
         assert seeded.search('量子计算')['total'] > 0
+
+
+class TestSearchDocConsistency:
+    def _assert_sync(self, db):
+        """search_doc and search_index must have equal counts and no orphans."""
+        n_fts = db.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+        n_map = db.conn.execute("SELECT COUNT(*) FROM search_doc").fetchone()[0]
+        assert n_fts == n_map, f'index={n_fts} map={n_map}'
+        orphans = db.conn.execute(
+            "SELECT COUNT(*) FROM search_doc d LEFT JOIN search_index i "
+            "ON d.fts_rowid = i.rowid WHERE i.rowid IS NULL"
+        ).fetchone()[0]
+        assert orphans == 0, f'{orphans} orphan map rows'
+
+    def test_sync_after_batch_mixed(self, seeded):
+        """Mixed new+updated batch keeps the map in sync."""
+        items = []
+        for i in range(50):
+            items.append({
+                '_id': f'nc{i}', 'tweet_id': 't1', 'content': f'新评论 {i} 量子计算',
+                'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+                'comment_user': {}, 'reply_comment': None, 'crawl_time': 0,
+            })
+        # c1 already exists from seeded fixture (update it too)
+        items.append({
+            '_id': 'c1', 'tweet_id': 't2', 'content': '量子计算 更新后的评论',
+            'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+            'comment_user': {}, 'reply_comment': None, 'crawl_time': 0,
+        })
+        seeded.batch_insert_comments(items)
+        self._assert_sync(seeded)
+
+    def test_sync_after_annotation_lifecycle(self, seeded):
+        seeded.insert_annotation({
+            'id': 'a9', 'tweet_id': 't1', 'start_offset': 0, 'end_offset': 2,
+            'selected_text': '今天', 'comment': '量子计算 笔记', 'field': 'content', 'ranges': None,
+        })
+        self._assert_sync(seeded)
+        seeded.update_annotation('a9', '量子计算 改后的笔记')
+        self._assert_sync(seeded)
+        seeded.delete_annotation('a9')
+        self._assert_sync(seeded)
+
+    def test_sync_after_duplicate_doc_in_batch(self, seeded):
+        """Duplicate doc_ids in one batch must not crash or desync."""
+        items = [
+            {'_id': 'dup1', 'tweet_id': 't1', 'content': '重复一 量子计算',
+             'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+             'comment_user': {}, 'reply_comment': None, 'crawl_time': 0},
+            {'_id': 'dup1', 'tweet_id': 't1', 'content': '重复二 量子计算',
+             'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+             'comment_user': {}, 'reply_comment': None, 'crawl_time': 0},
+        ]
+        seeded.batch_insert_comments(items)
+        self._assert_sync(seeded)
+        # the last duplicate wins; index has exactly one dup1 row
+        n = seeded.conn.execute(
+            "SELECT COUNT(*) FROM search_index WHERE doc_id='dup1' AND source_type='comment'"
+        ).fetchone()[0]
+        assert n == 1
+
+    def test_upgrade_populate_with_legacy_duplicates(self):
+        """A legacy index with duplicate (doc_id, source_type) must not crash boot."""
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix='.db')
+        os.close(fd)
+        try:
+            import sqlite3
+            c = sqlite3.connect(path)
+            c.executescript("""
+            CREATE TABLE tweets(id TEXT PRIMARY KEY, content TEXT, retweet_content TEXT DEFAULT '', screen_name TEXT, created_at TEXT, deleted INTEGER DEFAULT 0, platform TEXT DEFAULT 'weibo', user_id TEXT);
+            CREATE TABLE comments(id TEXT PRIMARY KEY, tweet_id TEXT, content TEXT, created_at TEXT);
+            CREATE TABLE annotations(id TEXT PRIMARY KEY, tweet_id TEXT, comment TEXT, selected_text TEXT);
+            CREATE VIRTUAL TABLE search_index USING fts5(doc_id, source_type, tweet_id, text, tokenize='trigram');
+            INSERT INTO search_index(doc_id, source_type, tweet_id, text) VALUES ('c1','comment','t1','第一条重复');
+            INSERT INTO search_index(doc_id, source_type, tweet_id, text) VALUES ('c1','comment','t1','第二条重复');
+            INSERT INTO tweets VALUES('t1','内容','','博主','2024-01-01',0,'weibo','u1');
+            """)
+            c.commit()
+            c.close()
+            # must not raise
+            db = TweetDB(path)
+            db.close()
+        finally:
+            os.unlink(path)

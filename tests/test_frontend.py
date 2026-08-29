@@ -315,3 +315,21 @@ def test_create_annotation_textarea_binds_shared_paste_handler():
     show_body = INDEX_HTML[show_start:show_end]
     assert 'bindAnnotationImagePaste' in show_body
     assert "addEventListener('paste'" not in show_body
+
+
+class TestSearchUI:
+    def test_search_input_exists(self):
+        assert 'id="search-input"' in INDEX_HTML
+
+    def test_search_tab_exists(self):
+        assert 'data-tab="search"' in INDEX_HTML
+        assert 'id="search-view"' in INDEX_HTML
+
+    def test_calls_search_api(self):
+        assert '/api/search?' in INDEX_HTML
+
+    def test_mark_style_defined(self):
+        assert 'mark {' in INDEX_HTML or '.search-hl mark' in INDEX_HTML
+
+    def test_enter_key_triggers_search(self):
+        assert 'doSearch' in INDEX_HTML

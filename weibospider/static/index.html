@@ -1359,18 +1359,22 @@ function switchTab(tab) {
   const isPs = tab === 'ps';
   const isNotes = tab === 'notes';
   const isXq = tab === 'xueqiu';
-  const hideBatch = isLogs || isPs || isNotes || isXq;
-  const hidePagination = isLogs || isPs || isNotes;
+  const isSearch = tab === 'search';
+  const hideBatch = isLogs || isPs || isNotes || isXq || isSearch;
+  const hidePagination = isLogs || isPs || isNotes || isSearch;
   $('select-all-row').style.display = hideBatch ? 'none' : '';
   $('btn-batch-delete').style.display = hideBatch ? 'none' : (tab === 'trash' ? 'none' : '');
   $('btn-batch-restore').style.display = hideBatch ? 'none' : (tab === 'trash' ? '' : 'none');
-  $('cards-container').style.display = isLogs ? 'none' : '';
-  $('loader').style.display = isLogs ? 'none' : '';
+  $('cards-container').style.display = (isLogs || isSearch) ? 'none' : '';
+  $('loader').style.display = (isLogs || isSearch) ? 'none' : '';
   $('pagination').style.display = hidePagination ? 'none' : '';
   $('logs-container').style.display = isLogs ? 'block' : 'none';
+  $('search-view').style.display = isSearch ? '' : 'none';
   $('cards-container').classList.toggle('ps-mode', isPs || isNotes);
   if (isLogs) {
     loadLogs(1);
+  } else if (isSearch) {
+    // search results are rendered by runSearch()
   } else if (isPs) {
     selected.clear();
     updateBatchBtn();
@@ -2012,6 +2016,95 @@ function toast(msg, isError) {
   el.className = 'toast ' + (isError ? 'error' : '') + ' show';
   setTimeout(() => el.classList.remove('show'), 3000);
 }
+
+// ---- Global search ----
+let searchState = { q: '', page: 1, perPage: 20, sourceType: 'all', total: 0 };
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const SRC_LABEL = { tweet: '微博', comment: '评论', annotation: '笔记' };
+
+function doSearch(page) {
+  const input = document.getElementById('search-input');
+  const q = (input && input.value || '').trim();
+  if (!q) { toast('请输入搜索关键词'); return; }
+  searchState.q = q;
+  searchState.page = page || 1;
+  switchTab('search');
+  runSearch();
+}
+
+function runSearch() {
+  const meta = document.getElementById('search-meta');
+  const box = document.getElementById('search-results');
+  meta.textContent = '搜索中…';
+  box.innerHTML = '';
+  const p = new URLSearchParams({
+    q: searchState.q,
+    page: searchState.page,
+    per_page: searchState.perPage,
+    source_type: searchState.sourceType,
+  });
+  fetch('/api/search?' + p.toString())
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { meta.textContent = '搜索出错：' + data.error; return; }
+      searchState.total = data.total || 0;
+      renderSearchResults(data);
+    })
+    .catch(e => { meta.textContent = '搜索失败：' + e; });
+}
+
+function renderSearchResults(data) {
+  const meta = document.getElementById('search-meta');
+  const box = document.getElementById('search-results');
+  const results = data.results || [];
+  meta.textContent = '“' + data.query + '” 共 ' + data.total +
+                     ' 条结果（' + data.elapsed_ms + 'ms）';
+  if (!results.length) {
+    box.innerHTML = '<div class="search-empty">没有找到匹配内容</div>';
+    return;
+  }
+  box.innerHTML = results.map(r => {
+    const label = SRC_LABEL[r.source_type] || r.source_type;
+    return '<div class="card"><div class="card-body">' +
+      '<div class="card-meta"><span class="card-meta-left">' +
+        '<span class="search-src ' + escapeHtml(r.source_type) + '">' +
+          escapeHtml(label) + '</span>' +
+        escapeHtml(r.screen_name || '') + ' · ' +
+        escapeHtml(r.created_at || '') +
+      '</span></div>' +
+      // highlight is server-generated and already HTML-escaped
+      '<div class="search-hl">' + (r.highlight || '') + '</div>' +
+      '</div></div>';
+  }).join('');
+  renderSearchPager();
+}
+
+function renderSearchPager() {
+  const total = searchState.total, per = searchState.perPage;
+  const pages = Math.ceil(total / per);
+  if (pages <= 1) return;
+  const box = document.getElementById('search-results');
+  const cur = searchState.page;
+  let html = '<div class="search-meta" style="text-align:center">';
+  if (cur > 1) html += '<button class="btn btn-ghost" onclick="doSearch(' + (cur - 1) + ')">上一页</button> ';
+  html += ' 第 ' + cur + ' / ' + pages + ' 页 ';
+  if (cur < pages) html += '<button class="btn btn-ghost" onclick="doSearch(' + (cur + 1) + ')">下一页</button>';
+  html += '</div>';
+  box.insertAdjacentHTML('beforeend', html);
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target && e.target.id === 'search-input') {
+    e.preventDefault();
+    doSearch(1);
+  }
+});
 </script>
 </body>
 </html>

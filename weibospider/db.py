@@ -296,6 +296,9 @@ class TweetDB:
             ))
                 self._index_tweet(item)
                 self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -323,6 +326,9 @@ class TweetDB:
             ))
                 self._index_comment(item)
                 self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -700,12 +706,21 @@ class TweetDB:
             if not self._acquire_file_lock():
                 raise RuntimeError("DB file lock timeout (delete_xueqiu_comments)")
             try:
+                rows = self.conn.execute(
+                    "SELECT id FROM comments WHERE tweet_id=? AND platform='xueqiu'",
+                    (tweet_id,)
+                ).fetchall()
+                for r in rows:
+                    self._index_delete(r['id'], 'comment')
                 cur = self.conn.execute(
                     "DELETE FROM comments WHERE tweet_id=? AND platform='xueqiu'",
                     (tweet_id,)
                 )
                 self.conn.commit()
                 return cur.rowcount
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -758,8 +773,13 @@ class TweetDB:
                         (rank, r['id'])
                     )
                     rank += 1
+                for cid in delete_ids:
+                    self._index_delete(cid, 'comment')
                 self.conn.commit()
                 return cur.rowcount if cur is not None else 0
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -893,6 +913,9 @@ class TweetDB:
                     "SELECT * FROM annotations WHERE id=?", (item['id'],)
                 ).fetchone()
                 return dict(row)
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -929,6 +952,9 @@ class TweetDB:
                     "SELECT * FROM annotations WHERE id=?", (ann_id,)
                 ).fetchone()
                 return dict(row)
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 
@@ -943,6 +969,9 @@ class TweetDB:
                 self._index_delete(ann_id, 'annotation')
                 self.conn.commit()
                 return cur.rowcount > 0
+            except Exception:
+                self.conn.rollback()
+                raise
             finally:
                 self._release_file_lock()
 

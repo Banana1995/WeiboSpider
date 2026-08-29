@@ -273,6 +273,35 @@ def test_edit_annotation_fetches_raw_comment():
     assert '`/api/annotations/${annId}`' in edit_body
 
 
+def test_notes_tab_exists():
+    assert 'data-tab="notes"' in INDEX_HTML
+    assert '>笔记</button>' in INDEX_HTML
+
+
+def test_notes_tab_after_ps_tab():
+    ps_idx = INDEX_HTML.index('data-tab="ps"')
+    notes_idx = INDEX_HTML.index('data-tab="notes"')
+    assert notes_idx > ps_idx
+
+
+def test_load_notes_function_exists():
+    assert 'async function loadNotes()' in INDEX_HTML
+    assert "fetch('/api/notes')" in INDEX_HTML
+    assert 'loadNotes();' in INDEX_HTML
+
+
+def test_switch_tab_handles_notes():
+    assert "isNotes = tab === 'notes'" in INDEX_HTML
+    assert "isNotes" in INDEX_HTML
+
+
+def test_notes_uses_ps_mode():
+    notes_start = INDEX_HTML.index("isNotes = tab === 'notes'")
+    notes_end = INDEX_HTML.index('function loadPs', notes_start)
+    notes_body = INDEX_HTML[notes_start:notes_end]
+    assert 'ps-mode' in notes_body
+
+
 def test_edit_annotation_textarea_binds_paste_handler():
     edit_start = INDEX_HTML.index('async function editAnnotation(')
     edit_end = INDEX_HTML.index('async function saveAnnotationEdit(', edit_start)

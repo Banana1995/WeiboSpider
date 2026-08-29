@@ -189,6 +189,22 @@ class TweetDB:
             finally:
                 self._release_file_lock()
 
+    def rebuild_search_index(self):
+        """Drop and rebuild the whole search index. Returns row count."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (rebuild_search_index)")
+            try:
+                self.conn.execute("DELETE FROM search_index")
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
+        self._backfill_search_index()
+        with self._lock:
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM search_index"
+            ).fetchone()[0]
+
     def _index_put(self, doc_id, source_type, tweet_id, text):
         """Upsert one row into search_index (delete-then-insert; FTS5 has no upsert)."""
         self.conn.execute(

@@ -935,6 +935,18 @@ def api_search():
     return jsonify(out)
 
 
+@app.route('/api/search/reindex', methods=['POST'])
+def api_search_reindex():
+    """重建全文索引（数据漂移或首次升级时手工触发）。"""
+    try:
+        n = DB.rebuild_search_index()
+    except Exception as e:
+        app.logger.exception('reindex failed')
+        return jsonify({'error': str(e)}), 500
+    DB.insert_log('search', 'reindex', detail=f'rows={n}', status='ok')
+    return jsonify({'ok': True, 'indexed': n})
+
+
 @app.route('/api/tweets/<tweet_id>')
 def api_get_tweet(tweet_id):
     tweet = DB.get_tweet(tweet_id)

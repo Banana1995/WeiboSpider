@@ -383,3 +383,18 @@ class TestSearchApiContract:
             for key in ('doc_id', 'source_type', 'tweet_id', 'highlight',
                         'content', 'created_at', 'screen_name'):
                 assert key in r
+
+
+class TestReindex:
+    def test_reindex_route_registered(self):
+        import app as app_module
+        rules = {r.rule for r in app_module.app.url_map.iter_rules()}
+        assert '/api/search/reindex' in rules
+
+    def test_rebuild_search_index_repopulates(self, seeded):
+        seeded.conn.execute("DELETE FROM search_index")
+        seeded.conn.commit()
+        assert seeded.search('量子计算')['total'] == 0
+        n = seeded.rebuild_search_index()
+        assert n > 0
+        assert seeded.search('量子计算')['total'] > 0

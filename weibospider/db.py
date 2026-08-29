@@ -155,6 +155,12 @@ class TweetDB:
             text,
             tokenize='trigram'
         );
+        CREATE TABLE IF NOT EXISTS search_doc (
+            doc_id      TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            fts_rowid   INTEGER NOT NULL,
+            PRIMARY KEY (doc_id, source_type)
+        );
         """)
             self.conn.commit()
             self._backfill_search_index()
@@ -162,9 +168,12 @@ class TweetDB:
     def _backfill_search_index(self, _lock_held=False):
         """Populate search_index from existing rows if it is empty.
 
-        Runs on every construction until the index is non-empty; later writes
-        keep it in sync incrementally. Pass _lock_held=True when the caller
-        already holds the cross-process file lock.
+        Runs on every construction until the index is populated; later writes
+        keep it in sync incrementally. Also populates the search_doc rowid map
+        from whatever the index holds, so an existing non-empty index (e.g. a
+        DB upgraded to this version) gets its companion table filled in too.
+        Pass _lock_held=True when the caller already holds the cross-process
+        file lock.
         """
         with self._lock:
             if not _lock_held:
@@ -173,19 +182,29 @@ class TweetDB:
             try:
                 n = self.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
                 if n > 0:
-                    return
+                    nd = self.conn.execute("SELECT COUNT(*) FROM search_doc").fetchone()[0]
+                    if nd > 0:
+                        return
+                else:
+                    self.conn.executescript("""
+                    INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                        SELECT id, 'tweet', id,
+                               COALESCE(content,'') || ' ' || COALESCE(retweet_content,'')
+                          FROM tweets;
+                    INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                        SELECT id, 'comment', tweet_id, COALESCE(content,'')
+                          FROM comments;
+                    INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                        SELECT id, 'annotation', tweet_id,
+                               COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
+                          FROM annotations;
+                    """)
+                    # The index was (re)built from scratch; any stale companion
+                    # rows left behind by a dropped search_index must go.
+                    self.conn.execute("DELETE FROM search_doc")
                 self.conn.executescript("""
-                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-                    SELECT id, 'tweet', id,
-                           COALESCE(content,'') || ' ' || COALESCE(retweet_content,'')
-                      FROM tweets;
-                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-                    SELECT id, 'comment', tweet_id, COALESCE(content,'')
-                      FROM comments;
-                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-                    SELECT id, 'annotation', tweet_id,
-                           COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
-                      FROM annotations;
+                INSERT INTO search_doc(doc_id, source_type, fts_rowid)
+                    SELECT doc_id, source_type, rowid FROM search_index;
                 """)
                 self.conn.commit()
             finally:
@@ -204,6 +223,7 @@ class TweetDB:
                 raise RuntimeError("DB file lock timeout (rebuild_search_index)")
             try:
                 self.conn.execute("DELETE FROM search_index")
+                self.conn.execute("DELETE FROM search_doc")
                 self.conn.commit()
                 self._backfill_search_index(_lock_held=True)
                 return self.conn.execute(
@@ -213,22 +233,42 @@ class TweetDB:
                 self._release_file_lock()
 
     def _index_put(self, doc_id, source_type, tweet_id, text):
-        """Upsert one row into search_index (delete-then-insert; FTS5 has no upsert)."""
-        self.conn.execute(
-            "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+        """Upsert one row into search_index via the search_doc rowid map.
+
+        Deleting by (doc_id, source_type) on a trigram FTS5 table is
+        O(index_size); deleting by rowid is O(1).
+        """
+        row = self.conn.execute(
+            "SELECT fts_rowid FROM search_doc WHERE doc_id=? AND source_type=?",
             (doc_id, source_type),
-        )
-        self.conn.execute(
+        ).fetchone()
+        if row:
+            self.conn.execute("DELETE FROM search_index WHERE rowid=?", (row[0],))
+            self.conn.execute(
+                "DELETE FROM search_doc WHERE doc_id=? AND source_type=?",
+                (doc_id, source_type),
+            )
+        cur = self.conn.execute(
             "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
             "VALUES (?,?,?,?)",
             (doc_id, source_type, tweet_id, text or ''),
         )
+        self.conn.execute(
+            "INSERT INTO search_doc(doc_id, source_type, fts_rowid) VALUES (?,?,?)",
+            (doc_id, source_type, cur.lastrowid),
+        )
 
     def _index_delete(self, doc_id, source_type):
-        self.conn.execute(
-            "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+        row = self.conn.execute(
+            "SELECT fts_rowid FROM search_doc WHERE doc_id=? AND source_type=?",
             (doc_id, source_type),
-        )
+        ).fetchone()
+        if row:
+            self.conn.execute("DELETE FROM search_index WHERE rowid=?", (row[0],))
+            self.conn.execute(
+                "DELETE FROM search_doc WHERE doc_id=? AND source_type=?",
+                (doc_id, source_type),
+            )
 
     def _index_tweet(self, item):
         tid = str(item.get('_id') or item.get('id') or '')
@@ -420,22 +460,42 @@ class TweetDB:
             retweet_pic_urls=excluded.retweet_pic_urls,
             crawl_time=excluded.crawl_time
         """, rows)
-                _delete_rows = []
+                _existing = []   # (fts_rowid)
                 _insert_rows = []
                 for it in items:
                     tid = str(it.get('_id') or it.get('id') or '')
-                    _delete_rows.append((tid, 'tweet'))
+                    row = self.conn.execute(
+                        "SELECT fts_rowid FROM search_doc WHERE doc_id=? AND source_type=?",
+                        (tid, 'tweet'),
+                    ).fetchone()
+                    if row:
+                        _existing.append(row[0])
                     _insert_rows.append((tid, 'tweet', tid,
                                          (it.get('content') or '') + ' ' + (it.get('retweet_content') or '')))
-                self.conn.executemany(
-                    "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
-                    _delete_rows,
-                )
-                self.conn.executemany(
-                    "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
-                    "VALUES (?,?,?,?)",
-                    _insert_rows,
-                )
+                for rid in _existing:
+                    self.conn.execute("DELETE FROM search_index WHERE rowid=?", (rid,))
+                if _existing:
+                    ph = ','.join(['?'] * len(_existing))
+                    self.conn.execute(
+                        f"DELETE FROM search_doc WHERE fts_rowid IN ({ph})",
+                        list(_existing),
+                    )
+                if _insert_rows:
+                    self.conn.executemany(
+                        "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+                        "VALUES (?,?,?,?)",
+                        _insert_rows,
+                    )
+                    # FTS5 assigns rowids sequentially within this transaction.
+                    last_rid = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    first_rid = last_rid - len(_insert_rows) + 1
+                    self.conn.executemany(
+                        "INSERT INTO search_doc(doc_id, source_type, fts_rowid) VALUES (?,?,?)",
+                        [
+                            (r[0], r[1], first_rid + i)
+                            for i, r in enumerate(_insert_rows)
+                        ],
+                    )
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()
@@ -476,22 +536,42 @@ class TweetDB:
              ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
-                _delete_rows = []
+                _existing = []   # (fts_rowid)
                 _insert_rows = []
                 for it in items:
                     cid = str(it.get('_id') or it.get('id') or '')
-                    _delete_rows.append((cid, 'comment'))
+                    row = self.conn.execute(
+                        "SELECT fts_rowid FROM search_doc WHERE doc_id=? AND source_type=?",
+                        (cid, 'comment'),
+                    ).fetchone()
+                    if row:
+                        _existing.append(row[0])
                     _insert_rows.append((cid, 'comment', str(it.get('tweet_id') or ''),
                                          it.get('content') or ''))
-                self.conn.executemany(
-                    "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
-                    _delete_rows,
-                )
-                self.conn.executemany(
-                    "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
-                    "VALUES (?,?,?,?)",
-                    _insert_rows,
-                )
+                for rid in _existing:
+                    self.conn.execute("DELETE FROM search_index WHERE rowid=?", (rid,))
+                if _existing:
+                    ph = ','.join(['?'] * len(_existing))
+                    self.conn.execute(
+                        f"DELETE FROM search_doc WHERE fts_rowid IN ({ph})",
+                        list(_existing),
+                    )
+                if _insert_rows:
+                    self.conn.executemany(
+                        "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+                        "VALUES (?,?,?,?)",
+                        _insert_rows,
+                    )
+                    # FTS5 assigns rowids sequentially within this transaction.
+                    last_rid = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    first_rid = last_rid - len(_insert_rows) + 1
+                    self.conn.executemany(
+                        "INSERT INTO search_doc(doc_id, source_type, fts_rowid) VALUES (?,?,?)",
+                        [
+                            (r[0], r[1], first_rid + i)
+                            for i, r in enumerate(_insert_rows)
+                        ],
+                    )
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()

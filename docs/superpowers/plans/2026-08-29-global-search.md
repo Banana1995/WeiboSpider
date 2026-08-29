@@ -410,7 +410,7 @@ class TestBuildSearchSql:
                                        start_date='2024-01-01',
                                        end_date='2024-12-31')
         assert '2024-01-01' in params
-        assert '2024-12-31' in params
+        assert '2024-12-31 23:59:59' in params  # end_date gets ' 23:59:59' appended (else <= '2024-12-31' excludes rest of that day)
 ```
 
 - [ ] **Step 2: 运行测试确认失败**

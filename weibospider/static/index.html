@@ -1648,6 +1648,10 @@ function showAnnotationInput(annId, tweetId, field, startOffset, endOffset, sele
       saveAnnotation();
     }
   });
+  bindAnnotationImagePaste(textarea);
+}
+
+function bindAnnotationImagePaste(textarea) {
   textarea.addEventListener('paste', async (e) => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
@@ -1918,6 +1922,7 @@ async function editAnnotation(annId, tweetId) {
   textarea.style.cssText = 'width:100%;border:1px solid #4a9eff;border-radius:6px;padding:8px;font-size:13px;resize:none;height:60px;outline:none;';
   commentDiv.replaceWith(textarea);
   textarea.focus();
+  bindAnnotationImagePaste(textarea);
 
   const actionsDiv = body.querySelector('.annotation-actions');
   actionsDiv.innerHTML = `

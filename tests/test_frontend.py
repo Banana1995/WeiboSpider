@@ -271,3 +271,18 @@ def test_edit_annotation_fetches_raw_comment():
     edit_end = INDEX_HTML.index('async function saveAnnotationEdit(', edit_start)
     edit_body = INDEX_HTML[edit_start:edit_end]
     assert '`/api/annotations/${annId}`' in edit_body
+
+
+def test_edit_annotation_textarea_binds_paste_handler():
+    edit_start = INDEX_HTML.index('async function editAnnotation(')
+    edit_end = INDEX_HTML.index('async function saveAnnotationEdit(', edit_start)
+    edit_body = INDEX_HTML[edit_start:edit_end]
+    assert 'bindAnnotationImagePaste' in edit_body
+
+
+def test_create_annotation_textarea_binds_shared_paste_handler():
+    show_start = INDEX_HTML.index('function showAnnotationInput(')
+    show_end = INDEX_HTML.index('function bindAnnotationImagePaste', show_start)
+    show_body = INDEX_HTML[show_start:show_end]
+    assert 'bindAnnotationImagePaste' in show_body
+    assert "addEventListener('paste'" not in show_body

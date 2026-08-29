@@ -896,6 +896,14 @@ def api_ps():
     return jsonify(tweets)
 
 
+@app.route('/api/notes')
+def api_notes():
+    """笔记 tab：返回所有有划线评论的非删除微博（附 annotations_list）。"""
+    tweets = DB.get_annotated_tweets()
+    _attach_annotations(tweets)
+    return jsonify(tweets)
+
+
 @app.route('/api/tweets/<tweet_id>')
 def api_get_tweet(tweet_id):
     tweet = DB.get_tweet(tweet_id)

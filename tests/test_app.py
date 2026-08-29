@@ -226,6 +226,39 @@ class TestAPI:
         })
         assert rv.status_code == 404
 
+    def test_notes_endpoint_returns_annotated_tweets(self, client):
+        import app as app_module
+        app_module.DB.insert_tweet({
+            '_id': '1', 'mblogid': 'Mb1', 'user_id': '1087770692',
+            'content': '有划线评论的微博', 'created_at': '2026-06-30 15:13:17',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        app_module.DB.insert_tweet({
+            '_id': '2', 'mblogid': 'Mb2', 'user_id': '1087770692',
+            'content': '没有划线评论的微博', 'created_at': '2026-07-01 10:00:00',
+            'reposts_count': 0, 'comments_count': 0, 'attitudes_count': 0,
+            'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
+            'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
+        })
+        rv = client.post('/api/tweets/1/annotations', json={
+            'start_offset': 0, 'end_offset': 5,
+            'selected_text': '有划线评论的微博', 'comment': '这是我的笔记', 'field': 'content',
+        })
+        assert rv.status_code == 201
+        rv = client.get('/api/notes')
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert len(data) == 1
+        assert data[0]['id'] == '1'
+        assert data[0]['annotations_list'][0]['comment'] == '这是我的笔记'
+
+    def test_notes_endpoint_empty_when_no_annotations(self, client):
+        rv = client.get('/api/notes')
+        assert rv.status_code == 200
+        assert json.loads(rv.data) == []
+
 
 class TestOssConfig:
     def test_config_get_has_oss_fields(self, client):

@@ -420,8 +420,22 @@ class TweetDB:
             retweet_pic_urls=excluded.retweet_pic_urls,
             crawl_time=excluded.crawl_time
         """, rows)
+                _delete_rows = []
+                _insert_rows = []
                 for it in items:
-                    self._index_tweet(it)
+                    tid = str(it.get('_id') or it.get('id') or '')
+                    _delete_rows.append((tid, 'tweet'))
+                    _insert_rows.append((tid, 'tweet', tid,
+                                         (it.get('content') or '') + ' ' + (it.get('retweet_content') or '')))
+                self.conn.executemany(
+                    "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+                    _delete_rows,
+                )
+                self.conn.executemany(
+                    "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+                    "VALUES (?,?,?,?)",
+                    _insert_rows,
+                )
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()
@@ -462,8 +476,22 @@ class TweetDB:
              ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
+                _delete_rows = []
+                _insert_rows = []
                 for it in items:
-                    self._index_comment(it)
+                    cid = str(it.get('_id') or it.get('id') or '')
+                    _delete_rows.append((cid, 'comment'))
+                    _insert_rows.append((cid, 'comment', str(it.get('tweet_id') or ''),
+                                         it.get('content') or ''))
+                self.conn.executemany(
+                    "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+                    _delete_rows,
+                )
+                self.conn.executemany(
+                    "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+                    "VALUES (?,?,?,?)",
+                    _insert_rows,
+                )
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()

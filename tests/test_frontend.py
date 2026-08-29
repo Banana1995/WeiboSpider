@@ -237,3 +237,13 @@ def test_annotation_comment_preserves_newlines():
     assert 'white-space: pre-wrap' in comment_css
     selected_css = INDEX_HTML[INDEX_HTML.index('.annotation-selected-text {'):]
     assert 'white-space: pre-wrap' in selected_css
+
+
+def test_oss_config_section_exists():
+    assert '阿里云 OSS' in INDEX_HTML
+    assert 'id="oss-access-key-id"' in INDEX_HTML
+    assert 'id="oss-access-key-secret"' in INDEX_HTML
+    assert 'id="oss-bucket"' in INDEX_HTML
+    assert 'id="oss-endpoint"' in INDEX_HTML
+    assert 'id="oss-url-prefix"' in INDEX_HTML
+    assert 'async function saveOssConfig()' in INDEX_HTML

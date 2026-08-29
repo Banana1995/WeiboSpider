@@ -324,6 +324,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       </div>
 
       <div class="config-section">
+        <h3>阿里云 OSS</h3>
+        <div id="oss-status" style="font-size:11px;color:#888;margin-bottom:6px;"></div>
+        <div class="uid-input-row">
+          <input type="text" id="oss-access-key-id" placeholder="AccessKey ID" style="flex:1;">
+        </div>
+        <div class="uid-input-row" style="margin-top:6px;">
+          <input type="password" id="oss-access-key-secret" placeholder="AccessKey Secret（留空则不改动）" style="flex:1;">
+        </div>
+        <div class="uid-input-row" style="margin-top:6px;">
+          <input type="text" id="oss-bucket" placeholder="Bucket 名称" style="flex:1;">
+        </div>
+        <div class="uid-input-row" style="margin-top:6px;">
+          <input type="text" id="oss-endpoint" placeholder="Endpoint 如 oss-cn-hangzhou.aliyuncs.com" style="flex:1;">
+        </div>
+        <div class="uid-input-row" style="margin-top:6px;">
+          <input type="text" id="oss-url-prefix" placeholder="URL 前缀（可空，默认 bucket.endpoint）" style="flex:1;">
+          <button class="btn btn-sm btn-primary" onclick="saveOssConfig()">保存</button>
+        </div>
+      </div>
+
+      <div class="config-section">
         <h3>时间范围</h3>
         <div class="uid-input-row">
           <input type="date" id="start-date" onchange="saveDates()" style="flex:1;">
@@ -517,6 +538,18 @@ async function loadConfig() {
       $('xq-cookie-status').textContent = '未设置雪球 Cookie（雪球同步将失败）';
       $('xq-cookie-status').style.color = '#e74c3c';
     }
+    $('oss-access-key-id').value = data.oss_access_key_id || '';
+    $('oss-bucket').value = data.oss_bucket || '';
+    $('oss-endpoint').value = data.oss_endpoint || '';
+    $('oss-url-prefix').value = data.oss_url_prefix || '';
+    $('oss-access-key-secret').value = '';
+    if (data.oss_access_key_secret_masked) {
+      $('oss-status').textContent = '已配置: ' + data.oss_access_key_secret_masked;
+      $('oss-status').style.color = '#27ae60';
+    } else {
+      $('oss-status').textContent = '未配置（粘贴图片上传将失败）';
+      $('oss-status').style.color = '#e74c3c';
+    }
     $('xq-user-id-input').value = data.xq_user_id || '8790885129';
     if (data.schedule_enabled !== undefined) {
       $('schedule-enabled').checked = data.schedule_enabled;
@@ -590,6 +623,29 @@ async function saveXqCookie() {
       body: JSON.stringify(payload)
     });
     toast('雪球配置已保存');
+    loadConfig();
+  } catch(e) { toast('保存失败', true); }
+}
+
+async function saveOssConfig() {
+  const payload = {
+    oss_access_key_id: $('oss-access-key-id').value.trim(),
+    oss_bucket: $('oss-bucket').value.trim(),
+    oss_endpoint: $('oss-endpoint').value.trim(),
+    oss_url_prefix: $('oss-url-prefix').value.trim(),
+  };
+  const secret = $('oss-access-key-secret').value.trim();
+  if (secret) payload.oss_access_key_secret = secret;
+  if (!payload.oss_access_key_id || !payload.oss_bucket || !payload.oss_endpoint) {
+    toast('请填写 AK ID / Bucket / Endpoint', true); return;
+  }
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    toast('OSS 配置已保存');
     loadConfig();
   } catch(e) { toast('保存失败', true); }
 }

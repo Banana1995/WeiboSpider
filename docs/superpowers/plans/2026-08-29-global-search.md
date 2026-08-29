@@ -531,7 +531,7 @@ class TestMakeHighlight:
         assert '<mark>量子</mark>' in out
 
     def test_escapes_html_to_prevent_xss(self):
-        out = make_highlight('<script>alert(1)</script>量子', '量子')
+        out = make_highlight('<script>x</script>量子内容', '量子')
         assert '<script>' not in out
         assert '&lt;script&gt;' in out
         assert '<mark>量子</mark>' in out
@@ -774,9 +774,35 @@ from search import build_search_sql, make_highlight
             if not d.get('highlight'):
                 # LIKE path (or snippet miss): highlight in Python
                 d['highlight'] = make_highlight(d.get('content') or '', q)
+            else:
+                # IMPORTANT: snippet() does NOT HTML-escape tweet content.
+                # Escape it now and restore the <mark> markers, else raw
+                # `<script>` in a tweet becomes stored XSS in innerHTML.
+                d['highlight'] = escape_snippet(d['highlight'])
             results.append(d)
         return {'results': results, 'total': total,
                 'page': page, 'per_page': per_page}
+```
+
+在 `weibospider/db.py` 顶部 import 区把 `from search import build_search_sql, make_highlight` 改为：
+
+```python
+from search import build_search_sql, make_highlight, escape_snippet
+```
+
+`escape_snippet` 函数需要加到 `weibospider/search.py`（在 Task 5 末尾追加，并加测试）：
+
+```python
+def escape_snippet(hl):
+    """Escape snippet() output while preserving its <mark> markers.
+
+    SQLite's snippet() does NOT HTML-escape the surrounding text, so a tweet
+    containing `<script>` would pass it through raw. Escape everything, then
+    restore the markers snippet() inserted.
+    """
+    if not hl:
+        return hl
+    return html.escape(hl).replace('&lt;mark&gt;', '<mark>').replace('&lt;/mark&gt;', '</mark>')
 ```
 
 - [ ] **Step 4: 运行测试**
@@ -1159,7 +1185,7 @@ Expected: FAIL
 
 - [ ] **Step 2: 加搜索 JS**
 
-在 `index.html` 的 `<script>` 块末尾追加。注意 `highlight` 已是后端生成的安全 HTML（`snippet()` 或 `make_highlight()` 都已转义），用 `innerHTML` 是安全的；其余用户可见文本一律走 `escapeHtml`。
+在 `index.html` 的 `<script>` 块末尾追加。注意 `highlight` 已是后端生成的安全 HTML（`snippet()` 输出经 `escape_snippet()` 转义，`make_highlight()` 本身先转义），用 `innerHTML` 是安全的；其余用户可见文本一律走 `escapeHtml`。
 
 ```javascript
 // ---- Global search ----

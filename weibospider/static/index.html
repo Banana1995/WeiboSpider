@@ -2019,6 +2019,7 @@ function toast(msg, isError) {
 
 // ---- Global search ----
 let searchState = { q: '', page: 1, perPage: 20, sourceType: 'all', total: 0 };
+let searchSeq = 0;
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -2039,6 +2040,7 @@ function doSearch(page) {
 }
 
 function runSearch() {
+  const seq = ++searchSeq;
   const meta = document.getElementById('search-meta');
   const box = document.getElementById('search-results');
   meta.textContent = '搜索中…';
@@ -2052,11 +2054,15 @@ function runSearch() {
   fetch('/api/search?' + p.toString())
     .then(r => r.json())
     .then(data => {
+      if (seq !== searchSeq) return;  // stale response, ignore
       if (data.error) { meta.textContent = '搜索出错：' + data.error; return; }
       searchState.total = data.total || 0;
       renderSearchResults(data);
     })
-    .catch(e => { meta.textContent = '搜索失败：' + e; });
+    .catch(e => {
+      if (seq !== searchSeq) return;  // stale response, ignore
+      meta.textContent = '搜索失败：' + e;
+    });
 }
 
 function renderSearchResults(data) {

@@ -230,3 +230,10 @@ def test_cookie_modal_save_function_exists():
     assert "function dismissCookieModal(" in INDEX_HTML
     assert "async function saveCookieFromModal(" in INDEX_HTML
     assert "fetch('/api/config'" in INDEX_HTML
+
+
+def test_annotation_comment_preserves_newlines():
+    comment_css = INDEX_HTML[INDEX_HTML.index('.annotation-comment {'):]
+    assert 'white-space: pre-wrap' in comment_css
+    selected_css = INDEX_HTML[INDEX_HTML.index('.annotation-selected-text {'):]
+    assert 'white-space: pre-wrap' in selected_css

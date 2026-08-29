@@ -189,6 +189,46 @@ class TweetDB:
             finally:
                 self._release_file_lock()
 
+    def _index_put(self, doc_id, source_type, tweet_id, text):
+        """Upsert one row into search_index (delete-then-insert; FTS5 has no upsert)."""
+        self.conn.execute(
+            "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+            (doc_id, source_type),
+        )
+        self.conn.execute(
+            "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+            "VALUES (?,?,?,?)",
+            (doc_id, source_type, tweet_id, text or ''),
+        )
+
+    def _index_delete(self, doc_id, source_type):
+        self.conn.execute(
+            "DELETE FROM search_index WHERE doc_id=? AND source_type=?",
+            (doc_id, source_type),
+        )
+
+    def _index_tweet(self, item):
+        tid = str(item.get('_id') or item.get('id') or '')
+        text = (item.get('content') or '') + ' ' + (item.get('retweet_content') or '')
+        self._index_put(tid, 'tweet', tid, text)
+
+    def _index_comment(self, item):
+        cid = str(item.get('_id') or item.get('id') or '')
+        self._index_put(cid, 'comment', str(item.get('tweet_id') or ''),
+                        item.get('content') or '')
+
+    def _index_annotation_row(self, ann_id):
+        """Re-index an annotation by reading its current row."""
+        row = self.conn.execute(
+            "SELECT id, tweet_id, comment, selected_text FROM annotations WHERE id=?",
+            (ann_id,),
+        ).fetchone()
+        if row is None:
+            self._index_delete(ann_id, 'annotation')
+            return
+        text = (row['comment'] or '') + ' ' + (row['selected_text'] or '')
+        self._index_put(row['id'], 'annotation', row['tweet_id'], text)
+
     def close(self):
         with self._lock:
             try:
@@ -254,6 +294,7 @@ class TweetDB:
                 int(item.get('retweet_has_video', False)),
                 item.get('platform', 'weibo'),
             ))
+                self._index_tweet(item)
                 self.conn.commit()
             finally:
                 self._release_file_lock()
@@ -280,6 +321,7 @@ class TweetDB:
                 item.get('platform', 'weibo'),
                 json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
             ))
+                self._index_comment(item)
                 self.conn.commit()
             finally:
                 self._release_file_lock()
@@ -349,6 +391,8 @@ class TweetDB:
             retweet_pic_urls=excluded.retweet_pic_urls,
             crawl_time=excluded.crawl_time
         """, rows)
+                for it in items:
+                    self._index_tweet(it)
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()
@@ -389,6 +433,8 @@ class TweetDB:
              ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
+                for it in items:
+                    self._index_comment(it)
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()
@@ -841,6 +887,7 @@ class TweetDB:
                     item.get('field', 'content'),
                     item.get('ranges'), now, now,
                 ))
+                self._index_annotation_row(item['id'])
                 self.conn.commit()
                 row = self.conn.execute(
                     "SELECT * FROM annotations WHERE id=?", (item['id'],)
@@ -874,6 +921,7 @@ class TweetDB:
                     "UPDATE annotations SET comment=?, updated_at=? WHERE id=?",
                     (comment, now, ann_id)
                 )
+                self._index_annotation_row(ann_id)
                 self.conn.commit()
                 if cur.rowcount == 0:
                     return None
@@ -892,6 +940,7 @@ class TweetDB:
                 cur = self.conn.execute(
                     "DELETE FROM annotations WHERE id=?", (ann_id,)
                 )
+                self._index_delete(ann_id, 'annotation')
                 self.conn.commit()
                 return cur.rowcount > 0
             finally:

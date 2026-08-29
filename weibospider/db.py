@@ -155,30 +155,37 @@ class TweetDB:
         );
         """)
             self.conn.commit()
-            self._init_search_index()
+            self._backfill_search_index()
 
-    def _init_search_index(self):
+    def _backfill_search_index(self):
         """Populate search_index from existing rows if it is empty.
 
-        Runs once on first upgrade; later writes keep it in sync incrementally.
+        Runs on every construction until the index is non-empty; later writes
+        keep it in sync incrementally.
         """
-        n = self.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
-        if n > 0:
-            return
-        self.conn.executescript("""
-        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-            SELECT id, 'tweet', id,
-                   COALESCE(content,'') || ' ' || COALESCE(retweet_content,'')
-              FROM tweets;
-        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-            SELECT id, 'comment', tweet_id, COALESCE(content,'')
-              FROM comments;
-        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
-            SELECT id, 'annotation', tweet_id,
-                   COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
-              FROM annotations;
-        """)
-        self.conn.commit()
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (search_index backfill)")
+            try:
+                n = self.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+                if n > 0:
+                    return
+                self.conn.executescript("""
+                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                    SELECT id, 'tweet', id,
+                           COALESCE(content,'') || ' ' || COALESCE(retweet_content,'')
+                      FROM tweets;
+                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                    SELECT id, 'comment', tweet_id, COALESCE(content,'')
+                      FROM comments;
+                INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+                    SELECT id, 'annotation', tweet_id,
+                           COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
+                      FROM annotations;
+                """)
+                self.conn.commit()
+            finally:
+                self._release_file_lock()
 
     def close(self):
         with self._lock:

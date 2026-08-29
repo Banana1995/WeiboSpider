@@ -1,4 +1,5 @@
 # tests/test_app.py
+import io
 import json
 import os
 import sys
@@ -224,6 +225,93 @@ class TestAPI:
             'selected_text': 'x', 'comment': 'x', 'field': 'content',
         })
         assert rv.status_code == 404
+
+
+class TestOssConfig:
+    def test_config_get_has_oss_fields(self, client):
+        import app as app_module
+        app_module.DB.set_config('oss_access_key_id', 'AKID123')
+        app_module.DB.set_config('oss_access_key_secret', 'SECRETVALUE123456789')
+        app_module.DB.set_config('oss_bucket', 'mybucket')
+        app_module.DB.set_config('oss_endpoint', 'oss-cn-hangzhou.aliyuncs.com')
+        rv = client.get('/api/config')
+        data = json.loads(rv.data)
+        assert data['oss_access_key_id'] == 'AKID123'
+        assert data['oss_bucket'] == 'mybucket'
+        assert data['oss_endpoint'] == 'oss-cn-hangzhou.aliyuncs.com'
+        assert 'SECRETVALUE' not in data['oss_access_key_secret_masked']
+        assert data['oss_access_key_secret_masked']
+
+    def test_config_post_oss_fields_then_get(self, client):
+        rv = client.post('/api/config', json={
+            'oss_access_key_id': 'AKID456',
+            'oss_bucket': 'bkt2',
+            'oss_endpoint': 'oss-cn-beijing.aliyuncs.com',
+            'oss_url_prefix': 'https://img.example.com/',
+        })
+        assert rv.status_code == 200
+        data = json.loads(client.get('/api/config').data)
+        assert data['oss_access_key_id'] == 'AKID456'
+        assert data['oss_bucket'] == 'bkt2'
+        assert data['oss_endpoint'] == 'oss-cn-beijing.aliyuncs.com'
+        assert data['oss_url_prefix'] == 'https://img.example.com/'
+
+
+class TestUpload:
+    def _upload(self, client, filename='a.png', ctype='image/png', data=b'x'):
+        return client.post('/api/upload',
+                           data={'file': (io.BytesIO(data), filename, ctype)},
+                           content_type='multipart/form-data')
+
+    def test_upload_non_image_rejected(self, client):
+        rv = self._upload(client, filename='a.txt', ctype='text/plain')
+        assert rv.status_code == 400
+        assert '图片' in json.loads(rv.data)['error']
+
+    def test_upload_oversize_rejected(self, client):
+        rv = self._upload(client, data=b'x' * (8 * 1024 * 1024 + 1))
+        assert rv.status_code == 400
+        assert '8MB' in json.loads(rv.data)['error']
+
+    def test_upload_missing_oss_config_rejected(self, client):
+        rv = self._upload(client)
+        assert rv.status_code == 400
+        assert 'OSS' in json.loads(rv.data)['error']
+
+    def test_upload_success(self, client, monkeypatch):
+        import app as app_module
+        import types
+        app_module.DB.set_config('oss_access_key_id', 'AK')
+        app_module.DB.set_config('oss_access_key_secret', 'SK')
+        app_module.DB.set_config('oss_bucket', 'bkt')
+        app_module.DB.set_config('oss_endpoint', 'oss-cn-hangzhou.aliyuncs.com')
+        captured = {}
+
+        class FakeAuth:
+            def __init__(self, key, secret):
+                pass
+
+        class FakeBucket:
+            def __init__(self, auth, endpoint, bucket):
+                captured['endpoint'] = endpoint
+                captured['bucket'] = bucket
+
+            def put_object(self, key, data, headers=None):
+                captured['key'] = key
+                captured['data'] = data
+
+        fake = types.ModuleType('oss2')
+        fake.Auth = FakeAuth
+        fake.Bucket = FakeBucket
+        monkeypatch.setitem(sys.modules, 'oss2', fake)
+
+        rv = self._upload(client, data=b'pngdata')
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data['url'].startswith('https://bkt.oss-cn-hangzhou.aliyuncs.com/annotations/')
+        assert captured['key'].startswith('annotations/')
+        assert captured['key'].endswith('.png')
+        assert captured['data'] == b'pngdata'
 
 
 class TestScheduleConfig:

@@ -1265,6 +1265,26 @@ def api_logs():
     return jsonify(DB.get_logs(page=page, per_page=per_page, category=category))
 
 
+def _mask_secret(s):
+    """打码密钥：短密钥全掩码，长密钥保留首尾 4 位。"""
+    s = s or ''
+    if not s:
+        return ''
+    if len(s) <= 8:
+        return '*' * len(s)
+    return s[:4] + '*' * (len(s) - 8) + s[-4:]
+
+
+def _oss_config():
+    return {
+        'access_key_id': DB.get_config('oss_access_key_id', ''),
+        'access_key_secret': DB.get_config('oss_access_key_secret', ''),
+        'bucket': DB.get_config('oss_bucket', ''),
+        'endpoint': DB.get_config('oss_endpoint', ''),
+        'url_prefix': DB.get_config('oss_url_prefix', ''),
+    }
+
+
 @app.route('/api/config', methods=['GET'])
 def api_get_config():
     from keepalive import get_alf_expiry
@@ -1291,6 +1311,11 @@ def api_get_config():
         'xq_user_id': DB.get_config('xq_user_id', '8790885129'),
         'start_date': DB.get_config('start_date', ''),
         'end_date': DB.get_config('end_date', ''),
+        'oss_access_key_id': DB.get_config('oss_access_key_id', ''),
+        'oss_access_key_secret_masked': _mask_secret(DB.get_config('oss_access_key_secret', '')),
+        'oss_bucket': DB.get_config('oss_bucket', ''),
+        'oss_endpoint': DB.get_config('oss_endpoint', ''),
+        'oss_url_prefix': DB.get_config('oss_url_prefix', ''),
         **config,
     })
 
@@ -1326,6 +1351,19 @@ def api_set_config():
     if 'end_date' in data:
         DB.set_config('end_date', data['end_date'])
         updated['end_date'] = data['end_date']
+    oss_fields = {
+        'oss_access_key_id': None,
+        'oss_access_key_secret': None,
+        'oss_bucket': None,
+        'oss_endpoint': None,
+        'oss_url_prefix': None,
+    }
+    for key in oss_fields:
+        if key in data and data[key] is not None:
+            DB.set_config(key, str(data[key]))
+            updated[key] = data[key]
+    if 'oss_access_key_id' in updated or 'oss_bucket' in updated or 'oss_endpoint' in updated:
+        DB.insert_log('config', 'set_oss', status='success', user='web')
     schedule_keys = {
         'schedule_enabled': bool,
         'schedule_start_hour': int,

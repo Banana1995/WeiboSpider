@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
 
 from db import TweetDB
+from search import fts5_quote
 
 
 @pytest.fixture
@@ -102,3 +103,37 @@ class TestBackfill:
             d2.close()
         finally:
             os.unlink(path)
+
+
+class TestFts5Quote:
+    def test_wraps_in_double_quotes(self):
+        assert fts5_quote('量子计算') == '"量子计算"'
+
+    def test_escapes_inner_double_quote(self):
+        assert fts5_quote('量子"计算') == '"量子""计算"'
+
+    @pytest.mark.parametrize('bad', [
+        '量子"计算', 'AND OR NOT', 'a*', '(paren)', 'col:val',
+        "it's", '量子 计算', '-负号', '', '"',
+    ])
+    def test_quoted_input_never_raises_in_match(self, db, bad):
+        """Any user input, once quoted, must be a legal FTS5 query."""
+        db.conn.execute(
+            "INSERT INTO search_index(doc_id, source_type, tweet_id, text) "
+            "VALUES ('d1','tweet','t1','今天量子计算有重大突破')"
+        )
+        db.conn.commit()
+        # must not raise OperationalError
+        db.conn.execute(
+            "SELECT COUNT(*) FROM search_index WHERE search_index MATCH ?",
+            (fts5_quote(bad),)
+        ).fetchone()
+
+    def test_raw_input_does_raise(self, db):
+        """Sanity check: without quoting, FTS5 rejects these (why we escape)."""
+        import sqlite3
+        with pytest.raises(sqlite3.OperationalError):
+            db.conn.execute(
+                "SELECT COUNT(*) FROM search_index WHERE search_index MATCH ?",
+                ("it's",)
+            ).fetchone()

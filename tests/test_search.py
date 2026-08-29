@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
 
 from db import TweetDB
-from search import fts5_quote
+from search import fts5_quote, build_search_sql, MIN_MATCH_LEN
 
 
 @pytest.fixture
@@ -137,3 +137,52 @@ class TestFts5Quote:
                 "SELECT COUNT(*) FROM search_index WHERE search_index MATCH ?",
                 ("it's",)
             ).fetchone()
+
+
+class TestBuildSearchSql:
+    def test_long_keyword_uses_match(self):
+        sql, params = build_search_sql('量子计算', page=1, per_page=20)
+        assert 'search_index MATCH ?' in sql
+        assert 'snippet(search_index, 3' in sql
+        assert params[0] == '"量子计算"'
+
+    def test_short_keyword_uses_like_on_source_tables(self):
+        sql, params = build_search_sql('量子', page=1, per_page=20)
+        assert 'MATCH' not in sql
+        assert 'UNION ALL' in sql
+        assert '%量子%' in params
+
+    def test_match_left_operand_is_table_not_column(self):
+        """`text MATCH ?` is invalid in FTS5; must be `search_index MATCH ?`."""
+        sql, _ = build_search_sql('量子计算', page=1, per_page=20)
+        assert 'text MATCH' not in sql
+
+    def test_never_orders_by_bm25(self):
+        """bm25() is all -0.0000 under trigram; must sort by time."""
+        for kw in ('量子计算', '量子'):
+            sql, _ = build_search_sql(kw, page=1, per_page=20)
+            assert 'bm25' not in sql
+            assert 'created_at DESC' in sql
+
+    def test_excludes_deleted_tweets(self):
+        for kw in ('量子计算', '量子'):
+            sql, _ = build_search_sql(kw, page=1, per_page=20)
+            assert 'deleted' in sql
+
+    def test_source_type_filter(self):
+        sql, params = build_search_sql('量子计算', page=1, per_page=20,
+                                       source_type='annotation')
+        assert 'source_type' in sql
+        assert 'annotation' in params
+
+    def test_pagination_params_are_last(self):
+        sql, params = build_search_sql('量子计算', page=3, per_page=10)
+        assert 'LIMIT ? OFFSET ?' in sql
+        assert params[-2:] == [10, 20]
+
+    def test_date_range_filter(self):
+        sql, params = build_search_sql('量子计算', page=1, per_page=20,
+                                       start_date='2024-01-01',
+                                       end_date='2024-12-31')
+        assert '2024-01-01' in params
+        assert '2024-12-31 23:59:59' in params

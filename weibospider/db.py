@@ -6,6 +6,8 @@ import time
 import fcntl
 from datetime import datetime
 
+from search import build_search_sql, make_highlight, escape_snippet
+
 
 class TweetDB:
     def __init__(self, db_path=None):
@@ -714,6 +716,44 @@ class TweetDB:
                 return cur.rowcount if cur is not None else 0
             finally:
                 self._release_file_lock()
+
+    def search(self, q, page=1, per_page=20, source_type='all',
+               start_date=None, end_date=None):
+        """Search tweets, comments and annotations for `q`.
+
+        Returns {'results': [...], 'total': int, 'page': int, 'per_page': int}.
+        """
+        q = (q or '').strip()
+        page = max(int(page or 1), 1)
+        per_page = min(max(int(per_page or 20), 1), 100)
+        if not q:
+            return {'results': [], 'total': 0, 'page': page, 'per_page': per_page}
+
+        sql, params = build_search_sql(
+            q, page=page, per_page=per_page, source_type=source_type,
+            start_date=start_date, end_date=end_date,
+        )
+        with self._lock:
+            rows = self.conn.execute(sql, params).fetchall()
+            # total: same query without LIMIT/OFFSET, wrapped in COUNT(*)
+            count_sql = "SELECT COUNT(*) FROM (" + \
+                sql.replace('LIMIT ? OFFSET ?', '') + ")"
+            total = self.conn.execute(count_sql, params[:-2]).fetchone()[0]
+
+        results = []
+        for r in rows:
+            d = dict(r)
+            if not d.get('highlight'):
+                # LIKE path (or snippet miss): highlight in Python
+                d['highlight'] = make_highlight(d.get('content') or '', q)
+            else:
+                # IMPORTANT: snippet() does NOT HTML-escape tweet content.
+                # Escape it now and restore the <mark> markers, else raw
+                # `<script>` in a tweet becomes stored XSS in innerHTML.
+                d['highlight'] = escape_snippet(d['highlight'])
+            results.append(d)
+        return {'results': results, 'total': total,
+                'page': page, 'per_page': per_page}
 
     def stats(self):
         with self._lock:

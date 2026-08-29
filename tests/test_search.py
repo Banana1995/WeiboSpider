@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
 
 from db import TweetDB
-from search import fts5_quote, build_search_sql, make_highlight, MIN_MATCH_LEN
+from search import fts5_quote, build_search_sql, make_highlight, escape_snippet, MIN_MATCH_LEN
 
 
 @pytest.fixture
@@ -219,3 +219,119 @@ class TestMakeHighlight:
     def test_handles_empty_inputs(self):
         assert make_highlight('', '量子') == ''
         assert '<mark>' not in make_highlight('内容', '')
+
+
+class TestEscapeSnippet:
+    def test_preserves_mark_and_escapes_rest(self):
+        out = escape_snippet('<mark>量子</mark><script>alert(1)</script>')
+        assert '<script>' not in out
+        assert '&lt;script&gt;' in out
+        assert '<mark>量子</mark>' in out
+
+    def test_handles_empty(self):
+        assert escape_snippet(None) is None
+        assert escape_snippet('') == ''
+
+
+@pytest.fixture
+def seeded(db):
+    """DB with one tweet + retweet, one comment, one annotation, one deleted tweet."""
+    db.insert_tweet(_mk_tweet('t1', '今天量子计算有重大突破', '转发原文提到光刻机'))
+    db.insert_tweet(_mk_tweet('t2', '天气不错适合出门'))
+    db.insert_tweet(_mk_tweet('t3', '这条已删除但含量子计算'))
+    db.insert_comment({
+        '_id': 'c1', 'tweet_id': 't2', 'content': '评论里提到量子计算的事',
+        'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+        'comment_user': {}, 'reply_comment': None, 'crawl_time': 0,
+    })
+    db.insert_annotation({
+        'id': 'a1', 'tweet_id': 't2', 'start_offset': 0, 'end_offset': 2,
+        'selected_text': '天气不错', 'comment': '我的笔记说量子计算很重要',
+        'field': 'content', 'ranges': None,
+    })
+    db.batch_delete(['t3'])
+    return db
+
+
+class TestDbSearch:
+    def test_finds_tweet_content(self, seeded):
+        got = seeded.search('量子计算')
+        assert any(r['source_type'] == 'tweet' and r['tweet_id'] == 't1'
+                   for r in got['results'])
+
+    def test_finds_retweet_content(self, seeded):
+        got = seeded.search('光刻机')
+        assert any(r['tweet_id'] == 't1' for r in got['results'])
+
+    def test_finds_comment_content(self, seeded):
+        got = seeded.search('量子计算')
+        assert any(r['source_type'] == 'comment' and r['doc_id'] == 'c1'
+                   for r in got['results'])
+
+    def test_finds_annotation_comment(self, seeded):
+        got = seeded.search('笔记说量子')
+        assert any(r['source_type'] == 'annotation' and r['doc_id'] == 'a1'
+                   for r in got['results'])
+
+    def test_finds_annotation_selected_text(self, seeded):
+        got = seeded.search('天气不错')
+        assert any(r['source_type'] == 'annotation' for r in got['results'])
+
+    def test_excludes_deleted_tweets(self, seeded):
+        got = seeded.search('量子计算')
+        assert all(r['tweet_id'] != 't3' for r in got['results'])
+
+    def test_short_keyword_works(self, seeded):
+        """2-char keyword must still find results (LIKE path)."""
+        got = seeded.search('量子')
+        assert got['total'] > 0
+        assert any(r['tweet_id'] == 't1' for r in got['results'])
+
+    def test_short_keyword_has_highlight(self, seeded):
+        got = seeded.search('量子')
+        assert any('<mark>' in (r.get('highlight') or '') for r in got['results'])
+
+    def test_long_keyword_has_highlight(self, seeded):
+        got = seeded.search('量子计算')
+        assert any('<mark>' in (r.get('highlight') or '') for r in got['results'])
+
+    def test_source_type_filter(self, seeded):
+        got = seeded.search('量子计算', source_type='comment')
+        assert got['results']
+        assert all(r['source_type'] == 'comment' for r in got['results'])
+
+    def test_special_chars_do_not_raise(self, seeded):
+        for bad in ["it's", '量子"计算', '-负号', 'AND', 'a*', 'col:val', '(x)']:
+            got = seeded.search(bad)
+            assert 'results' in got
+
+    def test_empty_query_returns_empty(self, seeded):
+        got = seeded.search('')
+        assert got['results'] == []
+        assert got['total'] == 0
+
+    def test_pagination(self, seeded):
+        got = seeded.search('量子计算', page=1, per_page=1)
+        assert len(got['results']) <= 1
+        assert got['page'] == 1
+        assert got['per_page'] == 1
+
+    def test_total_reflects_all_matches(self, seeded):
+        got = seeded.search('量子计算', page=1, per_page=1)
+        assert got['total'] >= 2  # tweet t1 + comment c1
+
+    def test_new_write_is_searchable_immediately(self, seeded):
+        """Sync index maintenance: a fresh insert is searchable at once."""
+        seeded.insert_tweet(_mk_tweet('t9', '全新内容超导材料研究'))
+        got = seeded.search('超导材料')
+        assert any(r['tweet_id'] == 't9' for r in got['results'])
+
+    def test_annotation_update_is_searchable(self, seeded):
+        seeded.update_annotation('a1', '改后的笔记提到石墨烯')
+        got = seeded.search('石墨烯')
+        assert any(r['doc_id'] == 'a1' for r in got['results'])
+
+    def test_annotation_delete_removes_from_index(self, seeded):
+        seeded.delete_annotation('a1')
+        got = seeded.search('笔记说量子')
+        assert all(r['doc_id'] != 'a1' for r in got['results'])

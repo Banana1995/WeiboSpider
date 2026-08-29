@@ -122,3 +122,15 @@ def make_highlight(text, q, context=20):
     if end < len(text):
         out = out + '…'
     return out
+
+
+def escape_snippet(hl):
+    """Escape snippet() output while preserving its <mark> markers.
+
+    SQLite's snippet() does NOT HTML-escape the surrounding text, so a tweet
+    containing `<script>` would pass it through raw. Escape everything, then
+    restore the markers snippet() inserted.
+    """
+    if not hl:
+        return hl
+    return html.escape(hl).replace('&lt;mark&gt;', '<mark>').replace('&lt;/mark&gt;', '</mark>')

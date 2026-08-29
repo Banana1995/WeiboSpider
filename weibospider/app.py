@@ -999,6 +999,47 @@ def api_delete_annotation(ann_id):
     return jsonify({'deleted': True})
 
 
+_IMG_EXT = {'jpeg': 'jpg', 'jpg': 'jpg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}
+
+
+def _image_ext(ctype):
+    return _IMG_EXT.get(ctype.split('/')[-1], 'png')
+
+
+@app.route('/api/upload', methods=['POST'])
+def api_upload():
+    """上传剪贴板图片到阿里云 OSS，返回可访问 URL。"""
+    f = request.files.get('file')
+    if f is None:
+        return jsonify({'error': '缺少文件'}), 400
+    ctype = (f.content_type or '').lower()
+    if not ctype.startswith('image/'):
+        return jsonify({'error': '仅支持图片文件'}), 400
+    data = f.read()
+    if len(data) > 8 * 1024 * 1024:
+        return jsonify({'error': '图片大小超过 8MB'}), 400
+    cfg = _oss_config()
+    missing = [k for k in ('access_key_id', 'access_key_secret', 'bucket', 'endpoint')
+               if not cfg.get(k)]
+    if missing:
+        return jsonify({'error': '请先在设置中配置 OSS'}), 400
+    key = 'annotations/%s.%s' % (uuid.uuid4().hex, _image_ext(ctype))
+    try:
+        import oss2
+        auth = oss2.Auth(cfg['access_key_id'], cfg['access_key_secret'])
+        bucket = oss2.Bucket(auth, 'https://' + cfg['endpoint'], cfg['bucket'])
+        bucket.put_object(key, data, headers={'Content-Type': ctype})
+    except Exception as e:
+        logger.exception('OSS upload failed')
+        DB.insert_log('annotation', 'upload_error', detail=str(e)[:100],
+                      status='error', user='web')
+        return jsonify({'error': 'OSS 上传失败: %s' % e}), 500
+    prefix = cfg.get('url_prefix') or 'https://%s.%s/' % (cfg['bucket'], cfg['endpoint'])
+    url = prefix.rstrip('/') + '/' + key
+    DB.insert_log('annotation', 'upload', detail=key, status='success', user='web')
+    return jsonify({'url': url})
+
+
 def _crawl_single_xueqiu_comments(tweet_id):
     """Crawl comments for one xueqiu tweet via api.xueqiu.com v3 (最热 order).
 

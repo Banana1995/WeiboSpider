@@ -142,7 +142,43 @@ class TweetDB:
         CREATE INDEX IF NOT EXISTS idx_op_logs_ts ON operation_logs(timestamp);
         CREATE INDEX IF NOT EXISTS idx_op_logs_cat ON operation_logs(category);
         """)
+            # ---- Full-text search index (FTS5 + trigram) ----
+            # NOTE: all columns indexed (no UNINDEXED) so `WHERE source_type=?`
+            # works; do NOT use content='' (contentless breaks snippet()).
+            self.conn.executescript("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+            doc_id,
+            source_type,
+            tweet_id,
+            text,
+            tokenize='trigram'
+        );
+        """)
             self.conn.commit()
+            self._init_search_index()
+
+    def _init_search_index(self):
+        """Populate search_index from existing rows if it is empty.
+
+        Runs once on first upgrade; later writes keep it in sync incrementally.
+        """
+        n = self.conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+        if n > 0:
+            return
+        self.conn.executescript("""
+        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+            SELECT id, 'tweet', id,
+                   COALESCE(content,'') || ' ' || COALESCE(retweet_content,'')
+              FROM tweets;
+        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+            SELECT id, 'comment', tweet_id, COALESCE(content,'')
+              FROM comments;
+        INSERT INTO search_index(doc_id, source_type, tweet_id, text)
+            SELECT id, 'annotation', tweet_id,
+                   COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
+              FROM annotations;
+        """)
+        self.conn.commit()
 
     def close(self):
         with self._lock:

@@ -928,7 +928,7 @@ def api_search():
                         start_date=start_date, end_date=end_date)
     except Exception as e:
         app.logger.exception('search failed')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '搜索失败，请稍后重试'}), 500
 
     out['query'] = q
     out['elapsed_ms'] = round((time.time() - t0) * 1000, 1)
@@ -942,7 +942,7 @@ def api_search_reindex():
         n = DB.rebuild_search_index()
     except Exception as e:
         app.logger.exception('reindex failed')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '重建索引失败，请查看服务端日志'}), 500
     DB.insert_log('search', 'reindex', detail=f'rows={n}', status='success')
     return jsonify({'ok': True, 'indexed': n})
 

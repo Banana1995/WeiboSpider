@@ -483,3 +483,35 @@ class TestSearchDocConsistency:
             db.close()
         finally:
             os.unlink(path)
+
+
+class TestReviewFixes:
+    def test_batch_duplicate_keeps_last_content(self, db):
+        """DB keeps the last duplicate (ON CONFLICT/REPLACE); index must agree."""
+        db.batch_insert_tweets([
+            _mk_tweet('t1', 'FIRSTVERSION alpha'),
+            _mk_tweet('t1', 'SECONDVERSION beta'),
+        ])
+        stored = db.conn.execute("SELECT content FROM tweets WHERE id='t1'").fetchone()[0]
+        assert 'SECONDVERSION' in stored
+        assert db.search('SECONDVERSION')['total'] == 1
+        assert db.search('FIRSTVERSION')['total'] == 0
+
+    def test_metadata_literals_are_not_searchable(self, db):
+        """source_type/doc_id/tweet_id are UNINDEXED: their literals must not match."""
+        for i in range(5):
+            db.insert_tweet(_mk_tweet(f'x{i}', f'普通内容第{i}条'))
+        for q in ('tweet', 'comment', 'annotation'):
+            assert db.search(q)['total'] == 0, f'{q!r} leaked as a full-text match'
+
+    def test_like_wildcards_are_literal(self, db):
+        """% and _ must be literal, not wildcards (they take the LIKE path)."""
+        for i in range(5):
+            db.insert_tweet(_mk_tweet(f'y{i}', f'普通内容第{i}条'))
+        assert db.search('%')['total'] == 0
+        assert db.search('_')['total'] == 0
+
+    def test_like_wildcard_literal_match_still_works(self, db):
+        """A tweet actually containing % must be findable by searching %."""
+        db.insert_tweet(_mk_tweet('p1', '涨幅 50% 很不错'))
+        assert db.search('%')['total'] == 1

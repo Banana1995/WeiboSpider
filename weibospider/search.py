@@ -70,7 +70,10 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
         return sql, params
 
     # Path B: short keyword -> LIKE over source tables (never on the FTS5 table).
-    like = f'%{q}%'
+    # Escape LIKE metacharacters so a literal % or _ doesn't wildcard-match
+    # every row. Backslash must be escaped first.
+    esc = q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    like = f'%{esc}%'
     sql = f"""
         SELECT s.doc_id, s.source_type, s.tweet_id, s.matched_text,
                NULL AS highlight,
@@ -79,16 +82,16 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
                 SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id,
                        COALESCE(content,'') || ' ' || COALESCE(retweet_content,'') AS matched_text
                   FROM tweets
-                 WHERE content LIKE ? OR retweet_content LIKE ?
+                 WHERE content LIKE ? ESCAPE '\\' OR retweet_content LIKE ? ESCAPE '\\'
                 UNION ALL
                 SELECT id, 'comment', tweet_id, COALESCE(content,'')
                   FROM comments
-                 WHERE content LIKE ?
+                 WHERE content LIKE ? ESCAPE '\\'
                 UNION ALL
                 SELECT id, 'annotation', tweet_id,
                        COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
                   FROM annotations
-                 WHERE comment LIKE ? OR selected_text LIKE ?
+                 WHERE comment LIKE ? ESCAPE '\\' OR selected_text LIKE ? ESCAPE '\\'
                ) s
           JOIN tweets t ON t.id = s.tweet_id
          WHERE t.deleted = 0

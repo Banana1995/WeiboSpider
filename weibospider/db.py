@@ -145,13 +145,31 @@ class TweetDB:
         CREATE INDEX IF NOT EXISTS idx_op_logs_cat ON operation_logs(category);
         """)
             # ---- Full-text search index (FTS5 + trigram) ----
-            # NOTE: all columns indexed (no UNINDEXED) so `WHERE source_type=?`
-            # works; do NOT use content='' (contentless breaks snippet()).
+            # Migration: DBs created before the metadata columns became
+            # UNINDEXED must have the FTS table rebuilt, otherwise structural
+            # literals keep polluting matches. Drop it (plus the companion
+            # rowid map) here, before CREATE ... IF NOT EXISTS, so the new
+            # schema actually takes effect; _backfill_search_index() below
+            # repopulates it.
+            row = self.conn.execute(
+                "SELECT sql FROM sqlite_master WHERE name='search_index'"
+            ).fetchone()
+            needs_fts_rebuild = bool(row and row[0]
+                                     and 'doc_id UNINDEXED' not in row[0])
+            if needs_fts_rebuild:
+                self.conn.execute("DROP TABLE IF EXISTS search_index")
+                self.conn.commit()
+            # Metadata columns are UNINDEXED so their literal values
+            # (`tweet`/`comment`/`annotation`, numeric ids) don't pollute
+            # full-text matches — otherwise searching "tweet" hits every tweet
+            # row. UNINDEXED still stores the value, so `WHERE source_type=?`,
+            # snippet() and plain column reads all keep working. Do NOT use
+            # content='' (contentless breaks snippet()).
             self.conn.executescript("""
         CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
-            doc_id,
-            source_type,
-            tweet_id,
+            doc_id UNINDEXED,
+            source_type UNINDEXED,
+            tweet_id UNINDEXED,
             text,
             tokenize='trigram'
         );
@@ -162,6 +180,8 @@ class TweetDB:
             PRIMARY KEY (doc_id, source_type)
         );
         """)
+            if needs_fts_rebuild:
+                self.conn.execute("DELETE FROM search_doc")
             self.conn.commit()
             self._backfill_search_index()
 
@@ -302,14 +322,20 @@ class TweetDB:
         the batch keep only the LAST occurrence (matching the tweets
         ON CONFLICT(id) DO UPDATE / comments INSERT OR REPLACE semantics).
         """
-        existing_rids = []
-        insert_rows = []
-        seen = set()
+        # Dedupe keeping the LAST occurrence: re-assigning an existing dict key
+        # updates the value but keeps the key's original insertion position, so
+        # batch order is preserved while later duplicates win — matching the
+        # tweets ON CONFLICT(id) DO UPDATE / comments INSERT OR REPLACE writes.
+        deduped = {}
         for it in items:
             doc_id = str(it.get(id_key) or it.get('id') or '')
-            if not doc_id or doc_id in seen:
+            if not doc_id:
                 continue
-            seen.add(doc_id)
+            deduped[doc_id] = it
+
+        existing_rids = []
+        insert_rows = []
+        for doc_id, it in deduped.items():
             tweet_id = str(it.get('tweet_id') or doc_id)
             if source_type == 'tweet':
                 text = (it.get('content') or '') + ' ' + (it.get('retweet_content') or '')

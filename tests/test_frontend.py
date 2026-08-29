@@ -247,3 +247,13 @@ def test_oss_config_section_exists():
     assert 'id="oss-endpoint"' in INDEX_HTML
     assert 'id="oss-url-prefix"' in INDEX_HTML
     assert 'async function saveOssConfig()' in INDEX_HTML
+
+
+def test_paste_image_handler_exists():
+    assert "addEventListener('paste'" in INDEX_HTML
+    assert 'clipboardData' in INDEX_HTML
+    assert 'getAsFile()' in INDEX_HTML
+    assert 'uploadAnnotationImage' in INDEX_HTML
+    assert "fetch('/api/upload'" in INDEX_HTML
+    assert 'insertAtCursor' in INDEX_HTML
+    assert '![图片](' in INDEX_HTML

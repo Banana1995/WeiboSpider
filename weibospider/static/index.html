@@ -1643,6 +1643,42 @@ function showAnnotationInput(annId, tweetId, field, startOffset, endOffset, sele
       saveAnnotation();
     }
   });
+  textarea.addEventListener('paste', async (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        await uploadAnnotationImage(file, textarea);
+        break;
+      }
+    }
+  });
+}
+
+async function uploadAnnotationImage(file, textarea) {
+  const fd = new FormData();
+  fd.append('file', file, file.name || 'paste.png');
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (resp.ok && data.url) {
+      insertAtCursor(textarea, '![图片](' + data.url + ')');
+      toast('图片已上传');
+    } else {
+      toast(data.error || '图片上传失败', true);
+    }
+  } catch(e) { toast('图片上传失败', true); }
+}
+
+function insertAtCursor(textarea, text) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+  textarea.focus();
+  const pos = start + text.length;
+  textarea.setSelectionRange(pos, pos);
 }
 
 async function loadAnnotations(tweetId) {

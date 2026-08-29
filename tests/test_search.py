@@ -65,3 +65,40 @@ class TestSearchIndexTable:
         ).fetchone()[0]
         assert hl is not None
         assert '<mark>' in hl
+
+
+class TestBackfill:
+    def test_backfill_indexes_existing_rows(self):
+        """Existing tweets/comments/annotations get indexed on first upgrade."""
+        fd, path = tempfile.mkstemp(suffix='.db')
+        os.close(fd)
+        try:
+            # 1st open: write data, then drop the index to simulate an old DB
+            d1 = TweetDB(path)
+            d1.insert_tweet(_mk_tweet('t1', '今天量子计算有重大突破'))
+            d1.insert_comment({
+                '_id': 'c1', 'tweet_id': 't1', 'content': '评论提到量子计算',
+                'created_at': '2024-01-01', 'like_counts': 0, 'ip_location': '',
+                'comment_user': {}, 'reply_comment': None, 'crawl_time': 0,
+            })
+            d1.insert_annotation({
+                'id': 'a1', 'tweet_id': 't1', 'start_offset': 0, 'end_offset': 2,
+                'selected_text': '今天', 'comment': '我的笔记量子很重要',
+                'field': 'content', 'ranges': None,
+            })
+            d1.conn.execute("DROP TABLE search_index")
+            d1.conn.commit()
+            d1.close()
+
+            # 2nd open: _create_tables should rebuild + backfill
+            d2 = TweetDB(path)
+            rows = d2.conn.execute(
+                "SELECT source_type, doc_id FROM search_index ORDER BY source_type"
+            ).fetchall()
+            got = {(r[0], r[1]) for r in rows}
+            assert ('tweet', 't1') in got
+            assert ('comment', 'c1') in got
+            assert ('annotation', 'a1') in got
+            d2.close()
+        finally:
+            os.unlink(path)

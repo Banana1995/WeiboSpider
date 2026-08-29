@@ -471,19 +471,21 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
     # Path B: short keyword -> LIKE over source tables (never on the FTS5 table).
     like = f'%{q}%'
     sql = f"""
-        SELECT s.doc_id, s.source_type, s.tweet_id,
+        SELECT s.doc_id, s.source_type, s.tweet_id, s.matched_text,
                NULL AS highlight,
                t.id, t.content, t.created_at, t.user_id, t.screen_name, t.platform
           FROM (
-                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id
+                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id,
+                       COALESCE(content,'') || ' ' || COALESCE(retweet_content,'') AS matched_text
                   FROM tweets
                  WHERE content LIKE ? OR retweet_content LIKE ?
                 UNION ALL
-                SELECT id, 'comment', tweet_id
+                SELECT id, 'comment', tweet_id, COALESCE(content,'')
                   FROM comments
                  WHERE content LIKE ?
                 UNION ALL
-                SELECT id, 'annotation', tweet_id
+                SELECT id, 'annotation', tweet_id,
+                       COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
                   FROM annotations
                  WHERE comment LIKE ? OR selected_text LIKE ?
                ) s
@@ -772,12 +774,16 @@ from search import build_search_sql, make_highlight
         for r in rows:
             d = dict(r)
             if not d.get('highlight'):
-                # LIKE path (or snippet miss): highlight in Python
-                d['highlight'] = make_highlight(d.get('content') or '', q)
+                # LIKE path: highlight the actual matched source text
+                # (comment/annotation content), not just the tweet body.
+                d['highlight'] = make_highlight(d.get('matched_text') or '', q)
             else:
                 # IMPORTANT: snippet() does NOT HTML-escape tweet content.
                 # Escape it now and restore the <mark> markers, else raw
                 # `<script>` in a tweet becomes stored XSS in innerHTML.
+                # Known cosmetic limit: a literal `<mark>` in original content
+                # is indistinguishable from snippet's own markers and gets
+                # restored as a real tag (harmless — cannot execute JS).
                 d['highlight'] = escape_snippet(d['highlight'])
             results.append(d)
         return {'results': results, 'total': total,

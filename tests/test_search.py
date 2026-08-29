@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
 
 from db import TweetDB
-from search import fts5_quote, build_search_sql, MIN_MATCH_LEN
+from search import fts5_quote, build_search_sql, make_highlight, MIN_MATCH_LEN
 
 
 @pytest.fixture
@@ -186,3 +186,36 @@ class TestBuildSearchSql:
                                        end_date='2024-12-31')
         assert '2024-01-01' in params
         assert '2024-12-31 23:59:59' in params
+
+
+class TestMakeHighlight:
+    def test_wraps_keyword_in_mark(self):
+        out = make_highlight('今天量子计算有突破', '量子')
+        assert '<mark>量子</mark>' in out
+
+    def test_escapes_html_to_prevent_xss(self):
+        out = make_highlight('<script>x</script>量子内容', '量子')
+        assert '<script>' not in out
+        assert '&lt;script&gt;' in out
+        assert '<mark>量子</mark>' in out
+
+    def test_truncates_long_text_around_match(self):
+        text = 'A' * 200 + '量子' + 'B' * 200
+        out = make_highlight(text, '量子', context=20)
+        assert len(out) < 200
+        assert '<mark>量子</mark>' in out
+        assert out.startswith('…')
+        assert out.endswith('…')
+
+    def test_no_match_returns_truncated_head(self):
+        out = make_highlight('完全无关的内容', '量子')
+        assert '<mark>' not in out
+        assert '完全无关的内容' in out
+
+    def test_case_insensitive_for_ascii(self):
+        out = make_highlight('Hello World', 'hello')
+        assert '<mark>Hello</mark>' in out
+
+    def test_handles_empty_inputs(self):
+        assert make_highlight('', '量子') == ''
+        assert '<mark>' not in make_highlight('内容', '')

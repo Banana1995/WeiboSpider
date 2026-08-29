@@ -5,6 +5,8 @@ Two query paths (see docs/superpowers/specs/2026-08-29-global-search-design.md):
   - keyword length  < 3  -> LIKE over source tables (faster than LIKE on FTS5)
 """
 
+import html
+
 # FTS5 MATCH needs >= 3 chars with the trigram tokenizer; shorter keywords
 # return zero rows, so they take the LIKE path instead.
 MIN_MATCH_LEN = 3
@@ -91,3 +93,32 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
     """
     params = [like] * 5 + filter_params + [per_page, offset]
     return sql, params
+
+
+def make_highlight(text, q, context=20):
+    """Return an HTML-safe snippet of `text` with `q` wrapped in <mark>.
+
+    Used by the LIKE path, which has no snippet(). Escapes first so that
+    tweet content containing markup cannot inject HTML.
+    """
+    text = text or ''
+    if not text:
+        return ''
+    if not q:
+        return html.escape(text[:context * 4])
+
+    idx = text.lower().find(q.lower())
+    if idx < 0:
+        return html.escape(text[:context * 4])
+
+    start = max(0, idx - context)
+    end = min(len(text), idx + len(q) + context)
+    before = html.escape(text[start:idx])
+    hit = html.escape(text[idx:idx + len(q)])
+    after = html.escape(text[idx + len(q):end])
+    out = f'{before}<mark>{hit}</mark>{after}'
+    if start > 0:
+        out = '…' + out
+    if end < len(text):
+        out = out + '…'
+    return out

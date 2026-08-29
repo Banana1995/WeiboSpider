@@ -66,6 +66,31 @@
 
 **结论**: <3 字的查询不应该在 FTS5 表上做 LIKE，而应该直接查业务表（tweets/comments/annotations），因为普通表的 LIKE 更快。
 
+### 2.2.1 真实规模实测（5k 微博 + 11w 评论，2026-08-29 实施验证）
+
+在等量生产数据规模下的实际测量：
+
+| 项目 | 数值 |
+|------|------|
+| ≥3 字 MATCH 查询（有 trigram 索引） | **0.2-0.4ms**（目标 <100ms ✅） |
+| 2 字 LIKE 查询（业务表扫描） | **6-18ms**（目标 <500ms ✅） |
+| 批量写入索引同步（每行 2 次 executemany） | **77k rows/s**（20k 条混合新+更新 0.26s） |
+| 数据库文件大小（5k 微博 + 11w 评论） | ~12MB |
+
+**关键发现：FTS5 按列删除是 O(index_size)**
+
+初版用 `DELETE FROM search_index WHERE doc_id=? AND source_type=?` 做 upsert，实测该删除在 trigram 表上是**线性扫描**（按非 rowid 列删除无法用索引）：
+
+| 索引规模 | 删除 20k 行耗时 |
+|----------|----------------|
+| 5k 行 | ~9s |
+| 10k 行 | ~17.4s |
+| 114k 行（生产） | **~16 分钟**（外推） |
+
+**修复**：新增普通表 `search_doc(doc_id, source_type, fts_rowid, PRIMARY KEY(doc_id, source_type))` 映射 doc→FTS5 rowid。删除先查此表拿 rowid，再 `DELETE FROM search_index WHERE rowid=?`（O(1)）。修复后同一场景 **77k rows/s，且不随索引规模退化**。
+
+**升级兼容**：`_backfill_search_index` 用 `INSERT OR IGNORE` 填充 `search_doc`（老代码可能产生重复 (doc_id, source_type)，直接 INSERT 会 UNIQUE 冲突导致启动崩溃——已修复并加测试覆盖）。
+
 ### 2.3 BM25 排序的限制
 
 **实测发现**: Trigram 分词器下 `bm25()` 返回的分数全部为 `-0.0000`，**无法提供有意义的相关性排序**。

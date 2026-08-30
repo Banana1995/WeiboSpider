@@ -344,18 +344,53 @@ class TestSearchUI:
         end = INDEX_HTML.index('function renderSearchPager(')
         body = INDEX_HTML[start:end]
         assert 'renderCard(r, box)' in body
-        # the old simplified card markup must be gone
         assert '<div class="card"><div class="card-body">' not in body
-        # still shows why the row matched
-        assert 'search-hit' in body
-        assert 'search-src' in body
-        assert 'r.highlight' in body
+        assert 'search-hits' in body
+        assert 'search-hit-item' in body
+        assert 'h.highlight' in body
 
-    def test_search_dedupes_by_tweet_id(self):
+    def test_search_renders_aggregated_hits(self):
+        """Backend aggregates per tweet; frontend must iterate r.hits."""
         start = INDEX_HTML.index('function renderSearchResults(')
         end = INDEX_HTML.index('function renderSearchPager(')
         body = INDEX_HTML[start:end]
-        assert 'seen.has(r.tweet_id)' in body
+        assert '(r.hits || [])' in body
+        assert 'h.source_type' in body
+
+    def test_comment_hit_is_clickable_to_locate(self):
+        start = INDEX_HTML.index('function renderSearchResults(')
+        end = INDEX_HTML.index('function renderSearchPager(')
+        body = INDEX_HTML[start:end]
+        assert 'locateComment(r.id, h.doc_id)' in body
+        assert 'data-doc-id' in body
+        assert "h.source_type === 'comment'" in body
+
+    def test_locate_comment_function_exists(self):
+        assert 'async function locateComment(tweetId, docId)' in INDEX_HTML
+        assert 'scrollIntoView' in INDEX_HTML
+        assert '.comment-locate-flash' in INDEX_HTML
+
+    def test_comment_dom_has_cid_anchor(self):
+        assert 'data-cid="${c.id}"' in INDEX_HTML
+        assert 'data-cid="${s.id}"' in INDEX_HTML
+
+    def test_collapse_id_uses_comment_id_not_underscore_id(self):
+        """Pre-existing bug: c._id is undefined; must be c.id."""
+        assert "'subs-' + c._id" not in INDEX_HTML
+        assert "'subs-' + c.id" in INDEX_HTML
+
+    def test_card_uses_content_hl_when_present(self):
+        assert 't.content_hl ? t.content_hl : esc(t.content)' in INDEX_HTML
+
+    def test_retweet_uses_retweet_content_hl(self):
+        assert 't.retweet_content_hl ? t.retweet_content_hl : esc(t.retweet_content)' in INDEX_HTML
+
+    def test_annotation_hit_shows_highlight_not_clickable(self):
+        """Annotation hits render highlight text but are NOT clickable."""
+        start = INDEX_HTML.index('function renderSearchResults(')
+        end = INDEX_HTML.index('function renderSearchPager(')
+        body = INDEX_HTML[start:end]
+        assert "h.source_type !== 'tweet'" in body  # highlight shown for comment+annotation
 
     def test_search_view_inside_app_container(self):
         """search-view must live inside #app so cards get the same width

@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'weibospider'))
 
 from db import TweetDB
-from search import fts5_quote, build_search_sql, make_highlight, escape_snippet, MIN_MATCH_LEN
+from search import fts5_quote, build_search_sql, make_highlight, escape_snippet, highlight_all, MIN_MATCH_LEN
 
 
 @pytest.fixture
@@ -186,6 +186,41 @@ class TestBuildSearchSql:
                                        end_date='2024-12-31')
         assert '2024-01-01' in params
         assert '2024-12-31 23:59:59' in params
+
+
+class TestHighlightAll:
+    def test_wraps_every_occurrence_in_mark(self):
+        out = highlight_all('量子计算很好，量子计算真棒', '量子计算')
+        assert out.count('<mark>量子计算</mark>') == 2
+
+    def test_returns_full_text_not_truncated(self):
+        text = '开头' + 'A' * 500 + '量子计算' + 'B' * 500 + '结尾'
+        out = highlight_all(text, '量子计算')
+        assert out.startswith('开头')
+        assert out.endswith('结尾')
+        assert '<mark>量子计算</mark>' in out
+
+    def test_escapes_html_to_prevent_xss(self):
+        out = highlight_all('<script>alert(1)</script>量子内容', '量子')
+        assert '<script>' not in out
+        assert '&lt;script&gt;' in out
+        assert '<mark>量子</mark>' in out
+
+    def test_no_match_returns_escaped_full_text(self):
+        out = highlight_all('完全无关的内容', '量子')
+        assert out == '完全无关的内容'
+        assert '<mark>' not in out
+
+    def test_case_insensitive_for_ascii(self):
+        out = highlight_all('Hello World hello', 'hello')
+        assert '<mark>' in out
+
+    def test_empty_query_returns_escaped_full_text(self):
+        assert highlight_all('内容', '') == '内容'
+
+    def test_empty_text_returns_empty(self):
+        assert highlight_all('', '量子') == ''
+        assert highlight_all(None, '量子') == ''
 
 
 class TestMakeHighlight:

@@ -105,6 +105,37 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
     return sql, params
 
 
+def highlight_all(text, q):
+    """Return `text` fully HTML-escaped with every occurrence of `q` in <mark>.
+
+    Unlike make_highlight(), this does NOT truncate: the whole text comes
+    back (escaped) with all matches wrapped. Escaping happens first, then
+    <mark> is inserted around each match, so markup in the source text can
+    never inject HTML.
+    """
+    text = text or ''
+    if not text:
+        return ''
+    escaped = html.escape(text)
+    if not q:
+        return escaped
+    ql = html.escape(q).lower()
+    out = []
+    i = 0
+    lower = escaped.lower()
+    while True:
+        idx = lower.find(ql, i)
+        if idx < 0:
+            out.append(escaped[i:])
+            break
+        out.append(escaped[i:idx])
+        out.append('<mark>')
+        out.append(escaped[idx:idx + len(ql)])
+        out.append('</mark>')
+        i = idx + len(ql)
+    return ''.join(out)
+
+
 def make_highlight(text, q, context=20):
     """Return an HTML-safe snippet of `text` with `q` wrapped in <mark>.
 

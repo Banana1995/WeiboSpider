@@ -270,7 +270,11 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
 .search-src.comment { background: #fef0e8; color: #e67e22; }
 .search-src.annotation { background: #e8f8ee; color: #27ae60; }
 .search-hl { line-height: 1.7; font-size: 14px; word-break: break-word; }
-.search-hit { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #eee; font-size: 13px; }
+.search-hits { margin-bottom: 8px; }
+.search-hit-item { font-size: 13px; line-height: 1.6; padding: 4px 0; border-bottom: 1px dashed #eee; }
+.search-hit-item[data-doc-id] { cursor: pointer; color: #2b6cb0; }
+.search-hit-item[data-doc-id]:hover { background: #f0f7ff; }
+.comment-locate-flash { background: #fff3cd; border-radius: 4px; transition: background 2s; }
 </style>
 </head>
 <body>
@@ -825,7 +829,7 @@ function renderCard(t, container) {
           <button class="btn-del" onclick="deleteOne('${t.id}')">&times;</button>
         </span>
       </div>
-      <div class="card-content" data-field="content" data-tweet-id="${t.id}">${esc(t.content)}</div>
+      <div class="card-content" data-field="content" data-tweet-id="${t.id}">${t.content_hl ? t.content_hl : esc(t.content)}</div>
       ${t.retweet_content ? renderRetweet(t) : ''}
       ${pics.length ? `<div class="card-images">${pics.map(p => `<img src="${esc(proxyImg(p))}" loading="lazy" referrerpolicy="no-referrer">`).join('')}</div>` : ''}
       <div class="card-actions">
@@ -911,7 +915,7 @@ async function crawlComments(tweetId, btn) {
 function renderRetweet(t) {
   const pics = t.retweet_pic_urls || [];
   return `<div class="retweet-block" data-field="retweet_content" data-tweet-id="${t.id}" style="background:#f0f0f0;border-left:3px solid #ddd;padding:8px 10px;margin:6px 0;border-radius:4px;">
-    <span style="color:#e67e22;">@${esc(t.retweet_user||'')}</span>: <span style="font-size:13px;color:#666;">${esc(t.retweet_content)}</span>
+    <span style="color:#e67e22;">@${esc(t.retweet_user||'')}</span>: <span style="font-size:13px;color:#666;">${t.retweet_content_hl ? t.retweet_content_hl : esc(t.retweet_content)}</span>
     ${pics.length ? '<div class="card-images" style="margin-top:6px;">' + pics.map(p => `<img src="${esc(proxyImg(p))}" loading="lazy" referrerpolicy="no-referrer">`).join('') + '</div>' : ''}
   </div>`;
 }
@@ -2077,43 +2081,37 @@ function renderSearchResults(data) {
   box.innerHTML = '';
   if (!results.length) {
     meta.textContent = '“' + data.query + '” 共 ' + data.total +
-                       ' 条结果（' + data.elapsed_ms + 'ms）';
+                       ' 条微博（' + data.elapsed_ms + 'ms）';
     box.innerHTML = '<div class="search-empty">没有找到匹配内容</div>';
     return;
   }
-  // Dedupe by tweet id: one tweet can match via several comments/annotations,
-  // and renderCard() builds elements with id="annotation-panel-<tweetId>" —
-  // duplicate ids would break the notes panel lookups. Keep the first (best-
-  // ranked) hit per tweet.
-  const seen = new Set();
-  const unique = [];
-  for (const r of results) {
-    if (seen.has(r.tweet_id)) continue;
-    seen.add(r.tweet_id);
-    unique.push(r);
-  }
-  let metaText = '“' + data.query + '” 共 ' + data.total +
-                 ' 条结果（' + data.elapsed_ms + 'ms）';
-  if (unique.length !== results.length) {
-    metaText += '（合并同一微博后显示 ' + unique.length + ' 条）';
-  }
-  meta.textContent = metaText;
-  unique.forEach(r => {
+  meta.textContent = '“' + data.query + '” 共 ' + data.total +
+                     ' 条微博（' + data.elapsed_ms + 'ms）';
+  results.forEach(r => {
     renderCard(r, box);
-    // Prepend a "why this matched" line inside the card body so the card
-    // layout (and the floating annotation panel) stays untouched.
     const row = box.lastElementChild;
     const body = row && row.querySelector('.card-body');
-    if (body) {
-      const label = SRC_LABEL[r.source_type] || r.source_type;
-      const hit = document.createElement('div');
-      hit.className = 'search-hit';
-      // highlight is server-generated and already HTML-escaped
-      hit.innerHTML = '<span class="search-src ' + escapeHtml(r.source_type) + '">' +
-                      escapeHtml(label) + '</span><span class="search-hl">' +
-                      (r.highlight || '') + '</span>';
-      body.insertBefore(hit, body.firstChild);
-    }
+    if (!body) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'search-hits';
+    (r.hits || []).forEach(h => {
+      const label = SRC_LABEL[h.source_type] || h.source_type;
+      const item = document.createElement('div');
+      item.className = 'search-hit-item';
+      let html = '<span class="search-src ' + escapeHtml(h.source_type) + '">' +
+                 escapeHtml(label) + '</span>';
+      if (h.source_type !== 'tweet') {
+        item.setAttribute('data-doc-id', h.doc_id || '');
+        item.setAttribute('data-tweet-id', r.id);
+        item.addEventListener('click', function () {
+          locateComment(r.id, h.doc_id);
+        });
+        html += '<span class="search-hl">' + (h.highlight || '') + '</span>';
+      }
+      item.innerHTML = html;
+      wrap.appendChild(item);
+    });
+    body.insertBefore(wrap, body.firstChild);
   });
   renderSearchPager();
 }

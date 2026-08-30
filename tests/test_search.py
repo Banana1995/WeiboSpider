@@ -143,13 +143,17 @@ class TestBuildSearchSql:
     def test_long_keyword_uses_match(self):
         sql, params = build_search_sql('量子计算', page=1, per_page=20)
         assert 'search_index MATCH ?' in sql
-        assert 'snippet(search_index, 3' in sql
+        assert 'json_group_array' in sql
+        assert 'GROUP BY t.id' in sql
+        assert 'snippet(' not in sql
         assert params[0] == '"量子计算"'
 
     def test_short_keyword_uses_like_on_source_tables(self):
         sql, params = build_search_sql('量子', page=1, per_page=20)
         assert 'MATCH' not in sql
         assert 'UNION ALL' in sql
+        assert 'json_group_array' in sql
+        assert 'GROUP BY t.id' in sql
         assert '%量子%' in params
 
     def test_match_left_operand_is_table_not_column(self):

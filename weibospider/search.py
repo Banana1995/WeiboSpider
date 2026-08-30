@@ -24,17 +24,17 @@ def fts5_quote(s):
 
 def build_search_sql(q, page=1, per_page=20, source_type='all',
                      start_date=None, end_date=None):
-    """Build (sql, params) for a search query.
+    """Build (sql, params) for a search query, aggregated per tweet.
 
-    Returns rows shaped: the full tweets row (t.*) plus doc_id, source_type,
-                         tweet_id and highlight (+ matched_text on the LIKE
-                         path). The frontend reuses renderCard() on these rows,
-                         so every tweet column must come back, not a subset.
-    `highlight` is filled by snippet() on the MATCH path and is NULL on the
-    LIKE path (the caller highlights in Python via make_highlight()).
-    `matched_text` is the concatenated source text the LIKE path searched
-    (tweet content+retweet, comment content, or annotation comment+selected
-    text), used so highlight shows the actual matched source.
+    Returns one row per distinct tweet (the full tweets row via t.*), plus:
+      - hit_count: number of matching docs for that tweet
+      - hits:      JSON array of {"doc_id", "source_type"} via json_group_array
+
+    The full matched text is NOT returned here (search_index.text concatenates
+    content+retweet / comment+selected_text, losing field boundaries). The
+    caller backfills text from the source tables by doc_id and highlights in
+    Python with highlight_all() -- snippet() cannot run in an aggregate
+    context, so it is gone entirely.
     """
     page = max(int(page or 1), 1)
     per_page = min(max(int(per_page or 20), 1), 100)
@@ -55,16 +55,19 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
 
     if len(q) >= MIN_MATCH_LEN:
         # Path A: FTS5 MATCH. Left operand MUST be the table name.
-        # snippet() column index 3 == the `text` column.
         sql = f"""
-        SELECT s.doc_id, s.source_type, s.tweet_id,
-               snippet(search_index, 3, '<mark>', '</mark>', '…', 12) AS highlight,
+        SELECT COUNT(*) AS hit_count,
+               json_group_array(json_object(
+                   'doc_id', s.doc_id,
+                   'source_type', s.source_type
+               )) AS hits,
                t.*
           FROM search_index s
           JOIN tweets t ON t.id = s.tweet_id
          WHERE search_index MATCH ?
            AND t.deleted = 0
            {extra}
+         GROUP BY t.id
          ORDER BY t.created_at DESC
          LIMIT ? OFFSET ?
         """
@@ -72,32 +75,32 @@ def build_search_sql(q, page=1, per_page=20, source_type='all',
         return sql, params
 
     # Path B: short keyword -> LIKE over source tables (never on the FTS5 table).
-    # Escape LIKE metacharacters so a literal % or _ doesn't wildcard-match
-    # every row. Backslash must be escaped first.
     esc = q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
     like = f'%{esc}%'
     sql = f"""
-        SELECT s.doc_id, s.source_type, s.tweet_id, s.matched_text,
-               NULL AS highlight,
+        SELECT COUNT(*) AS hit_count,
+               json_group_array(json_object(
+                   'doc_id', s.doc_id,
+                   'source_type', s.source_type
+               )) AS hits,
                t.*
           FROM (
-                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id,
-                       COALESCE(content,'') || ' ' || COALESCE(retweet_content,'') AS matched_text
+                SELECT id AS doc_id, 'tweet' AS source_type, id AS tweet_id
                   FROM tweets
                  WHERE content LIKE ? ESCAPE '\\' OR retweet_content LIKE ? ESCAPE '\\'
                 UNION ALL
-                SELECT id, 'comment', tweet_id, COALESCE(content,'')
+                SELECT id, 'comment', tweet_id
                   FROM comments
                  WHERE content LIKE ? ESCAPE '\\'
                 UNION ALL
-                SELECT id, 'annotation', tweet_id,
-                       COALESCE(comment,'') || ' ' || COALESCE(selected_text,'')
+                SELECT id, 'annotation', tweet_id
                   FROM annotations
                  WHERE comment LIKE ? ESCAPE '\\' OR selected_text LIKE ? ESCAPE '\\'
                ) s
           JOIN tweets t ON t.id = s.tweet_id
          WHERE t.deleted = 0
            {extra}
+         GROUP BY t.id
          ORDER BY t.created_at DESC
          LIMIT ? OFFSET ?
     """

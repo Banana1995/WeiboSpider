@@ -317,6 +317,17 @@ class TestDbSearch:
         t1 = next(x for x in got['results'] if x['id'] == 't1')
         assert t1['content_hl'] == '今天<mark>量子计算</mark>有重大突破'
 
+    def test_retweet_content_hl_when_match_in_retweet(self, seeded):
+        got = seeded.search('光刻机')
+        t1 = next(x for x in got['results'] if x['id'] == 't1')
+        assert t1['retweet_content_hl'] == '转发原文提到<mark>光刻机</mark>'
+
+    def test_annotation_selected_text_is_highlighted(self, seeded):
+        got = seeded.search('天气不错')
+        t2 = next(x for x in got['results'] if x['id'] == 't2')
+        ah = next(h for h in t2['hits'] if h['source_type'] == 'annotation')
+        assert '<mark>天气不错</mark>' in ah['highlight']
+
     def test_source_type_filter(self, seeded):
         got = seeded.search('量子计算', source_type='comment')
         assert got['results']

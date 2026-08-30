@@ -957,17 +957,21 @@ class TweetDB:
                         ann_ids.append(h.get('doc_id'))
             comment_text, ann_text = {}, {}
             if comment_ids:
+                comment_ids = list(set(comment_ids))
                 ph = ','.join('?' * len(comment_ids))
                 comment_text = dict(self.conn.execute(
                     f"SELECT id, content FROM comments WHERE id IN ({ph})",
                     comment_ids,
                 ).fetchall())
             if ann_ids:
+                ann_ids = list(set(ann_ids))
                 ph = ','.join('?' * len(ann_ids))
-                ann_text = dict(self.conn.execute(
-                    f"SELECT id, comment FROM annotations WHERE id IN ({ph})",
+                for row in self.conn.execute(
+                    f"SELECT id, comment, selected_text FROM annotations WHERE id IN ({ph})",
                     ann_ids,
-                ).fetchall())
+                ).fetchall():
+                    ann_text[row['id']] = (row['comment'] or '') + ' ' + \
+                        (row['selected_text'] or '')
 
         _order = {'tweet': 0, 'comment': 1, 'annotation': 2}
         results = []
@@ -981,12 +985,12 @@ class TweetDB:
                         d[_k] = []
             hits = json.loads(d.pop('hits') or '[]')
             new_hits = []
-            tweet_hit = None
+            tweet_hit = False
             for h in hits:
                 st = h.get('source_type')
                 if st == 'tweet':
-                    text = d.get('content') or d.get('retweet_content') or ''
-                    tweet_hit = h
+                    tweet_hit = True
+                    text = d.get('content') or ''
                 elif st == 'comment':
                     text = comment_text.get(h.get('doc_id'))
                     if text is None:
@@ -1004,10 +1008,16 @@ class TweetDB:
             new_hits.sort(key=lambda h: (_order.get(h['source_type'], 9),
                                          h.get('doc_id') or ''))
             d['hits'] = new_hits
-            if tweet_hit is not None and d.get('content'):
-                d['content_hl'] = highlight_all(d['content'], q)
+            if tweet_hit:
+                if d.get('content'):
+                    d['content_hl'] = highlight_all(d['content'], q)
+                if d.get('retweet_content'):
+                    d['retweet_content_hl'] = highlight_all(d['retweet_content'], q)
             results.append(d)
 
+        # Note: `total` is computed in SQL before backfill; a tweet whose every
+        # hit is dropped (stale index rows) is skipped here but still counted
+        # in `total`. Benign: only reachable via orphaned search_index rows.
         return {'results': results, 'total': total,
                 'page': page, 'per_page': per_page}
 

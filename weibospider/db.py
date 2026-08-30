@@ -6,7 +6,7 @@ import time
 import fcntl
 from datetime import datetime
 
-from search import build_search_sql, make_highlight, escape_snippet
+from search import build_search_sql, highlight_all
 
 
 class TweetDB:
@@ -923,14 +923,15 @@ class TweetDB:
 
     def search(self, q, page=1, per_page=20, source_type='all',
                start_date=None, end_date=None):
-        """Search tweets, comments and annotations for `q`.
+        """Search tweets, comments and annotations for `q`, aggregated per tweet.
 
         Returns {'results': [...], 'total': int, 'page': int, 'per_page': int}.
+        Each result is a full tweet dict plus:
+          - hits:  list of {'source_type', 'doc_id' (comment/annotation only),
+                            'highlight'} -- full matched text with <mark>.
+          - content_hl: highlighted full tweet body (tweet hit + non-empty body).
         """
         q = (q or '').strip()
-        # Strip control chars: a bare \x00 inside fts5_quote() yields an
-        # FTS5 "unterminated string" OperationalError (500). Pasting text
-        # with control chars is common, so sanitize at the contract layer.
         q = ''.join(ch for ch in q if ch >= '\x20' and ch != '\x7f')
         page = max(int(page or 1), 1)
         per_page = min(max(int(per_page or 20), 1), 100)
@@ -943,36 +944,70 @@ class TweetDB:
         )
         with self._lock:
             rows = self.conn.execute(sql, params).fetchall()
-            # total: same query without LIMIT/OFFSET, wrapped in COUNT(*)
             count_sql = "SELECT COUNT(*) FROM (" + \
                 sql.replace('LIMIT ? OFFSET ?', '') + ")"
             total = self.conn.execute(count_sql, params[:-2]).fetchone()[0]
+            # Backfill full matched text by doc_id from the source tables.
+            comment_ids, ann_ids = [], []
+            for r in rows:
+                for h in json.loads(r['hits'] or '[]'):
+                    if h.get('source_type') == 'comment':
+                        comment_ids.append(h.get('doc_id'))
+                    elif h.get('source_type') == 'annotation':
+                        ann_ids.append(h.get('doc_id'))
+            comment_text, ann_text = {}, {}
+            if comment_ids:
+                ph = ','.join('?' * len(comment_ids))
+                comment_text = dict(self.conn.execute(
+                    f"SELECT id, content FROM comments WHERE id IN ({ph})",
+                    comment_ids,
+                ).fetchall())
+            if ann_ids:
+                ph = ','.join('?' * len(ann_ids))
+                ann_text = dict(self.conn.execute(
+                    f"SELECT id, comment FROM annotations WHERE id IN ({ph})",
+                    ann_ids,
+                ).fetchall())
 
+        _order = {'tweet': 0, 'comment': 1, 'annotation': 2}
         results = []
         for r in rows:
             d = dict(r)
-            # build_search_sql selects t.*, so pic_urls/retweet_pic_urls arrive
-            # as raw JSON strings. Every other read path (get_tweets etc.)
-            # deserializes them, and the frontend's renderRetweet() does a bare
-            # `t.retweet_pic_urls || []` then .map() -- a string is truthy, so
-            # skipping this raises "pics.map is not a function" on any result
-            # that has a retweet.
             for _k in ('pic_urls', 'retweet_pic_urls'):
                 if isinstance(d.get(_k), str):
                     try:
                         d[_k] = json.loads(d[_k] or '[]')
                     except (ValueError, TypeError):
                         d[_k] = []
-            if not d.get('highlight'):
-                # LIKE path: highlight the actual matched source text
-                # (comment/annotation content), not just the tweet body.
-                d['highlight'] = make_highlight(d.get('matched_text') or '', q)
-            else:
-                # IMPORTANT: snippet() does NOT HTML-escape tweet content.
-                # Escape it now and restore the <mark> markers, else raw
-                # `<script>` in a tweet becomes stored XSS in innerHTML.
-                d['highlight'] = escape_snippet(d['highlight'])
+            hits = json.loads(d.pop('hits') or '[]')
+            new_hits = []
+            tweet_hit = None
+            for h in hits:
+                st = h.get('source_type')
+                if st == 'tweet':
+                    text = d.get('content') or d.get('retweet_content') or ''
+                    tweet_hit = h
+                elif st == 'comment':
+                    text = comment_text.get(h.get('doc_id'))
+                    if text is None:
+                        continue
+                elif st == 'annotation':
+                    text = ann_text.get(h.get('doc_id'))
+                    if text is None:
+                        continue
+                else:
+                    text = ''
+                h['highlight'] = highlight_all(text, q)
+                new_hits.append(h)
+            if not new_hits:
+                continue
+            new_hits.sort(key=lambda h: (_order.get(h['source_type'], 9),
+                                         h.get('doc_id') or ''))
+            d['hits'] = new_hits
+            if tweet_hit is not None and d.get('content'):
+                d['content_hl'] = highlight_all(d['content'], q)
             results.append(d)
+
         return {'results': results, 'total': total,
                 'page': page, 'per_page': per_page}
 

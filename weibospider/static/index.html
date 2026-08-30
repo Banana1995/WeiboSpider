@@ -925,7 +925,7 @@ function renderComment(c) {
   const replyTo = c.reply_comment ? esc((c.reply_comment.user||{}).nick_name||'用户') : '';
   const replyLine = replyTo ? `<span class="comment-reply-user">回复 @${replyTo}</span> ` : '';
   const subs = c.sub_comments || [];
-  const collapseId = 'subs-' + c._id;
+  const collapseId = 'subs-' + c.id;
   let subHtml = '';
   if (subs.length > 5) {
     const shown = subs.slice(0, 5);
@@ -937,7 +937,7 @@ function renderComment(c) {
     subHtml = subs.map(s => renderSubComment(s)).join('');
   }
   const pics = (c.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
-  return `<div class="comment">
+  return `<div class="comment" data-cid="${c.id}">
     ${replyLine}<span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
     ${pics ? `<div class="comment-images">${pics}</div>` : ''}
     ${subHtml}
@@ -953,7 +953,7 @@ function renderSubCommentInner(s) {
   const replyTo = s.reply_comment ? esc((s.reply_comment.user||{}).nick_name||'用户') : '';
   const replyLine = replyTo ? `回复 @${replyTo} ` : '';
   const pics = (s.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
-  return `<div class="comment-reply"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}${pics ? `<div class="comment-images">${pics}</div>` : ''}</div>`;
+  return `<div class="comment-reply" data-cid="${s.id}"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}${pics ? `<div class="comment-images">${pics}</div>` : ''}</div>`;
 }
 
 function openLightboxFromComment(img) {
@@ -2114,6 +2114,42 @@ function renderSearchResults(data) {
     body.insertBefore(wrap, body.firstChild);
   });
   renderSearchPager();
+}
+
+async function locateComment(tweetId, docId) {
+  const box = document.getElementById('comments-' + tweetId);
+  if (!box) return;
+  const inner = box.querySelector('.comments-box-inner');
+  if (!inner) return;
+  if (!inner.dataset.loaded) {
+    inner.dataset.loaded = '1';
+    inner.innerHTML = '<div class="comment" style="color:#aaa">加载中...</div>';
+    try {
+      const resp = await fetch('/api/tweets/' + tweetId);
+      const data = await resp.json();
+      const comments = data.comments || [];
+      inner.innerHTML = comments.length === 0
+        ? '<div class="comment" style="color:#aaa">暂无评论</div>'
+        : comments.map(c => renderComment(c)).join('');
+    } catch (e) {
+      delete inner.dataset.loaded;
+      inner.innerHTML = '<div class="comment" style="color:#aaa">加载失败</div>';
+      return;
+    }
+  }
+  box.classList.add('open');
+  const target = box.querySelector('[data-cid="' + docId + '"]');
+  if (!target) return;
+  const hiddenWrap = target.closest('.sub-hidden');
+  if (hiddenWrap) {
+    hiddenWrap.classList.remove('sub-hidden');
+    const group = hiddenWrap.getAttribute('id-sub');
+    const btn = box.querySelector('.sub-collapse-btn[id-btn="' + group + '"]');
+    if (btn) btn.textContent = '收起';
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.add('comment-locate-flash');
+  setTimeout(function () { target.classList.remove('comment-locate-flash'); }, 2000);
 }
 
 function renderSearchPager() {

@@ -2106,6 +2106,8 @@ function renderSearchResults(data) {
         item.addEventListener('click', function () {
           locateComment(r.id, h.doc_id);
         });
+      }
+      if (h.source_type !== 'tweet') {
         html += '<span class="search-hl">' + (h.highlight || '') + '</span>';
       }
       item.innerHTML = html;

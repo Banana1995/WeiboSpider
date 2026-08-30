@@ -930,6 +930,9 @@ def api_search():
         app.logger.exception('search failed')
         return jsonify({'error': '搜索失败，请稍后重试'}), 500
 
+    # Search results are rendered by the same renderCard() as the normal list,
+    # which needs annotations_list for the right-side notes panel.
+    _attach_annotations(out['results'])
     out['query'] = q
     out['elapsed_ms'] = round((time.time() - t0) * 1000, 1)
     return jsonify(out)

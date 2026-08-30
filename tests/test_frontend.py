@@ -196,7 +196,7 @@ def test_render_card_uses_comments_count_field():
 
 
 def test_render_card_does_not_embed_comments_inline():
-    card_start = INDEX_HTML.index("function renderCard(t)")
+    card_start = INDEX_HTML.index("function renderCard(t, container)")
     card_end = INDEX_HTML.index("function toggleComments", card_start)
     card_body = INDEX_HTML[card_start:card_end]
     assert "comments.map(c => renderComment(c)).join('')" not in card_body
@@ -333,3 +333,45 @@ class TestSearchUI:
 
     def test_enter_key_triggers_search(self):
         assert 'doSearch' in INDEX_HTML
+
+    def test_render_card_accepts_container_arg(self):
+        assert 'function renderCard(t, container) {' in INDEX_HTML
+        assert "container = container || $('cards-container');" in INDEX_HTML
+
+    def test_search_reuses_render_card(self):
+        """Search results must reuse renderCard so styling/notes panel match."""
+        start = INDEX_HTML.index('function renderSearchResults(')
+        end = INDEX_HTML.index('function renderSearchPager(')
+        body = INDEX_HTML[start:end]
+        assert 'renderCard(r, box)' in body
+        # the old simplified card markup must be gone
+        assert '<div class="card"><div class="card-body">' not in body
+        # still shows why the row matched
+        assert 'search-hit' in body
+        assert 'search-src' in body
+        assert 'r.highlight' in body
+
+    def test_search_dedupes_by_tweet_id(self):
+        start = INDEX_HTML.index('function renderSearchResults(')
+        end = INDEX_HTML.index('function renderSearchPager(')
+        body = INDEX_HTML[start:end]
+        assert 'seen.has(r.tweet_id)' in body
+
+    def test_search_view_inside_app_container(self):
+        """search-view must live inside #app so cards get the same width
+        as the normal list, otherwise the floating notes panel overflows."""
+        app_start = INDEX_HTML.index('<div id="app">')
+        sv = INDEX_HTML.index('<div id="search-view"')
+        cards = INDEX_HTML.index('<div id="cards-container">')
+        assert app_start < cards < sv
+
+    def test_entering_search_clears_main_list(self):
+        """The hidden main list holds duplicate annotation-panel-<id> ids;
+        it must be cleared so search cards' notes panels resolve correctly."""
+        start = INDEX_HTML.index('function switchTab(')
+        end = INDEX_HTML.index('async function loadPs()')
+        body = INDEX_HTML[start:end]
+        assert "} else if (isSearch) {" in body
+        idx = body.index('} else if (isSearch) {')
+        branch = body[idx:body.index('} else if (isPs)', idx)]
+        assert "$('cards-container').innerHTML = '';" in branch

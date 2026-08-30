@@ -2100,7 +2100,7 @@ function renderSearchResults(data) {
       item.className = 'search-hit-item';
       let html = '<span class="search-src ' + escapeHtml(h.source_type) + '">' +
                  escapeHtml(label) + '</span>';
-      if (h.source_type !== 'tweet') {
+      if (h.source_type === 'comment') {
         item.setAttribute('data-doc-id', h.doc_id || '');
         item.setAttribute('data-tweet-id', r.id);
         item.addEventListener('click', function () {
@@ -2142,8 +2142,10 @@ async function locateComment(tweetId, docId) {
   if (!target) return;
   const hiddenWrap = target.closest('.sub-hidden');
   if (hiddenWrap) {
-    hiddenWrap.classList.remove('sub-hidden');
     const group = hiddenWrap.getAttribute('id-sub');
+    box.querySelectorAll('[id-sub="' + group + '"]').forEach(function (el) {
+      el.classList.remove('sub-hidden');
+    });
     const btn = box.querySelector('.sub-collapse-btn[id-btn="' + group + '"]');
     if (btn) btn.textContent = '收起';
   }

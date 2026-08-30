@@ -515,3 +515,70 @@ class TestReviewFixes:
         """A tweet actually containing % must be findable by searching %."""
         db.insert_tweet(_mk_tweet('p1', '涨幅 50% 很不错'))
         assert db.search('%')['total'] == 1
+
+
+class TestPicUrlsDeserialization:
+    """Regression: search() returned raw JSON strings for pic fields.
+
+    build_search_sql selects t.*, so pic_urls/retweet_pic_urls came back as
+    strings. The frontend's renderRetweet() does `t.retweet_pic_urls || []`
+    then .map() -- a string is truthy, so it crashed with
+    "pics.map is not a function" on any result carrying a retweet.
+    """
+
+    def _tweet_with_pics(self, tid, content, pics, retweet_content='', rt_pics=None):
+        t = _mk_tweet(tid, content, retweet_content)
+        t['pic_urls'] = pics
+        if rt_pics is not None:
+            t['retweet_pic_urls'] = rt_pics
+        return t
+
+    def test_pic_urls_is_list_not_string(self, db):
+        db.insert_tweet(self._tweet_with_pics(
+            'q1', '量子计算有重大突破', ['http://wx1.sinaimg.cn/a.jpg']))
+        r = db.search('量子计算')['results'][0]
+        assert isinstance(r['pic_urls'], list), 'pic_urls must be deserialized'
+        assert r['pic_urls'] == ['http://wx1.sinaimg.cn/a.jpg']
+
+    def test_retweet_pic_urls_is_list_not_string(self, db):
+        """The field that actually caused the TypeError."""
+        db.insert_tweet(self._tweet_with_pics(
+            'q2', '量子计算有重大突破', [], '转发原文提到光刻机',
+            rt_pics=['http://wx1.sinaimg.cn/b.jpg']))
+        r = db.search('量子计算')['results'][0]
+        assert isinstance(r['retweet_pic_urls'], list), \
+            'retweet_pic_urls must be deserialized (renderRetweet .map crash)'
+        assert r['retweet_pic_urls'] == ['http://wx1.sinaimg.cn/b.jpg']
+
+    def test_empty_pics_are_empty_lists(self, db):
+        db.insert_tweet(_mk_tweet('q3', '量子计算有重大突破'))
+        r = db.search('量子计算')['results'][0]
+        assert r['pic_urls'] == []
+        assert r['retweet_pic_urls'] == []
+
+    def test_pic_fields_match_api_tweets_shape(self, db):
+        """search() results must be shaped like get_tweets() results."""
+        db.insert_tweet(self._tweet_with_pics(
+            'q4', '量子计算有重大突破', ['http://wx1.sinaimg.cn/c.jpg'],
+            '转发原文', rt_pics=['http://wx1.sinaimg.cn/d.jpg']))
+        listed = db.get_tweets(page=1, per_page=20)[0]
+        found = db.search('量子计算')['results'][0]
+        for k in ('pic_urls', 'retweet_pic_urls'):
+            assert type(found[k]) is type(listed[k]), f'{k} type mismatch vs get_tweets'
+            assert found[k] == listed[k]
+
+    def test_malformed_pic_json_does_not_crash(self, db):
+        db.insert_tweet(_mk_tweet('q5', '量子计算有重大突破'))
+        db.conn.execute("UPDATE tweets SET pic_urls='{bad json' WHERE id='q5'")
+        db.conn.commit()
+        r = db.search('量子计算')['results'][0]
+        assert r['pic_urls'] == [], 'malformed JSON should degrade to []'
+
+    def test_like_path_also_deserializes(self, db):
+        """<3 char queries take the LIKE path; it needs the same treatment."""
+        db.insert_tweet(self._tweet_with_pics(
+            'q6', '煤炭板块走强', ['http://wx1.sinaimg.cn/e.jpg'],
+            '转发原文', rt_pics=['http://wx1.sinaimg.cn/f.jpg']))
+        r = db.search('煤炭')['results'][0]
+        assert isinstance(r['pic_urls'], list)
+        assert isinstance(r['retweet_pic_urls'], list)

@@ -951,6 +951,18 @@ class TweetDB:
         results = []
         for r in rows:
             d = dict(r)
+            # build_search_sql selects t.*, so pic_urls/retweet_pic_urls arrive
+            # as raw JSON strings. Every other read path (get_tweets etc.)
+            # deserializes them, and the frontend's renderRetweet() does a bare
+            # `t.retweet_pic_urls || []` then .map() -- a string is truthy, so
+            # skipping this raises "pics.map is not a function" on any result
+            # that has a retweet.
+            for _k in ('pic_urls', 'retweet_pic_urls'):
+                if isinstance(d.get(_k), str):
+                    try:
+                        d[_k] = json.loads(d[_k] or '[]')
+                    except (ValueError, TypeError):
+                        d[_k] = []
             if not d.get('highlight'):
                 # LIKE path: highlight the actual matched source text
                 # (comment/annotation content), not just the tweet body.

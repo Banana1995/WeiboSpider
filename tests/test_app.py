@@ -525,6 +525,66 @@ class TestCrawlStatus:
             app_module._cookie_probe_cache = {'ts': 0, 'alive': None}
 
 
+class TestConfigCookieReset:
+    """Saving a new cookie must clear stale 'cookie expired' state so the UI
+    stops popping the modal while a fresh cookie is already valid."""
+
+    def _make_scheduler_with_expired_results(self):
+        from scheduler import CrawlScheduler
+        sched = CrawlScheduler(lambda *a, **k: {}, lambda *a, **k: {})
+        sched._tweet_last_result = {'status': 'failed',
+                                    'error': 'Cookie 已过期，请更新 Cookie',
+                                    'stage': 'tweets', 'user_id': '3962719063'}
+        sched._comment_last_result = {'status': 'failed',
+                                      'error': 'Cookie 已过期，请更新 Cookie'}
+        return sched
+
+    def test_post_cookie_clears_stale_results_and_probe_cache(self, client):
+        import time as _t
+        from unittest.mock import patch
+
+        import app as app_module
+        sched = self._make_scheduler_with_expired_results()
+        old = app_module.SCHEDULER
+        app_module.SCHEDULER = sched
+        # Probe result cached as "dead" < 5 min ago -> would keep cookie_expired True
+        app_module._cookie_probe_cache = {'ts': _t.time(), 'alive': False}
+        try:
+            with patch('keepalive.check_cookie_alive', return_value=True):
+                rv = client.post('/api/config', json={'cookie': 'SUB=new_sub; ALF=9999999999'})
+                assert rv.status_code == 200
+                data = json.loads(client.get('/api/crawl/status').data)
+                assert data['cookie_expired'] is False
+            assert sched._tweet_last_result is None
+            assert sched._comment_last_result is None
+        finally:
+            app_module.SCHEDULER = old
+            app_module._cookie_probe_cache = {'ts': 0, 'alive': None}
+
+    def test_post_cookie_resets_probe_cache_so_alive_probe_runs_again(self, client):
+        import time as _t
+        from unittest.mock import patch
+
+        import app as app_module
+        sched = self._make_scheduler_with_expired_results()
+        old = app_module.SCHEDULER
+        app_module.SCHEDULER = sched
+        app_module._cookie_probe_cache = {'ts': _t.time(), 'alive': False}
+        try:
+            with patch('keepalive.check_cookie_alive', return_value=True) as mock_probe:
+                client.post('/api/config', json={'cookie': 'SUB=new_sub; ALF=9999999999'})
+                client.get('/api/crawl/status')
+                assert mock_probe.called, \
+                    "saving a cookie should invalidate the 5-min probe cache"
+        finally:
+            app_module.SCHEDULER = old
+            app_module._cookie_probe_cache = {'ts': 0, 'alive': None}
+
+    def test_post_cookie_without_scheduler_does_not_crash(self, client):
+        rv = client.post('/api/config', json={'cookie': 'SUB=no_scheduler'})
+        assert rv.status_code == 200
+
+
 class TestIncrementalEndpoint:
     def test_incremental_endpoint_exists(self, client):
         rv = client.post('/api/crawl/incremental')

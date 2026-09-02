@@ -73,10 +73,14 @@ def test_xqimg_fullsize_uses_raw():
 
 def test_schedule_config_inputs_exist():
     assert 'id="schedule-enabled"' in INDEX_HTML
-    assert 'id="schedule-start-hour"' in INDEX_HTML
-    assert 'id="schedule-end-hour"' in INDEX_HTML
-    assert 'id="tweet-interval-minutes"' in INDEX_HTML
-    assert 'id="comment-interval-minutes"' in INDEX_HTML
+    # window/interval are fixed in code now; the old editable inputs are gone
+    assert 'id="schedule-start-hour"' not in INDEX_HTML
+    assert 'id="schedule-end-hour"' not in INDEX_HTML
+    assert 'id="tweet-interval-minutes"' not in INDEX_HTML
+    assert 'id="comment-interval-minutes"' not in INDEX_HTML
+    assert '北京时间 7:00 – 22:00' in INDEX_HTML
+    assert '62 分钟' in INDEX_HTML
+    assert '47 分钟' in INDEX_HTML
 
 
 def test_trigger_incremental_function_exists():

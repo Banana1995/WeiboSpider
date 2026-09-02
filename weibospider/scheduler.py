@@ -1,11 +1,29 @@
 # weibospider/scheduler.py
 import threading
 import logging
+from datetime import datetime
 
+import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
+
+# Fixed schedule (Beijing time): mimic human posting cadence, only inside the
+# 07:00-22:00 window. Random 0-5 min delay is added per run (simulate a human
+# who doesn't post at perfectly regular times).
+SCHEDULE_TIMEZONE = 'Asia/Shanghai'
+SCHEDULE_START_HOUR = 7
+SCHEDULE_END_HOUR = 22  # exclusive: no new crawl starts at/after this hour
+TWEET_INTERVAL_MINUTES = 62
+COMMENT_INTERVAL_MINUTES = 47
+SCHEDULE_JITTER_SECONDS = 5 * 60
+
+
+def _beijing_now():
+    """Current time in the Asia/Shanghai timezone."""
+    return datetime.now(pytz.timezone(SCHEDULE_TIMEZONE))
 
 
 class CrawlScheduler:
@@ -52,13 +70,15 @@ class CrawlScheduler:
         logger.info("Scheduler shutdown")
 
     def update_config(self, config):
-        """Update config dict and reload jobs if schedule params changed."""
-        old_keys = {k: self._config.get(k) for k in
-                    ('schedule_enabled', 'schedule_start_hour', 'schedule_end_hour',
-                     'tweet_interval_minutes', 'comment_interval_minutes')}
+        """Update config dict and reload jobs when the enabled flag changes.
+
+        The window hours / intervals are hard-coded constants now, so only the
+        schedule_enabled toggle drives (re)building the jobs.
+        """
+        enabled_changed = (self._config.get('schedule_enabled')
+                           != config.get('schedule_enabled'))
         self._config = config
-        new_keys = {k: self._config.get(k) for k in old_keys}
-        if old_keys != new_keys:
+        if enabled_changed:
             self._reload_jobs()
 
     def _reload_jobs(self):
@@ -71,37 +91,52 @@ class CrawlScheduler:
         if not self._is_schedule_enabled():
             logger.info("Schedule disabled, no jobs registered")
             return
-        start_hour = self._config.get('schedule_start_hour', 5)
-        end_hour = self._config.get('schedule_end_hour', 23)
-        tweet_interval = self._config.get('tweet_interval_minutes', 60)
-        comment_interval = self._config.get('comment_interval_minutes', 30)
+        # Tweet / comment crawl on a fixed interval with a small random delay.
+        # IntervalTrigger's first fire is one interval after registration, so
+        # restarting/deploying never triggers an immediate crawl; a fire outside
+        # the Beijing window is skipped by _within_window().
         self._scheduler.add_job(
             self._scheduled_tweet_crawl,
-            CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0'),
+            IntervalTrigger(minutes=TWEET_INTERVAL_MINUTES,
+                            jitter=SCHEDULE_JITTER_SECONDS,
+                            timezone=SCHEDULE_TIMEZONE),
             id='tweet_crawl',
         )
         self._scheduler.add_job(
             self._scheduled_comment_crawl,
-            CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0,30'),
+            IntervalTrigger(minutes=COMMENT_INTERVAL_MINUTES,
+                            jitter=SCHEDULE_JITTER_SECONDS,
+                            timezone=SCHEDULE_TIMEZONE),
             id='comment_crawl',
         )
         if self.keepalive_func is not None:
             self._scheduler.add_job(
                 self._scheduled_keepalive,
-                CronTrigger(hour=f'{start_hour}-{end_hour - 1}', minute='0'),
+                CronTrigger(hour=f'{SCHEDULE_START_HOUR}-{SCHEDULE_END_HOUR - 1}',
+                            minute='0', timezone=SCHEDULE_TIMEZONE),
                 id='cookie_keepalive',
             )
-        # Daily log cleanup at start_hour:00
+        # Daily log cleanup shortly after the window opens
         self._scheduler.add_job(
             self._scheduled_log_cleanup,
-            CronTrigger(hour=start_hour, minute='5'),
+            CronTrigger(hour=SCHEDULE_START_HOUR, minute='5',
+                        timezone=SCHEDULE_TIMEZONE),
             id='log_cleanup',
         )
-        logger.info("Jobs registered: tweet hourly, comment every 30min, keepalive daily, log_cleanup daily, %dh-%dh",
-                     start_hour, end_hour)
+        logger.info("Jobs registered: tweet every %dmin, comment every %dmin, "
+                    "keepalive hourly, log_cleanup daily, Beijing %02d-%02d",
+                    TWEET_INTERVAL_MINUTES, COMMENT_INTERVAL_MINUTES,
+                    SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)
 
     def _is_schedule_enabled(self):
         return self._config.get('schedule_enabled', False) is True
+
+    def _within_window(self, now=None):
+        """True when `now` (a datetime, Beijing time by default) falls inside
+        the fixed schedule window [SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)."""
+        if now is None:
+            now = _beijing_now()
+        return SCHEDULE_START_HOUR <= now.hour < SCHEDULE_END_HOUR
 
     def _log_schedule(self, category, action, status=None, detail=None):
         """Insert an operation log via DB if available (set by create_app)."""
@@ -113,11 +148,23 @@ class CrawlScheduler:
                 pass
 
     def _scheduled_tweet_crawl(self):
+        if not self._within_window():
+            logger.info("Scheduled tweet crawl skipped: outside Beijing window %02d-%02d",
+                        SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)
+            self._log_schedule('crawl', 'scheduled_tweet_crawl', status='skipped',
+                               detail='outside Beijing schedule window')
+            return
         logger.info("Scheduled tweet crawl triggered")
         self._log_schedule('crawl', 'scheduled_tweet_crawl')
         self._execute_tweet_job(mode='incremental')
 
     def _scheduled_comment_crawl(self):
+        if not self._within_window():
+            logger.info("Scheduled comment crawl skipped: outside Beijing window %02d-%02d",
+                        SCHEDULE_START_HOUR, SCHEDULE_END_HOUR)
+            self._log_schedule('crawl', 'scheduled_comment_crawl', status='skipped',
+                               detail='outside Beijing schedule window')
+            return
         logger.info("Scheduled comment crawl triggered")
         self._log_schedule('crawl', 'scheduled_comment_crawl')
         self._execute_comment_job(mode='incremental')
@@ -350,6 +397,17 @@ class CrawlScheduler:
                 'last_result': self._xq_comment_last_result,
             },
         }
+
+    def clear_last_results(self):
+        """Forget the previous weibo tweet/comment crawl outcomes.
+
+        Called when a new weibo cookie is saved so a stale 'Cookie 已过期'
+        failure no longer keeps /api/crawl/status reporting cookie_expired
+        until the next crawl of that type runs. Xueqiu results are untouched
+        (they use a separate cookie).
+        """
+        self._tweet_last_result = None
+        self._comment_last_result = None
 
     @property
     def cancelled(self):

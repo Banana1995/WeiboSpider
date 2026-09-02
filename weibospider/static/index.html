@@ -386,22 +386,11 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
           <input type="checkbox" id="schedule-enabled" onchange="saveSchedule()">
           <label for="schedule-enabled" style="font-size:12px;">启用定时抓取</label>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <label style="font-size:11px;flex:1;">起始小时
-            <input type="number" id="schedule-start-hour" min="0" max="23" value="5" onchange="saveSchedule()" style="width:100%;">
-          </label>
-          <label style="font-size:11px;flex:1;">结束小时
-            <input type="number" id="schedule-end-hour" min="1" max="24" value="23" onchange="saveSchedule()" style="width:100%;">
-          </label>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <label style="font-size:11px;flex:1;">推文间隔(分钟)
-            <input type="number" id="tweet-interval-minutes" min="10" value="60" onchange="saveSchedule()" style="width:100%;">
-          </label>
-          <label style="font-size:11px;flex:1;">评论间隔(分钟)
-            <input type="number" id="comment-interval-minutes" min="10" value="30" onchange="saveSchedule()" style="width:100%;">
-          </label>
-        </div>
+        <p style="font-size:12px;color:#888;margin:0;line-height:1.6;">
+          抓取窗口：北京时间 7:00 – 22:00<br>
+          微博约每 62 分钟抓一次 · 评论约每 47 分钟抓一次<br>
+          每次附带 0–5 分钟随机波动
+        </p>
       </div>
 
       <div class="config-section">
@@ -584,10 +573,6 @@ async function loadConfig() {
     $('xq-user-id-input').value = data.xq_user_id || '8790885129';
     if (data.schedule_enabled !== undefined) {
       $('schedule-enabled').checked = data.schedule_enabled;
-      $('schedule-start-hour').value = data.schedule_start_hour;
-      $('schedule-end-hour').value = data.schedule_end_hour;
-      $('tweet-interval-minutes').value = data.tweet_interval_minutes;
-      $('comment-interval-minutes').value = data.comment_interval_minutes;
     }
   } catch(e) {}
 }
@@ -615,11 +600,7 @@ async function saveSchedule() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        schedule_enabled: $('schedule-enabled').checked,
-        schedule_start_hour: parseInt($('schedule-start-hour').value),
-        schedule_end_hour: parseInt($('schedule-end-hour').value),
-        tweet_interval_minutes: parseInt($('tweet-interval-minutes').value),
-        comment_interval_minutes: parseInt($('comment-interval-minutes').value),
+        schedule_enabled: $('schedule-enabled').checked
       })
     });
     toast('调度配置已保存');

@@ -71,32 +71,28 @@ class TestSchedulerJobRegistration:
         time.sleep(0.1)
         assert len(sch._scheduler.get_jobs()) == 0
 
-    def test_job_trigger_hours(self, scheduler):
-        """Verify the CronTrigger hour range is correct."""
+    def test_job_triggers_are_beijing_interval_with_jitter(self, scheduler):
+        from datetime import timedelta
+        from apscheduler.triggers.interval import IntervalTrigger
         sch, _ = scheduler
-        sch.update_config({
-            'schedule_enabled': True,
-            'schedule_start_hour': 5,
-            'schedule_end_hour': 23,
-            'tweet_interval_minutes': 60,
-            'comment_interval_minutes': 30,
-        })
+        sch.update_config({'schedule_enabled': True})
         time.sleep(0.1)
         jobs = {j.id: j for j in sch._scheduler.get_jobs()}
         tweet_trigger = jobs['tweet_crawl'].trigger
         comment_trigger = jobs['comment_crawl'].trigger
-        # hour range should be 5-22 (end_hour-1=22, inclusive)
-        # CronTrigger stores fields; check the str representation
-        assert '5-22' in str(tweet_trigger)
-        assert '5-22' in str(comment_trigger)
-        # tweet: minute=0 (hourly at :00)
-        assert '0' in str(tweet_trigger).split(' ')[1] or 'minute=0' in str(tweet_trigger)
-        # comment: minute=0,30 (every 30 min)
-        assert '0,30' in str(comment_trigger) or '0' in str(comment_trigger)
+        assert isinstance(tweet_trigger, IntervalTrigger)
+        assert tweet_trigger.interval == timedelta(minutes=62)
+        assert tweet_trigger.jitter == 300
+        assert isinstance(comment_trigger, IntervalTrigger)
+        assert comment_trigger.interval == timedelta(minutes=47)
+        assert comment_trigger.jitter == 300
+        assert 'Asia/Shanghai' in repr(tweet_trigger)
+        assert 'Asia/Shanghai' in repr(comment_trigger)
 
-    def test_config_change_reloads_jobs(self, scheduler):
+    def test_hour_interval_config_does_not_change_triggers(self, scheduler):
+        """Hour/interval settings are inert: triggers stay at the fixed Beijing
+        window constants (62/47 min + jitter)."""
         sch, _ = scheduler
-        # Enable with 5-23
         sch.update_config({
             'schedule_enabled': True,
             'schedule_start_hour': 5,
@@ -105,39 +101,54 @@ class TestSchedulerJobRegistration:
             'comment_interval_minutes': 30,
         })
         time.sleep(0.1)
-        jobs = sch._scheduler.get_jobs()
+        jobs = {j.id: str(j.trigger) for j in sch._scheduler.get_jobs()}
         assert len(jobs) == 3
-        trigger_str = str({j.id: j for j in jobs}['tweet_crawl'].trigger)
-        assert '5-22' in trigger_str
 
-        # Change to 8-20
         sch.update_config({
             'schedule_enabled': True,
             'schedule_start_hour': 8,
             'schedule_end_hour': 20,
-            'tweet_interval_minutes': 60,
-            'comment_interval_minutes': 30,
+            'tweet_interval_minutes': 99,
+            'comment_interval_minutes': 99,
         })
         time.sleep(0.1)
-        jobs = sch._scheduler.get_jobs()
-        assert len(jobs) == 3
-        trigger_str = str({j.id: j for j in jobs}['tweet_crawl'].trigger)
-        assert '8-19' in trigger_str
+        jobs_after = {j.id: str(j.trigger) for j in sch._scheduler.get_jobs()}
+        assert jobs_after == jobs
+
+    def test_reload_only_when_schedule_enabled_changes(self, scheduler, monkeypatch):
+        sch, _ = scheduler
+        reloads = []
+        real_reload = sch._reload_jobs
+
+        def counting_reload():
+            reloads.append(1)
+            real_reload()
+
+        monkeypatch.setattr(sch, '_reload_jobs', counting_reload)
+        sch.update_config({'schedule_enabled': True})
+        time.sleep(0.1)
+        assert len(reloads) == 1
+        # editing inert hour/interval keys must not reload
+        sch.update_config({
+            'schedule_enabled': True,
+            'schedule_start_hour': 8,
+            'schedule_end_hour': 20,
+            'tweet_interval_minutes': 90,
+            'comment_interval_minutes': 45,
+        })
+        time.sleep(0.1)
+        assert len(reloads) == 1
+        # toggling enabled off reloads again
+        sch.update_config({'schedule_enabled': False})
+        time.sleep(0.1)
+        assert len(reloads) == 2
+        assert len(sch._scheduler.get_jobs()) == 0
 
     def test_no_reload_when_config_unchanged(self, scheduler):
         sch, _ = scheduler
-        config = {
-            'schedule_enabled': True,
-            'schedule_start_hour': 5,
-            'schedule_end_hour': 23,
-            'tweet_interval_minutes': 60,
-            'comment_interval_minutes': 30,
-        }
-        sch.update_config(config)
+        sch.update_config({'schedule_enabled': True})
         time.sleep(0.1)
-        # Calling again with same config should not reload
-        # (we can't easily verify "no reload" but at least jobs should still be 2)
-        sch.update_config(config)
+        sch.update_config({'schedule_enabled': True})
         time.sleep(0.1)
         assert len(sch._scheduler.get_jobs()) == 3
 

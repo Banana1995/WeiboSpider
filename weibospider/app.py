@@ -1317,6 +1317,22 @@ def _cookie_alive_probe():
     return alive
 
 
+def _clear_cookie_expired_state():
+    """A fresh cookie was just saved: drop stale signals of the old cookie's death.
+
+    Both the 5-minute liveness-probe cache and the scheduler's last crawl
+    results may still say "cookie expired" after the old cookie died. Without
+    clearing them, /api/crawl/status keeps returning cookie_expired (and the
+    frontend keeps showing the modal) until the next crawl happens to run.
+    """
+    _cookie_probe_cache['ts'] = 0
+    _cookie_probe_cache['alive'] = None
+    if SCHEDULER is not None:
+        clear = getattr(SCHEDULER, 'clear_last_results', None)
+        if clear:
+            clear()
+
+
 @app.route('/api/crawl/status')
 def api_crawl_status():
     if SCHEDULER is None:
@@ -1425,6 +1441,7 @@ def api_set_config():
         DB.set_config('cookie', data['cookie'])
         updated['cookie'] = True
         DB.insert_log('config', 'set_cookie', status='success', user='web')
+        _clear_cookie_expired_state()
     if 'xq_cookie' in data:
         DB.set_config('xq_cookie', data['xq_cookie'])
         updated['xq_cookie'] = True

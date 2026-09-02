@@ -100,3 +100,55 @@ class TestScheduler:
     def test_config_controls_jobs(self, scheduler):
         sch, calls = scheduler
         assert sch._is_schedule_enabled() is False
+
+
+class TestScheduleWindow:
+    """Scheduled crawls only run inside the fixed Beijing window (7-22)."""
+
+    def _make(self):
+        from scheduler import CrawlScheduler
+        calls = []
+        sch = CrawlScheduler(
+            lambda sch, mode='incremental', user_id=None: calls.append('tweet:' + mode),
+            lambda sch, mode='incremental': calls.append('comment:' + mode))
+        return sch, calls
+
+    def test_within_window_boundaries(self):
+        from datetime import datetime
+        sch, _ = self._make()
+        assert sch._within_window(datetime(2026, 9, 2, 7, 0)) is True
+        assert sch._within_window(datetime(2026, 9, 2, 21, 59)) is True
+        assert sch._within_window(datetime(2026, 9, 2, 22, 0)) is False
+        assert sch._within_window(datetime(2026, 9, 2, 6, 59)) is False
+
+    def test_scheduled_tweet_skipped_outside_window(self, monkeypatch):
+        from datetime import datetime
+        sch, calls = self._make()
+        monkeypatch.setattr('scheduler._beijing_now',
+                            lambda: datetime(2026, 9, 2, 23, 0))
+        sch._scheduled_tweet_crawl()
+        assert calls == []
+
+    def test_scheduled_tweet_runs_inside_window(self, monkeypatch):
+        from datetime import datetime
+        sch, calls = self._make()
+        monkeypatch.setattr('scheduler._beijing_now',
+                            lambda: datetime(2026, 9, 2, 10, 0))
+        sch._scheduled_tweet_crawl()
+        assert calls == ['tweet:incremental']
+
+    def test_scheduled_comment_skipped_outside_window(self, monkeypatch):
+        from datetime import datetime
+        sch, calls = self._make()
+        monkeypatch.setattr('scheduler._beijing_now',
+                            lambda: datetime(2026, 9, 2, 22, 5))
+        sch._scheduled_comment_crawl()
+        assert calls == []
+
+    def test_scheduled_comment_runs_inside_window(self, monkeypatch):
+        from datetime import datetime
+        sch, calls = self._make()
+        monkeypatch.setattr('scheduler._beijing_now',
+                            lambda: datetime(2026, 9, 2, 8, 30))
+        sch._scheduled_comment_crawl()
+        assert calls == ['comment:incremental']

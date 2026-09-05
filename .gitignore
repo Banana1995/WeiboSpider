@@ -11,3 +11,4 @@ server.log
 *.db-wal
 venv/
 *.pid
+.env.platform

@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   weibospider:
     build: .
@@ -11,3 +10,30 @@ services:
     environment:
       - CHROME_PATH=/usr/bin/chromium
       - DB_PATH=/app/weibospider/data/data.db
+
+  platform:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.platform
+    environment:
+      BACKEND_ADDR: 0.0.0.0:5051
+      BACKEND_DATA_DIR: /app/data
+      LIQUOR_AUTO_SYNC: "true"
+    volumes:
+      - platform-data:/app/data
+
+  market-entry:
+    build:
+      context: ./frontend
+    ports:
+      - "5052:8080"
+    restart: unless-stopped
+    env_file:
+      - .env.platform
+    depends_on:
+      - platform
+
+volumes:
+  platform-data:

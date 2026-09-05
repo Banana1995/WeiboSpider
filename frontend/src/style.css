@@ -1,0 +1,606 @@
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #263b32;
+  background: #f6f7f4;
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #438b70;
+  outline-offset: 3px;
+}
+button {
+  color: inherit;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+.masthead {
+  height: 78px;
+  padding: 0 4vw;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #dde3db;
+  background: #fbfcfa;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: 2px;
+}
+.brand-mark {
+  background: #285b46;
+  color: white;
+  padding: 7px 9px;
+  font-family: serif;
+  font-size: 22px;
+  border-radius: 3px;
+}
+.brand-divider {
+  margin: 0 5px;
+  color: #bac4bd;
+  font-weight: 300;
+}
+.brand-sub {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 1px;
+}
+.edition {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #687a6f;
+}
+main {
+  max-width: 1500px;
+  margin: auto;
+  padding: 38px 4vw 28px;
+}
+.page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #718579;
+  font-weight: 600;
+}
+h1 {
+  margin: 12px 0;
+  font-size: 32px;
+  letter-spacing: 1px;
+  font-weight: 650;
+}
+h1 span {
+  font-size: 15px;
+  letter-spacing: 1px;
+  font-weight: 400;
+  margin-left: 24px;
+  color: #829086;
+}
+.page-heading p {
+  font-size: 13px;
+  color: #78847b;
+  margin: 0;
+}
+.refresh {
+  background: #fff;
+  border: 1px solid #ced8cd;
+  border-radius: 5px;
+  padding: 11px 18px;
+  font-size: 12px;
+}
+.market-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 26px;
+  font-size: 11px;
+  color: #738077;
+  padding: 25px 0 19px;
+}
+.market-meta strong {
+  color: #354f40;
+  font-weight: 500;
+  margin-left: 6px;
+}
+.market-meta i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #3c8665;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.stale {
+  color: #996528;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 23px;
+  align-items: start;
+}
+.catalog,
+.detail {
+  background: #fff;
+  border: 1px solid #dfe5dc;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.catalog-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 20px 15px;
+}
+.catalog-heading h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.catalog-heading > span {
+  font-size: 11px;
+  color: #78877b;
+  background: #f2f5ef;
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+.search {
+  display: block;
+  margin: 0 17px 15px;
+}
+.search input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e1e7df;
+  background: #f8faf6;
+  border-radius: 4px;
+  outline-color: #438b70;
+  font-size: 12px;
+}
+.list-caption {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 20px 10px;
+  color: #829086;
+  font-size: 10px;
+}
+.product-list {
+  max-height: 655px;
+  overflow: auto;
+}
+.product-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #f0f2ec;
+  border-left: 3px solid transparent;
+  padding: 17px 17px;
+  text-align: left;
+}
+.product-row:hover {
+  background: #f6f8f3;
+}
+.product-row.selected {
+  background: #edf4ec;
+  border-left-color: #387251;
+}
+.product-name {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.product-row small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #889287;
+}
+.product-price {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+.product-price small {
+  font-size: 11px;
+}
+.detail {
+  padding: 28px 30px 0;
+}
+.quote-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.quote-heading h2 {
+  font-size: 23px;
+  margin: 10px 0;
+}
+.quote-heading p {
+  font-size: 12px;
+  color: #7f8e83;
+  margin: 0;
+}
+.quote-heading p span {
+  margin: 0 8px;
+}
+.quote-badge {
+  height: 25px;
+  border: 1px solid #e2e8dd;
+  padding: 4px 9px;
+  font-size: 10px;
+  color: #65836c;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.quote-metrics {
+  display: flex;
+  gap: 40px;
+  align-items: center;
+  margin: 28px 0 34px;
+}
+.quote-metrics > div > span {
+  display: block;
+  font-size: 10px;
+  color: #7b897f;
+  margin-bottom: 8px;
+}
+.quote-metrics strong {
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+.quote-metrics .primary-price strong {
+  font-size: 43px;
+  letter-spacing: -1.5px;
+  font-weight: 550;
+}
+.up,
+.product-row .up {
+  color: #b74a42;
+}
+.down,
+.product-row .down {
+  color: #348264;
+}
+.flat {
+  color: #7b877f;
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e8ece5;
+  padding-top: 23px;
+}
+h3 {
+  font-size: 13px;
+  white-space: nowrap;
+}
+h3 span {
+  font-weight: 400;
+  font-size: 10px;
+  color: #8d978f;
+  margin-left: 6px;
+}
+.ranges {
+  display: flex;
+  background: #f3f5f0;
+  padding: 3px;
+  border-radius: 5px;
+}
+.ranges button {
+  border: 0;
+  background: transparent;
+  padding: 7px 10px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: #788579;
+  border-radius: 3px;
+}
+.ranges button.active {
+  background: white;
+  color: #2e644c;
+  box-shadow: 0 1px 4px #23392115;
+}
+.trend-chart,
+.chart-state {
+  height: 320px;
+  width: 100%;
+}
+.chart-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #7d897e;
+}
+.chart-state button,
+.notice button {
+  border: 1px solid #d3ddd2;
+  background: white;
+  border-radius: 4px;
+  padding: 7px 10px;
+}
+.coverage {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0 22px;
+  color: #849080;
+  font-size: 10px;
+}
+.history {
+  border-top: 1px solid #e8ece5;
+}
+.history summary {
+  cursor: pointer;
+  padding: 19px 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.history summary span {
+  float: right;
+  font-size: 10px;
+  color: #829080;
+  font-weight: 400;
+}
+.table-wrap {
+  max-height: 320px;
+  overflow: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: right;
+}
+th,
+td {
+  padding: 12px 7px;
+  border-bottom: 1px solid #eef1e9;
+}
+th {
+  font-weight: 500;
+  color: #7e8a7c;
+  background: #fafbf8;
+  position: sticky;
+  top: 0;
+}
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+footer {
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid #dde3d9;
+  font-size: 10px;
+  color: #879184;
+  line-height: 1.9;
+}
+footer strong {
+  color: #65765f;
+  font-weight: 500;
+}
+footer p {
+  max-width: 850px;
+  margin: 6px 0 14px;
+}
+footer > span {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #a2aba0;
+}
+.empty {
+  padding: 80px 20px;
+  text-align: center;
+  color: #778773;
+  background: white;
+  border: 1px solid #dfe5dc;
+  border-radius: 7px;
+}
+.empty h2 {
+  font-size: 20px;
+}
+.empty p {
+  font-size: 13px;
+}
+.notice {
+  padding: 15px;
+  background: #fff3ea;
+  border: 1px solid #eed4c2;
+  color: #8b5c3b;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.no-match {
+  text-align: center;
+  padding: 30px;
+  font-size: 12px;
+  color: #7e897b;
+}
+@media (min-width: 1400px) {
+  .workspace {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+}
+@media (max-width: 1000px) {
+  .workspace {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .detail {
+    padding: 22px 18px 0;
+  }
+  .quote-metrics {
+    gap: 20px;
+  }
+  .quote-metrics .primary-price strong {
+    font-size: 34px;
+  }
+  .quote-metrics strong {
+    font-size: 19px;
+  }
+  .chart-toolbar {
+    align-items: start;
+    flex-direction: column;
+  }
+  .quote-heading h2 {
+    font-size: 20px;
+  }
+}
+@media (max-width: 720px) {
+  .search input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .ranges button,
+  .refresh {
+    min-height: 44px;
+  }
+  .masthead {
+    height: 65px;
+    padding: 0 20px;
+  }
+  .edition {
+    display: none;
+  }
+  main {
+    padding: 25px 16px;
+  }
+  .page-heading {
+    align-items: start;
+  }
+  h1 {
+    font-size: 27px;
+  }
+  h1 span {
+    display: block;
+    font-size: 12px;
+    margin: 9px 0 0;
+  }
+  .page-heading p {
+    display: none;
+  }
+  .refresh {
+    padding: 9px 12px;
+    margin-top: 20px;
+  }
+  .market-meta {
+    gap: 10px 16px;
+    padding: 15px 0;
+  }
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .product-list {
+    max-height: 240px;
+  }
+  .product-row {
+    padding: 12px 17px;
+  }
+  .catalog-heading {
+    padding-top: 15px;
+  }
+  .quote-heading h2 {
+    font-size: 21px;
+  }
+  .quote-metrics {
+    gap: 18px;
+    flex-wrap: wrap;
+    margin: 23px 0;
+  }
+  .quote-metrics .primary-price {
+    flex-basis: 100%;
+  }
+  .quote-metrics .primary-price strong {
+    font-size: 40px;
+  }
+  .quote-metrics > div > span {
+    font-size: 11px;
+  }
+  .chart-toolbar {
+    gap: 5px;
+  }
+  .ranges {
+    width: 100%;
+  }
+  .ranges button {
+    flex: 1;
+    padding: 10px 8px;
+  }
+  .trend-chart,
+  .chart-state {
+    height: 290px;
+  }
+  .coverage {
+    line-height: 1.7;
+  }
+  .product-name {
+    font-size: 13px;
+  }
+  .product-row small {
+    font-size: 11px;
+  }
+  .table-wrap {
+    font-size: 11px;
+  }
+  .quote-badge {
+    font-size: 10px;
+  }
+  footer {
+    font-size: 11px;
+  }
+}

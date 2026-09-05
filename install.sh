@@ -46,6 +46,12 @@ fi
 mkdir -p data
 chown -R 1000:1000 data
 
+# 平台服务令牌仅保存在服务器，不进入仓库或前端构建产物。
+if [ ! -s .env.platform ]; then
+    umask 077
+    printf 'BACKEND_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.platform
+fi
+
 # 6. 构建并启动
 echo "→ 构建镜像并启动容器（首次可能需 2-3 分钟）..."
 docker compose up -d --build

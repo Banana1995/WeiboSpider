@@ -1,7 +1,7 @@
 # WeiboSpider 一键部署与自动更新设计
 
 日期：2026-07-18
-状态：待实现
+状态：历史设计归档（原始状态：待实现）。下文保留当时的单服务方案，不作为当前运维指令；三服务部署现状见 [部署准备与运维](../deploy-prep.md)。
 
 ## 目标
 
@@ -283,7 +283,7 @@ jobs:
 
 4. 首次部署：
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/Banua1995/WeiboSpider/master/install.sh | sudo bash
+   curl -fsSL https://raw.githubusercontent.com/Banana1995/WeiboSpider/master/install.sh | sudo bash
    ```
 
 5. 将 SSH 私钥配置到 GitHub Secrets

@@ -1,20 +1,41 @@
 # 微博管理器
 
-基于 Scrapy + Flask 的微博内容抓取与管理系统，支持定时抓取、热度排序评论、PDF 导出。
+基于 Scrapy + Flask 的微博内容抓取与管理系统，支持增量同步、热度排序评论、搜索、笔记和 PDF 导出。同仓库新增 Go 白酒行情后端与 Vue 趋势图页面，原微博业务和数据库保留。
 
-## 功能特性
+## 当前状态（2026-09-05）
 
-- **定时抓取**：每日凌晨 2:00 自动抓取关注博主的微博及评论
+白酒采集、Vue 单品趋势图和 Nginx 入口已部署，功能已合入 `master`，本次上线版本为 `e2c5476`。目前是**同一套自动部署、三个独立容器、两个网页入口**，不是两套独立发布流水线。
+
+| 入口 | 内容 |
+| --- | --- |
+| [微博管理器](http://43.130.247.183:5050/) | 原网页和 Python 后端，公网端口 5050 |
+| [白酒行情](http://43.130.247.183:5052/liquor) | Vue 行情列表、搜索、单品趋势和历史明细，公网端口 5052 |
+| Go 行情 API | 经白酒入口的 `/api/platform/liquor/*` 访问，5051 仅容器内部开放 |
+
+白酒页面支持近 7/30/90/365 天筛选，明确显示实际覆盖范围，不补齐缺失报价；刷新只读取已入库数据。生产已开启自动同步，9 月 5 日验收时为 11 款酒、341 条报价。多品对比、涨跌幅归一化、统一导航、微博 Vue 迁移及完整登录尚未实现。
+
+- [Go 后端开发与 API](backend/README.md)
+- [Vue 前端开发与测试](frontend/README.md)
+- [多数据源平台整体架构说明](docs/specs/2026-09-05-multi-source-architecture.md)
+- [当前部署与后续方案](docs/specs/2026-09-05-multi-source-deployment.md)
+- [生产部署与公网端到端验收记录](docs/validation/2026-09-05-liquor-production.md)
+
+下文安装、配置和使用指南针对原微博服务；白酒开发请使用上面的独立子项目指南。
+
+## 微博功能特性
+
+- **定时抓取**：开启调度后，在北京时间 07:00 至 22:00 前执行增量抓取；微博每 62 分钟、评论每 47 分钟，另加 0 至 5 分钟随机延迟
 - **热度评论**：按微博官方热度排序抓取评论，本地保持相同排序
 - **实时日志**：抓取过程日志通过轮询实时刷新到前端
 - **PDF 导出**：一键导出微博内容为 PDF，嵌入中文字体，中文完美显示
 - **批量管理**：支持批量删除/恢复微博
 - **分页浏览**：默认每页 100 条，支持页码导航和任意页跳转
 - **Web 管理界面**：SPA 单页应用，瀑布流卡片展示
+- **信息管理**：雪球内容、笔记、选文注解、图片上传、全局搜索和评论命中定位
 
 ## 环境要求
 
-- Python 3.8+
+- Python 3.9（当前开发和容器运行基线）
 - Google Chrome（PDF 导出功能需要）
 - macOS / Linux
 
@@ -54,7 +75,7 @@ pip install -r requirements.txt
 ```bash
 cd weibospider
 
-# 开发模式（改代码自动热更新，默认端口 5000）
+# 开发模式（改代码自动热更新，默认端口 5050）
 python run.py --dev
 
 # 生产模式（多线程，更稳定）
@@ -72,7 +93,7 @@ python run.py --port 8080
 ./stop.sh               # 停止服务
 ```
 
-启动后访问 http://localhost:5000
+两种模式默认均访问 http://localhost:5050 。`run.py` 默认监听所有网卡；仅本机开发时可加 `--host 127.0.0.1`。
 
 ## 使用指南
 
@@ -84,7 +105,7 @@ python run.py --port 8080
 4. 查看实时日志了解抓取进度
 5. 抓取完成后页面自动刷新显示新数据
 
-系统也会每天凌晨 2:00 自动执行一次抓取。
+开启定时调度后，任务按上述 62/47 分钟间隔运行，超出北京时间 `[07:00, 22:00)` 的触发会跳过。重启或部署不会立即触发微博抓取；这与 Go 白酒服务的启动补采规则不同。
 
 ### 查看评论
 
@@ -122,24 +143,32 @@ WeiboSpider/
 │   ├── middlewares.py      # Scrapy 中间件（代理、UA）
 │   ├── start.sh / stop.sh  # 后台启动/停止脚本
 │   ├── static/
-│   │   └── index.html      # 前端 SPA 页面
+│   │   └── index.html      # 原微博 SPA 页面
 │   └── spiders/
 │       ├── tweet_by_user_id.py  # 微博抓取爬虫
 │       ├── comment.py           # 评论抓取爬虫（热度排序）
 │       └── common.py            # 公共工具函数
-├── requirements.txt
+├── backend/                # Go 模块化后端、独立 SQLite、采集与 API
+├── frontend/               # Vue + TypeScript + ECharts、Nginx 配置
+├── tests/                  # Python 测试（仓库根目录）
+├── docs/                   # 架构、部署、历史方案和验收记录
+├── docker-compose.yml      # 三服务统一编排，数据分别持久化
+├── install.sh / update.sh  # 统一安装与发布脚本
+├── requirements.txt        # 原 Python 依赖
 └── .gitignore
 ```
 
-## API 说明
+## 微博 API 说明
+
+以下为原服务部分端点，仍从 5050 访问；白酒端点见 [Go API 契约](backend/README.md#api-契约)。当前白酒 Nginx 尚未提供 `/api/weibo/*` 映射。
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/tweets` | GET | 获取微博列表（支持分页、筛选、回收站） |
 | `/api/tweets/<id>` | GET | 获取单条微博及评论 |
 | `/api/tweets/<id>` | DELETE | 删除微博（软删除，进入回收站） |
-| `/api/tweets/batch-delete` | POST | 批量删除 |
-| `/api/tweets/batch-restore` | POST | 批量恢复 |
+| `/api/tweets/batch-delete` | DELETE | 批量删除 |
+| `/api/tweets/restore` | POST | 批量恢复 |
 | `/api/export` | GET | 导出数据（`?format=pdf` 下载 PDF，`?start=&end=` 筛选时间） |
 | `/api/crawl` | POST | 手动触发抓取（可选 `{"user_id":"xxx"}` 抓取指定用户） |
 | `/api/crawl/cancel` | POST | 取消正在进行的抓取 |
@@ -154,7 +183,9 @@ WeiboSpider/
 - **定时任务**：APScheduler 3.10
 - **数据库**：SQLite
 - **PDF 生成**：Headless Chrome + Google Fonts (Noto Sans SC)
-- **实时通信**：前端每 3s 轮询 `/api/crawl/status`（长轮询避免 waitress 线程被长连接占满）
+- **微博状态更新**：前端每 3s 普通定时轮询 `/api/crawl/status`，不是长轮询或 SSE，避免 Waitress 线程被长连接占满
+- **白酒后端**：Go 1.26、`net/http`、`database/sql`、CGO SQLite
+- **白酒前端**：Vue 3 + TypeScript + Vite + ECharts；生产由 Nginx 提供静态文件
 
 ## 一键部署到服务器
 
@@ -170,20 +201,30 @@ curl -fsSL https://raw.githubusercontent.com/Banana1995/WeiboSpider/master/insta
 
 ### 自动更新
 
-push 到 `master` 分支后，GitHub Actions 自动 SSH 到服务器执行 `update.sh`，邮件通知部署结果。
+push 到 `master` 分支后，GitHub Actions 自动 SSH 到服务器执行 `update.sh`，邮件通知部署结果。脚本快进拉取后重新执行新版自身，在服务器构建三个镜像并运行 `docker compose up -d --build`，随后检查微博和白酒入口。
 
-需在仓库 Secrets 配置 `SSH_HOST`、`SSH_USER`、`SSH_KEY`、`SMTP_*`、`MAIL_TO`。
+各服务的依赖、构建上下文和数据独立，但发布流程目前统一；镜像或配置变化可能重建对应容器，不能保证只改白酒就完全不触碰微博发布。尚未实现按模块独立发布或 CI 预构建镜像后分发。
+
+需在仓库 Secrets 配置 `SSH_HOST`、`SSH_USER`、`SSH_PORT`、`SSH_KEY`、`SMTP_*`、`MAIL_TO`。脚本会在服务器缺少配置时生成私有 `.env.platform`，供 Go 和 Nginx 使用；令牌不进入前端构建产物。安全组需按需要放行 TCP 5050、5052，不开放 Go 的 5051。
 
 ### 手动更新
 
 ```bash
 ssh deploy@<服务器IP>
-cd /opt/weibospider && ./update.sh
+cd /opt/weibospider
+./update.sh
 ```
 
 ### 数据持久化
 
-数据在 `/opt/weibospider/data/`，更新不丢。
+| 服务 | 持久化位置 |
+| --- | --- |
+| 微博 | `/opt/weibospider/data/` 绑定挂载到容器 `/app/weibospider/data` |
+| 白酒 | Compose 命名卷 `platform-data` 挂载到 Go 容器 `/app/data`，库为 `liquor.db` |
+
+正常重建保留这些存储，但持久化不是备份。禁止使用 `docker compose down -v` 删除生产卷；不要直接复制运行中的 SQLite 主文件或数据目录作为一致性备份。备份和权限要求见 [部署准备与运维](docs/deploy-prep.md)。
+
+当前入口使用 HTTP，未实现完整用户登录。白酒 API 代理只允许 GET/HEAD，服务令牌不等于用户认证；未来敏感模块上线前需补齐访问控制及 HTTPS 或受控 VPN。
 
 ## License
 

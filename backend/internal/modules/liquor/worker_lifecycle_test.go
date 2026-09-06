@@ -108,16 +108,20 @@ func TestWorker_FutureSourceDateIsValidationFailure(t *testing.T) {
 	})
 }
 
-func TestWorker_AutoSyncFetchesOnStartupAndSkipsCurrentDate(t *testing.T) {
+func TestWorker_AutoSyncWaitsForMorningAndEveningSchedule(t *testing.T) {
 	// Given
-	snapshot, err := fixtureSource(t, listFixture, detailFixture).Fetch(t.Context())
-	require.NoError(t, err)
 	synctest.Test(t, func(t *testing.T) {
 		store := testStore(t)
 		release := make(chan struct{})
 		close(release)
+		now := time.Now
+		date := now().In(beijing).Format(time.DateOnly)
+		snapshot := Snapshot{Date: date, Series: []Series{{
+			Product: Product{ID: 1, Name: "Scheduled fixture", Specifications: "500ml", Unit: Unit},
+			Prices:  []Point{{Date: date, Price: 10000}},
+		}}}
 		worker := NewWorker(store, blockingSource{release: release, snapshot: snapshot}, WorkerConfig{
-			Now: func() time.Time { return testTime }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Now: now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			Timeout: time.Minute, AutoSync: true,
 		})
 		ctx, cancel := context.WithCancel(t.Context())
@@ -126,14 +130,27 @@ func TestWorker_AutoSyncFetchesOnStartupAndSkipsCurrentDate(t *testing.T) {
 		t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 		// When
 		synctest.Wait()
-		first, err := store.Status(t.Context())
+		before, err := store.Status(t.Context())
 		require.NoError(t, err)
-		require.Equal(t, Succeeded, first.State)
-		<-time.After(16 * time.Minute)
+		require.Equal(t, Idle, before.State)
+		current := now()
+		<-time.After(nextAutoSync(current).Sub(current) + time.Second)
 		synctest.Wait()
 		// Then
-		last, err := store.Status(t.Context())
+		after, err := store.Status(t.Context())
 		require.NoError(t, err)
-		require.Equal(t, first.RunID, last.RunID)
+		require.Equal(t, Succeeded, after.State)
+		require.NotEmpty(t, after.RunID)
+		<-time.After(11 * time.Hour)
+		synctest.Wait()
+		beforeNextRun, err := store.Status(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, after.RunID, beforeNextRun.RunID)
+		<-time.After(2 * time.Hour)
+		synctest.Wait()
+		nextRun, err := store.Status(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, Succeeded, nextRun.State)
+		require.NotEqual(t, after.RunID, nextRun.RunID)
 	})
 }

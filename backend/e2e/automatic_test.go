@@ -12,9 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProcessAutoSyncStartsWithoutManualRequest(t *testing.T) {
+func TestProcessAutoSyncDoesNotFetchOnStartup(t *testing.T) {
 	binary, directory := buildServer(t), t.TempDir()
-	date := time.Now().In(time.FixedZone("Beijing", 8*60*60)).Format(time.DateOnly)
+	beijing := time.FixedZone("Beijing", 8*60*60)
+	now := time.Now().In(beijing)
+	next := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, beijing)
+	if !now.Before(next) {
+		next = time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, beijing)
+	}
+	if !now.Before(next) {
+		next = time.Date(now.Year(), now.Month(), now.Day()+1, 9, 0, 0, 0, beijing)
+	}
+	if time.Until(next) < time.Second {
+		t.Skip("startup assertion would cross an automatic sync boundary")
+	}
+	date := now.Format(time.DateOnly)
 	product := `{"liquor_id":7,"name":"Auto fixture","specifications":"53/500ml","unit":"\u5143/\u74f6","price":398,"price_change":3,"price_date":"` + date + `"}`
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := `{"result":{"status":{"code":0},"data":{"count":1,"list":[` + product + `]}}}`
@@ -29,25 +41,10 @@ func TestProcessAutoSyncStartsWithoutManualRequest(t *testing.T) {
 	p := startProcess(t, binary, directory, map[string]string{
 		"LIQUOR_SOURCE_URL": source.URL, "LIQUOR_AUTO_SYNC": "true", "LIQUOR_REQUEST_INTERVAL": "10ms",
 	})
-	timeout := time.NewTimer(10 * time.Second)
-	defer timeout.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-timeout.C:
-			t.Fatalf("automatic sync did not start\n%s", p.log.String())
-		case <-ticker.C:
-			s := status(t, p)
-			if s.State == "idle" {
-				continue
-			}
-			s = waitSync(t, p, s.RunID)
-			require.Equal(t, "succeeded", s.State)
-			require.Equal(t, date, latestPrices(t, p).Date)
-			require.Equal(t, 1, databaseCount(t, directory))
-			t.Log("PASS automatic startup: LIQUOR_AUTO_SYNC=true fetched and stored data without POST /sync")
-			return
-		}
-	}
+	time.Sleep(250 * time.Millisecond)
+	s := status(t, p)
+	require.Equal(t, "idle", s.State)
+	require.Empty(t, s.RunID)
+	require.Equal(t, 0, databaseCount(t, directory))
+	t.Log("PASS automatic schedule: startup stayed idle and waits for 09:00 or 21:00 Beijing time")
 }

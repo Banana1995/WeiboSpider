@@ -10,6 +10,10 @@ import (
 
 var ErrStopped = errors.New("sync worker stopped")
 
+var autoSyncHours = [...]int{9, 21}
+
+var beijing = time.FixedZone("Beijing", 8*60*60)
+
 type Fetcher interface {
 	Fetch(context.Context) (Snapshot, error)
 }
@@ -60,12 +64,13 @@ func (w *Worker) Run(ctx context.Context) (err error) {
 		defer cancel()
 		err = errors.Join(err, w.store.Recover(cleanup, w.config.Now()))
 	}()
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
+	var autoTimer *time.Timer
+	var autoTimerC <-chan time.Time
 	if w.config.AutoSync {
-		if err := w.requestDue(ctx); err != nil {
-			return err
-		}
+		now := w.config.Now()
+		autoTimer = time.NewTimer(nextAutoSync(now).Sub(now))
+		autoTimerC = autoTimer.C
+		defer autoTimer.Stop()
 	}
 	for {
 		select {
@@ -75,12 +80,12 @@ func (w *Worker) Run(ctx context.Context) (err error) {
 			if err := w.execute(ctx, id); err != nil {
 				return err
 			}
-		case <-ticker.C:
-			if w.config.AutoSync {
-				if err := w.requestDue(ctx); err != nil {
-					return err
-				}
+		case scheduledAt := <-autoTimerC:
+			if err := w.requestScheduled(ctx, scheduledAt); err != nil {
+				return err
 			}
+			now := w.config.Now()
+			autoTimer.Reset(nextAutoSync(now).Sub(now))
 		}
 	}
 }
@@ -119,12 +124,13 @@ func (w *Worker) execute(ctx context.Context, id string) error {
 	return w.store.Fail(cleanup, Failure{RunID: id, At: w.config.Now(), Code: code})
 }
 
-func (w *Worker) requestDue(ctx context.Context) error {
+func (w *Worker) requestScheduled(ctx context.Context, scheduledAt time.Time) error {
 	status, err := w.store.Status(ctx)
 	if err != nil {
 		return err
 	}
-	if !SyncDue(w.config.Now(), status) {
+	last, err := time.Parse(time.RFC3339Nano, status.LastSuccessAt)
+	if status.State == Running || err == nil && !last.Before(scheduledAt) {
 		return nil
 	}
 	_, err = w.Trigger(ctx)
@@ -134,19 +140,13 @@ func (w *Worker) requestDue(ctx context.Context) error {
 	return err
 }
 
-func SyncDue(now time.Time, status SyncStatus) bool {
-	if status.State == Running {
-		return false
+func nextAutoSync(now time.Time) time.Time {
+	local := now.In(beijing)
+	for _, hour := range autoSyncHours {
+		next := time.Date(local.Year(), local.Month(), local.Day(), hour, 0, 0, 0, beijing)
+		if local.Before(next) {
+			return next
+		}
 	}
-	started, err := time.Parse(time.RFC3339Nano, status.StartedAt)
-	if err == nil && now.Sub(started) < 15*time.Minute {
-		return false
-	}
-	local := now.In(time.FixedZone("Beijing", 8*60*60))
-	due := time.Date(local.Year(), local.Month(), local.Day(), 9, 15, 0, 0, local.Location())
-	if local.Before(due) {
-		due = due.AddDate(0, 0, -1)
-	}
-	last, err := time.Parse(time.RFC3339Nano, status.LastSuccessAt)
-	return err != nil || last.Before(due) || status.LastPriceDate < due.Format(time.DateOnly)
+	return time.Date(local.Year(), local.Month(), local.Day()+1, autoSyncHours[0], 0, 0, 0, beijing)
 }

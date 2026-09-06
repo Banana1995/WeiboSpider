@@ -115,24 +115,22 @@ func TestWorker_SourceFailureDoesNotPublishPrices(t *testing.T) {
 	})
 }
 
-func TestSyncDue_UsesBeijingPublicationTimeAndRetryCooldown(t *testing.T) {
+func TestNextAutoSync_UsesMorningAndEveningBeijingTimes(t *testing.T) {
 	tests := []struct {
-		name   string
-		now    time.Time
-		status SyncStatus
-		due    bool
+		name string
+		now  time.Time
+		next time.Time
 	}{
-		{"empty", testTime, SyncStatus{}, true},
-		{"current", testTime, SyncStatus{LastSuccessAt: testTime.Format(time.RFC3339Nano), LastPriceDate: "2026-09-05"}, false},
-		{"old quote", testTime, SyncStatus{LastSuccessAt: testTime.Format(time.RFC3339Nano), LastPriceDate: "2026-09-04"}, true},
-		{"cooldown", testTime, SyncStatus{StartedAt: testTime.Add(-time.Minute).Format(time.RFC3339Nano)}, false},
-		{"running", testTime, SyncStatus{State: Running}, false},
-		{"before publication", time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), SyncStatus{LastSuccessAt: "2026-09-04T02:00:00Z", LastPriceDate: "2026-09-04"}, false},
+		{"before 09:00", time.Date(2026, 9, 5, 0, 30, 0, 0, time.UTC), time.Date(2026, 9, 5, 1, 0, 0, 0, time.UTC)},
+		{"at 09:00", time.Date(2026, 9, 5, 1, 0, 0, 0, time.UTC), time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)},
+		{"between runs", time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC), time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)},
+		{"at 21:00", time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC), time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)},
+		{"after 21:00", time.Date(2026, 9, 5, 15, 0, 0, 0, time.UTC), time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given / When / Then
-			require.Equal(t, test.due, SyncDue(test.now, test.status))
+			require.True(t, test.next.Equal(nextAutoSync(test.now)))
 		})
 	}
 }

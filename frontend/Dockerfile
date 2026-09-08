@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
 COPY src ./src
+COPY dev/ledger-proxy.ts ./dev/ledger-proxy.ts
 RUN npm run build
 
 FROM nginx:1.29.1-alpine

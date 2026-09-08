@@ -15,6 +15,7 @@ import LedgerWeekly from "./LedgerWeekly.vue";
 import ImportAccount from "./ImportAccount.vue";
 import ImportedRecords from "./ImportedRecords.vue";
 import AccountRecords from "./AccountRecords.vue";
+import CurrentHoldings from "./CurrentHoldings.vue";
 import type { ImportResult } from "./ledgerImport";
 import {
   all,
@@ -65,9 +66,16 @@ const pending = shallowRef<PendingWrite<unknown>>();
 let afterWrite: ((result: unknown) => void) | undefined;
 const importPending = ref(false);
 const recordsPending = ref(false);
+const currentPending = ref(false);
+const currentConfigured = ref(false);
+const currentAuditID = ref("");
 const importRefresh = ref(0);
 const locked = computed(
-  () => !!pending.value || importPending.value || recordsPending.value,
+  () =>
+    !!pending.value ||
+    importPending.value ||
+    recordsPending.value ||
+    currentPending.value,
 );
 const holdingsAccounts = computed(() =>
   (accounts.data ?? []).filter((a) => a.accounting_mode === "holdings"),
@@ -82,6 +90,29 @@ const selectedMode = computed(
 const selectedHoldings = computed(
   () => !!selected.value && selectedMode.value === "holdings",
 );
+const selectedManual = computed(
+  () =>
+    (
+      accounts.data?.find((a) => a.id === selected.value) ??
+      (account.data?.id === selected.value ? account.data : undefined)
+    )?.current_holdings_input === "manual_snapshot",
+);
+const selectedValuable = computed(
+  () =>
+    selectedHoldings.value || (selectedManual.value && currentConfigured.value),
+);
+function currentSaved() {
+  valuation.clear();
+  importRefresh.value++;
+  historyRefresh.value++;
+}
+function currentLoaded(configured: boolean, auditId: string) {
+  currentConfigured.value = configured;
+  if (configured && currentAuditID.value !== auditId) {
+    valuation.clear();
+    currentAuditID.value = auditId;
+  }
+}
 watch(locked, (value) => emit("locked", value), { immediate: true });
 const newAccount = (): AccountInput => ({
   id: newID(),
@@ -147,6 +178,14 @@ async function loadAccount() {
       ? account.data.accounting_mode
       : undefined);
   if (mode !== "holdings") return;
+  previewValuation();
+  void positions.load((signal) =>
+    all<Position>(`/accounts/${id}/positions`, signal),
+  );
+}
+function previewValuation() {
+  if (locked.value || !selectedValuable.value) return;
+  const id = selected.value;
   void valuation.load(async (signal) => {
     const result = await request<Valuation>(`/accounts/${id}/valuation`, {
       signal,
@@ -156,9 +195,6 @@ async function loadAccount() {
     if (result.history_id) throw new Error("只读估值预览不应返回保存回执");
     return result;
   });
-  void positions.load((signal) =>
-    all<Position>(`/accounts/${id}/positions`, signal),
-  );
 }
 function loadOperations() {
   const params = query({
@@ -207,6 +243,8 @@ function reportedCreated(id: string) {
   void loadAccounts();
 }
 watch(selected, () => {
+  currentConfigured.value = false;
+  currentAuditID.value = "";
   account.clear();
   positions.clear();
   valuation.clear();
@@ -289,7 +327,7 @@ async function send(
   refresh();
 }
 function saveValuation() {
-  if (locked.value || !selectedHoldings.value) return;
+  if (locked.value || !selectedValuable.value) return;
   void send(
     new PendingWrite<Valuation>(
       `/accounts/${selected.value}/valuation`,
@@ -297,6 +335,10 @@ function saveValuation() {
       {},
     ),
     (result) => {
+      if (selectedManual.value) {
+        valuation.clear();
+        valuation.data = result as Valuation;
+      }
       historyRefresh.value++;
       message.value = `总资产已保存为记录 #${(result as Valuation).history_id}。重试返回原回执，不覆盖后续更正。`;
     },
@@ -574,7 +616,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     <ImportAccount
       :accounts="accounts.data ?? []"
       :disabled="
-        !!pending || recordsPending || accounts.loading || !!accounts.error
+        !!pending ||
+        recordsPending ||
+        currentPending ||
+        accounts.loading ||
+        !!accounts.error
       "
       @locked="importPending = $event"
       @imported="imported"
@@ -585,7 +631,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       :account-name="accountName(selected)"
       :currency="currency(selected)"
       :refresh-key="importRefresh + historyRefresh"
-      :disabled="!!pending || importPending"
+      :disabled="!!pending || importPending || currentPending"
       @locked="recordsPending = $event"
       @created="reportedCreated"
     />
@@ -597,8 +643,36 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     />
     <p v-if="selected && account.loading">正在读取账户信息…</p>
     <p v-if="selected && account.error" role="alert">{{ account.error }}</p>
+    <CurrentHoldings
+      v-if="selectedManual"
+      :account-id="selected"
+      :currency="currency(selected)"
+      :instruments="instruments.data ?? []"
+      :refresh-key="importRefresh"
+      :disabled="
+        !!pending ||
+        importPending ||
+        recordsPending ||
+        instruments.loading ||
+        !!instruments.error
+      "
+      @locked="currentPending = $event"
+      @configured="currentLoaded"
+      @saved="currentSaved"
+    />
+    <p v-if="selectedHoldings">
+      当前持仓由期初和交易自动重放；不允许手工快照覆盖，请通过交易记录更正。
+    </p>
     <button
-      v-if="selectedHoldings"
+      v-if="selectedValuable"
+      :disabled="locked || valuation.loading"
+      data-test="preview-valuation"
+      @click="previewValuation"
+    >
+      预览当前估值（不保存）
+    </button>
+    <button
+      v-if="selectedValuable"
       data-test="save-valuation"
       :disabled="locked || busy"
       @click="saveValuation"
@@ -606,7 +680,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       更新并保存总资产
     </button>
     <LedgerValuation
-      v-if="selectedHoldings"
+      v-if="selectedValuable"
       :account-id="selected"
       :value="valuation.data"
       :loading="valuation.loading"
@@ -614,7 +688,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       :instruments="instruments.data ?? []"
     />
     <LedgerValuationHistory
-      v-if="selectedHoldings"
+      v-if="selectedValuable"
       :account-id="selected"
       :refresh-key="historyRefresh"
     />

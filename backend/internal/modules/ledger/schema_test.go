@@ -95,7 +95,7 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	expected := []string{"accounts", "instruments", "opening_positions", "operations", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "schema_migrations"}
+	expected := []string{"accounts", "instruments", "opening_positions", "operations", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "schema_migrations"}
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&count))

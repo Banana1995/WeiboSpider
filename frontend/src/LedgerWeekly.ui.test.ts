@@ -16,6 +16,7 @@ const accounts: Account[] = [
     name: "合成持仓账户",
     currency: "CNY",
     accounting_mode: "holdings",
+    current_holdings_input: "transaction_replay",
     opening_date: "2020-01-01",
     opening_cash: "0.00",
     version: "1",
@@ -25,6 +26,7 @@ const accounts: Account[] = [
     name: "合成手工账户 <b>原文</b>",
     currency: "CNY",
     accounting_mode: "reported",
+    current_holdings_input: "manual_snapshot",
     opening_date: "2020-01-01",
     opening_cash: null,
     version: "1",
@@ -60,6 +62,7 @@ const frozen: ValuationHistory = {
   saved_at: "2026-09-05T00:00:03Z",
   instruments: [],
   valuation: {
+    source: "transaction_replay",
     account_id: "a",
     currency: "CNY",
     as_of: "2026-09-05",

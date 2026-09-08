@@ -33,7 +33,7 @@ LEDGER_ENABLED=true BACKEND_ADDR=127.0.0.1:5051 LIQUOR_AUTO_SYNC=false go run ./
 - `fee` 未提供或 null 表示未录入，按零计算；显式 `"0.00"` 表示录入为零。期初 `cost`、`diluted_basis` 为 null 表示未知，不等于零。
 - HTTP DTO 与已有数据库快照分开，客户端使用 snake_case；不改变已保存 Record、revision 或幂等摘要的内部 JSON 格式。
 
-账户响应新增 `accounting_mode`：已有及普通新建账户为 `holdings`，由导入原子新建的总资产账户为 `reported`。reported 的 `opening_cash` 和详情 `cash` 为 null，数据库零值仅为旧表约束占位，不是已知现金。这些账户不进入持仓 Replay，交易、转账、持仓查询及当前估值返回不支持，不生成虚构的零资产历史。已有持仓账户接收账户级导入不改变其模式。
+账户元信息保留 `accounting_mode`：交易账户为 `holdings`，导入原子新建及手工总资产账户为 `reported`。reported 的元信息 `opening_cash` 和详情 `cash` 为 null，不是已知现金；当前现金读取独立持仓快照。GET 账户列表/详情另返回 `current_holdings_input=manual_snapshot|transaction_replay`，不要求用户切换模式。reported 不接受交易、转账或旧周期持仓查询，但配置手工当前快照后可以预览/保存估值；未配置时估值返回 422 unsupported_operation，不补零。见第 13 节。
 
 ## 3. 接口清单
 
@@ -52,6 +52,7 @@ LEDGER_ENABLED=true BACKEND_ADDR=127.0.0.1:5051 LIQUOR_AUTO_SYNC=false go run ./
 | `GET /audit`、`GET /audit/{auditID}` | 统一操作审计列表/详情，只读；见第 12 节 |
 | `GET /accounts` | 账户元信息按 ID 升序分页，参数 `limit`、`cursor`；列表不声称是当前总资产 |
 | `GET /accounts/{id}` | 账户元信息及重放得到的本位币 `cash`；200 |
+| `GET/HEAD/PUT /accounts/{id}/current-holdings` | 读取/整份替换同账户手工当前持仓；CAS + 全局幂等回执，200；不查询报价或入账 |
 | `GET /accounts/{id}/valuation` | 只读当前估值预览；GET/HEAD 均不写记录、审计或回执，不返回 history_id，无查询参数 |
 | `POST /accounts/{id}/valuation` | 显式重新计算并保存总资产；application/json 空对象 `{}`、Idempotency-Key 必填，成功 200 |
 | `GET /accounts/{id}/valuations` | 已保存估值摘要，按保存 ID 倒序分页，可按 as_of 日期筛选；GET/HEAD |
@@ -314,7 +315,7 @@ T01 验证命令为 `make check && make test && env -u LIQUOR_E2E_LIVE make test
 
 ## 8. 总资产账户持续记账（T01）
 
-新增接口沿用第 1、2 节严格 JSON、资源限制与本机访问边界。没有公开代理或新增持仓联动。账户级接口同时可用于 reported 和 holdings 账户；后者的现金、持仓、操作与估值完全不变，不自动合计两类数据。
+账户级接口沿用第 1、2 节严格 JSON、资源限制及当前公开共享访问边界，同时可用于 reported 和 holdings 账户。资产/资金流记录不修改当前持仓或交易重放，不自动合计两类数据。
 
 ### 创建账户
 
@@ -353,7 +354,7 @@ T01 验证命令为 `make check && make test && env -u LIQUOR_E2E_LIVE make test
 
 ### 回执和前端恢复
 
-新建 reported 账户及账户级记录写入共用持久化 `account_record_receipts` 键空间，独立于既有持仓操作和导入回执。规范化请求含操作/账户/记录身份；同键异请求 409。回执与变更及修订同事务提交，读取回执先于当前版本检查。即使稍后记录已更正/作废或服务已重启，原请求重试仍返回最初成功结果，不再次写入。失败事务不占用键。
+新建 reported 账户、账户级记录、交易、导入、估值和当前持仓共用 `idempotency_receipts` 的全局键空间。规范请求含写入类型、账户/记录身份；同键异请求或不同类型 409。回执与变更及审计同事务提交，读取回执先于当前版本检查。即使稍后记录已更正/作废或服务已重启，原请求重试仍返回最初成功结果，不再次写入。失败事务不占用键。
 
 前端复用 PendingWrite 固定字节和 key；408/5xx/网络失败后保持不确定状态、锁定写入与账户切换，按原请求重试。成功回执可能是旧版本，只表示该次写入成功，随后独立读取最新列表、摘要和修订。读取失败不冒充写入失败。请求只保留页面内存，不将私有数据写入 localStorage；强制关闭页面后无法自动恢复请求，服务端已保存回执仍持久存在。CAS 冲突不自动改成最新版本重试，用户应重新选择当前记录核对后更正。
 
@@ -368,7 +369,7 @@ T01 验证命令为 `make check && make test && env -u LIQUOR_E2E_LIVE make test
 - reported 的同行资产已含同行资金进出。明确非空资产为 reported；缺资产资金流只沿用 date+sequence 之前最近明确资产原额为 carried，不加现金流；无前置资产为 unavailable，日志为 log。carried 的 source_* 指向明确资产记录，record.total_assets 仍为 null，不保存伪观察。
 - 稳定顺序直接保存在 account_records.stable_sequence（API 为 sequence）：新导入按来源行序，新记录按创建事务分配，更正/改期保留序号。不创建 account_record_order、兼容视图或升级旧 005 的迁移。统一记录不按来源重排，不从更正时间推断业务顺序；日终聚合与逐条展示是两个层次。
 - 所有 flow 只汇总 canonical 记录一次。操作写入时按操作 ID + 账户腿生成确定金额；转入/转出/组合操作只计外部金额，普通买卖及留存分红为 NULL。操作详情不二次增加 flow。observed/stale/untracked 只表达自动记录的来源可信状态，不改变所存金额。
-- revision 是本次投影（含来源和边界）的 SHA-256；change_revision 是该账户 account_record 审计最大 ID（空为 "0"）。since_revision 为该账户上次水位，非负规范整数字符串且不能超当前水位。changes 返回其后的 source_id/source_version/revision/from/to/reason；to=null 表示 [from,+∞) 潜在下游依赖范围，**不等于每个日期都改变或已完成重算**。创建、导入、更正、补记、作废同事务追踪；旧/新日期取最早，转账旧/新参与账户分别追踪，不污染无关账户。
+- revision 是本次投影（含来源和边界）的 SHA-256；change_revision 是该账户 account_record/current_holdings 审计最大 ID（空为 "0"）。since_revision 为该账户上次水位，非负规范整数字符串且不能超当前水位。changes 返回其后的 source_id/source_version/revision/from/to/reason；to=null 表示 [from,+∞) 潜在下游依赖范围，**不等于每个日期都改变或已完成重算**。持仓更新的 from 是保存时北京时间日期，只影响采样过旧手工来源的相关观察，不标记全部导入过期；previous_basis_affected 仅在确有依赖观察时置位。记录更正仍取旧/新最早日期，转账旧/新参与账户分别追踪，不污染无关账户。
 - previous_basis_affected 只有显式给 since_revision 且后续变更起点不晚于请求 to 时为 true；首次查询没有旧结果，不宣称过期。账户级本次结果始终重新投影，历史观察金额不变。status 为 current/unavailable/untracked_history/pending_recalculation；缺少 opening 时即使 closing 已知也不能据此计算完整区间收益。T06 已取消，pending_recalculation 仍表示旧持仓总额受影响，不表示已安排历史价格回填；不能把它自动改为有效。账户级收益直接用有效总额/资金流重新计算，后续收益曲线归入 T07。
 - GET/HEAD 不采集行情、不写分析缓存或资产观察。一次一致事务，最多 10,000 条截至 to 的原始记录/观察和 10,000 条游标后的变更；超出返回 400 invalid_query，不截断冒充完整分析。目前非大规模分页分析服务。列表明细仍使用原有有界 API。
 
@@ -468,9 +469,9 @@ Vue 同请求展示三张收益卡及每页 30 条详情。账户、日期或刷
 
 - fresh schema 的 `weekly_jobs` 以 `(account_id,scheduled_business_date)` 唯一，只约束计划任务，不对普通总资产记录做账户/日期去重。每个任务最多链接一个 history_id，历史记录也只能链接一个任务。
 - 所有账户均按 `pending → running → succeeded/failed` 处理；failed 在上限内按退避重新 running。无自动来源且没有任何历史总资产时才 `skipped/no_source`，跨日为 `skipped/expired`。成功/跳过终态及任务身份不可更新或删除，尝试次数用于完成 CAS fencing，迟到的旧尝试不能覆盖新尝试或已成功记录。
-- `holdings_current` 使用当前 holdings 现金/持仓；`account_record_carry` 复制计划日期及以前最近一笔有效、非沿用总资产。沿用记录保存原始记录 ID、稳定序号、版本、日期及金额，不能解释为新报价、现金或持仓。明确的纯现金零值可自动估值且不请求行情；任一非零持仓缺必要股票/FX 时 `failed/incomplete_valuation`，不保存现金小计冒充总额。
+- `holdings_current` 使用交易重放来源，或同账户已配置的手工当前快照；没有任何当前来源才使用 `account_record_carry`。待领取 pending/可重试 failed 的沿用任务若已配置快照，在领取事务内更新 source 并记录审计，已成功/跳过任务不重新执行。沿用复制计划日期及以前最近一笔有效、非沿用总资产，并保存原始记录 ID、序号、版本、日期及金额。纯现金零值是有效来源且不请求行情；任一非零持仓缺股票/FX 时 `failed/incomplete_valuation`，不退回沿用或保存现金小计。
 - 两种成功路径都不通过内部 HTTP。自动估值事务插入 account_records 和报价审计；沿用事务插入 `weekly_carry` 记录和不可变来源快照；随后原子更新任务及任务审计。history_id、账户、计划日期、记录来源及对应审计类型由约束核对，任一步失败全回滚；失败状态落库时单独审计安全错误码。
-- 采样前捕获账户 holdings 变更水位；提交事务内若出现水位后的相关变更（from_date<=as_of），返回 `failed/basis_changed`，不保存为成功周更新。无关账户、未持有证券新增、reported 轨道写入不会误触发；沿用现有业务层不可变账户/证券身份约束。
+- 交易来源捕获同账户操作水位；手工来源捕获快照版本和 audit_id，提交时精确 fence。相关交易变更或手工来源版本变化返回 `failed/basis_changed`，不保存为成功周更新。无关账户、未持有证券新增、独立人工资产记录不误触发；账户/证券身份不可变。
 - 保存实际 quote/FX 的业务日期、quoted_at、fetched_at、当次 ledger_at/calculated_at/saved_at。校验证券身份、币种、正价格/汇率、最新腾讯币对来源、实际获取时间；旧日期仍为 prior_date，不强行改成周六收盘，不新增固定过期天数或历史交易日历。采价或提交准备跨北京午夜时过期并回滚，不能 backdate。
 - 自动计算和沿用总额写同一 account_records，flow=NULL；冻结来源在 audit_log，周任务成功状态与相关审计同事务。真实估值继续使用 schema-1 冻结 JSON；沿用使用独立 schema-1 来源快照，不混入估值历史。GET 估值只读；任务详情按 source 返回对应冻结证据。
 
@@ -530,7 +531,7 @@ T05 后端与只读 UI 已覆盖所有账户：有持仓来源时自动估值，
 
 fresh schema 只有 `001_init.sql`。所有来源直接写同一 account_records 并分配稳定 sequence；更正保留原 sequence，不使用 updated_at 或修订时间重排。导入原行、操作版本、冻结估值、周沿用来源及记录修订全部进入同一 audit_log，不另建兼容视图或第二历史表。
 
-人工记录回执按原 account/id/version/action/after_json 校验审计；账户创建回执验证创建审计或旧迁移捕获；导入回执验证批次、digest、元数据、原行计数及每条版本 1 创建审计。缺失/损坏返回 data_integrity，无额外写入。后续正常更正不使旧回执失效，同文件新键确认只验证原批次，不新增导入审计。
+人工记录回执按原 account/id/version/action/after_json 校验审计；账户创建回执验证创建审计；导入回执验证批次、digest、元数据、原行计数及每条版本 1 创建审计。缺失/损坏返回 data_integrity，无额外写入。后续正常更正不使旧回执失效，同文件新键确认只验证原批次，不新增导入审计。
 
 - `GET/HEAD /audit?account_id=a&entity_type=account_record&action=replace&limit=30&cursor=123`：可选账户、对象类型和动作精确筛选，ID 倒序；默认分页规则同其他列表，最多 100 条，UI 固定 30。摘要只返回 id/correlation_id/action/entity_type/entity_id/account_id/version/recorded_at/source，不加载大 JSON。
 - `GET/HEAD /audit/{auditID}`：返回同一摘要及 before_json/after_json/metadata_json 字符串，保留原始 JSON 字节，浏览器不能用浮点重新编码。详情最多 8 MiB。无修改/删除接口，方法不符为 405。只读查询不会新增审计或触发估值。
@@ -540,3 +541,42 @@ fresh schema 只有 `001_init.sql`。所有来源直接写同一 account_records
 - 自动资产可更正或作废；更正后 manual_assertion=true、原报价引用保留，金额不再由旧报价背书。周任务原成功记录/回执仍指向冻结证据，不能重试恢复作废记录。
 - 初次导入在同事务内检查无 canonical 记录和持仓操作，否则 409 `initialization_requires_empty_account`。原回执重试在空账户检查之前返回，不因之后写入而失败。不能用删除用户数据重新初始化。
 - 所有已提交业务变化与 audit_log 同事务。幂等重试无新审计，写库失败无成功审计；周任务失败状态确实持久化时有状态审计。标准请求诊断不属于业务审计。
+
+## 13. 同账户当前持仓
+
+这是尚未部署的开发工作树能力。按最新用户授权直接修改 fresh `001_init.sql`，没有 `002`、旧库迁移、回滚或兼容 fallback。已执行旧脚本的库仍受校验和保护，不自动清库；本轮不删除本地或生产数据库、不部署。以下全部为合成格式示例。
+
+### 读取与整份替换
+
+`GET/HEAD /accounts/{id}/current-holdings` 无查询参数，200。不存在账户为 404，交易重放账户为 422 unsupported_operation。未配置时返回：
+
+```json
+{"account_id":"sample-account","audit_id":"","snapshot":null}
+```
+
+`PUT /accounts/{id}/current-holdings` 必须携带 `Idempotency-Key` 和完整 JSON：
+
+```json
+{
+  "expected_version":"0",
+  "cash":"0.00",
+  "positions":[{"instrument_id":"sample-stock","quantity":"1.000001"}]
+}
+```
+
+- `expected_version` 为规范非负 int64 字符串。第一次必须为 `"0"`，之后使用 GET 得到的版本。版本不匹配 409 version_conflict，不能默默覆盖其他人的修改。
+- cash 必填、非负、账户本位币、最多两位小数。positions 必填数组、最多 200 项，instrument_id 必须已登记且不重复，quantity 必须为正、最多六位小数。金额和数量均在现有 int64 精确尺度范围内，不接受 JSON number、负值、成本、日期或额外字段。
+- PUT 为整份替换，移除数组行即移除证券；`cash:"0.00",positions:[]` 是明确的已配置空持仓，不是缺失来源。不提供删除来源接口。
+- 保存时间由服务器生成，无转换日期或历史回填。保存不发起市场网络请求，不写 operations、外部资金流或 account_records，不改变导入记录和原始文件证据。
+- 返回 200 `{account_id,audit_id,snapshot:{version,saved_at,cash,positions}}`，现金规范两位、数量六位，证券按 ID 排序。当前表、不可变 `entity_type=current_holdings` 审计及全局幂等回执同事务；失败全部回滚。
+- 同键同请求先返回原版本回执，不重新替换或追加审计；同键异请求或跨写入类型碰撞为 409 idempotency_conflict。前端结果不确定时锁定原始字节/键/版本，只按原请求重试，成功后另读最新状态。
+
+### 估值与历史
+
+手工来源配置后，同账户原 `GET/HEAD /valuation` 可只读预览，`POST /valuation` 以 `{}` 和幂等键显式重新采价、保存完整总资产到同一 account_records（origin=currentrefresh、flow=NULL）。未配置不虚构零现金；配置纯现金零值可以保存零资产。未知证券报价/FX 导致 complete=false、total_assets=null，显式保存返回 422 incomplete_valuation，不保存小计。
+
+估值 JSON 增加 `source=manual_snapshot|transaction_replay`；手工来源另外冻结完整 `current_holdings` 对象，含来源版本、审计 ID 和 saved_at。`ledger_revision` 对手工来源为该固定输入的 SHA-256，对交易来源继续为重放依据指纹。历史通过引用的不可变来源审计验证，不依赖最新持仓，后续修改不会改写冻结值。
+
+报价 I/O 在事务外，保存时在事务内精确核对手工来源版本与内容。期间修改返回 409 basis_changed，无资产或成功回执；同键已提交的估值重试直接返回原结果，不再次采价。周任务同样 fence，失败记 basis_changed。成功任务不因后续持仓更新重做。
+
+分析水位包含 current_holdings 审计，变更范围从保存当天北京时间日期开始。只使该日及之后实际使用旧快照的自动观察过期；更早冻结观察、导入资产、手工资产和历史资金流不因此普遍失效。保存持仓不改变首个历史资产基准，也不生成虚构的初始资金流。原交易账户继续使用重放及原有更正规则，不接受手工来源覆盖。

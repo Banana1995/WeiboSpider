@@ -13,6 +13,7 @@ import {
 } from "./ledgerWeekly";
 
 const account: Account = {
+  current_holdings_input: "transaction_replay",
   id: "a",
   name: "合成持仓账户",
   currency: "CNY",
@@ -77,6 +78,7 @@ const frozen: ValuationHistory = {
   account_name: "合成冻结旧名称 <b>不是 HTML</b>",
   saved_at: "2026-09-05T00:00:03.500000001Z",
   valuation: {
+    source: "transaction_replay",
     account_id: "a",
     currency: "CNY",
     as_of: "2026-09-05",

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -45,6 +46,31 @@ type ValuationSummary struct {
 
 func (s valuationSnapshot) validate() error {
 	v := s.Valuation
+	if v.Source == "manual_snapshot" {
+		c := v.CurrentHoldings
+		if c == nil || c.AccountID != v.AccountID || c.Snapshot == nil || !c.Snapshot.valid() || c.Snapshot.Cash != v.Cash || len(c.Snapshot.Positions) != len(v.Items) {
+			return ErrCorrupt
+		}
+		if _, err := positiveInteger(c.AuditID); err != nil {
+			return ErrCorrupt
+		}
+		stamp, _ := time.Parse(time.RFC3339Nano, c.Snapshot.SavedAt)
+		ledger, err := time.Parse(time.RFC3339Nano, v.LedgerAt)
+		if err != nil || stamp.After(ledger) {
+			return ErrCorrupt
+		}
+		basis, _ := json.Marshal(c)
+		if receiptDigest(string(basis)) != v.LedgerRevision {
+			return ErrCorrupt
+		}
+		for n, p := range c.Snapshot.Positions {
+			if p.InstrumentID != v.Items[n].InstrumentID || p.Quantity != v.Items[n].Quantity {
+				return ErrCorrupt
+			}
+		}
+	} else if v.Source != "transaction_replay" || v.CurrentHoldings != nil {
+		return ErrCorrupt
+	}
 	revision, err := hex.DecodeString(v.LedgerRevision)
 	if err != nil || len(revision) != 32 || hex.EncodeToString(revision) != v.LedgerRevision || s.SchemaVersion != 1 || !validText(s.AccountName) || !validID(v.AccountID) || !v.Currency.valid() || !validDate(v.AsOf) || !v.Complete || v.HistoryID != "" || v.Cash < 0 || v.PositionsValue == nil || v.TotalAssets == nil || v.Items == nil || s.Instruments == nil || len(v.Items) != len(s.Instruments) {
 		return ErrCorrupt
@@ -137,15 +163,28 @@ func (s *Store) RecordValuation(ctx context.Context, v Valuation, instruments []
 
 // The caller owns the transaction so weekly completion can share this commit.
 func (s *Store) recordValuation(ctx context.Context, tx *sql.Tx, v Valuation, instruments []Instrument) (int64, int64, error) {
+	if v.Source != "manual_snapshot" {
+		if err := requireHoldings(ctx, tx, v.AccountID); err != nil {
+			return 0, 0, err
+		}
+	}
 	snapshot := valuationSnapshot{SchemaVersion: 1, AccountName: v.accountName, Valuation: v, Instruments: make([]instrumentJSON, 0, len(instruments))}
 	for _, i := range instruments {
 		snapshot.Instruments = append(snapshot.Instruments, instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency})
 	}
-	if err := requireHoldings(ctx, tx, v.AccountID); err != nil {
-		return 0, 0, err
-	}
 	if err := snapshot.validate(); err != nil {
 		return 0, 0, err
+	}
+	if v.Source == "manual_snapshot" {
+		current, err := readCurrentHoldings(ctx, tx, v.AccountID)
+		if err != nil {
+			return 0, 0, err
+		}
+		if !reflect.DeepEqual(current, *v.CurrentHoldings) {
+			return 0, 0, errWeeklyBasis
+		}
+		revision, _ := positiveInteger(current.AuditID)
+		v.changeRevision = &revision
 	}
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
@@ -187,7 +226,14 @@ const historySelect = `SELECT r.sequence,r.account_id,
 	 AND current.account_id=r.account_id AND current.entity_id=r.id AND current.version=r.version
 	 AND current.after_json=r.payload),
 	r.id,r.payload,r.created_at,r.kind,r.flow_minor,r.total_assets_minor,r.note,r.version,
-	r.updated_at,r.operation_id,r.manual_assertion
+	r.updated_at,r.operation_id,r.manual_assertion,
+	(json_extract(a.after_json,'$.valuation.source')='transaction_replay' OR EXISTS(
+	 SELECT 1 FROM audit_log source WHERE source.entity_type='current_holdings'
+	 AND source.account_id=r.account_id AND source.entity_id=r.account_id
+	 AND CAST(source.id AS TEXT)=json_extract(a.after_json,'$.valuation.current_holdings.audit_id')
+	 AND CAST(source.version AS TEXT)=json_extract(a.after_json,'$.valuation.current_holdings.snapshot.version')
+	 AND source.recorded_at=json_extract(a.after_json,'$.valuation.current_holdings.snapshot.saved_at')
+	 AND json(source.after_json)=json(json_extract(a.after_json,'$.valuation.current_holdings.snapshot'))))
 	FROM account_records r
 	LEFT JOIN audit_log a ON a.id=r.quote_audit_id AND a.entity_type='valuation'
 	 AND a.account_id=r.account_id AND a.entity_id=CAST(r.sequence AS TEXT)`
@@ -204,10 +250,11 @@ func scanValuationHistory(row interface{ Scan(...any) error }) (ValuationHistory
 	var recordFlow, recordAssets, recordVersion sql.NullInt64
 	var operationID sql.NullString
 	var manualAssertion bool
+	var sourceAudited bool
 	err := row.Scan(&id, &m.AccountID, &m.Currency, &m.AsOf, &m.LedgerAt, &m.CalculatedAt, &m.SavedAt, &m.LedgerRevision, &m.Cash, &m.PositionsValue, &m.TotalAssets, &version, &payload,
 		&recordDate, &origin, &quoteAuditID, &auditID, &auditEntity, &voided, &currentAudited,
 		&recordID, &recordPayload, &recordCreated, &recordKind, &recordFlow, &recordAssets, &recordNote, &recordVersion,
-		&recordUpdated, &operationID, &manualAssertion)
+		&recordUpdated, &operationID, &manualAssertion, &sourceAudited)
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, m, ErrNotFound
 	}
@@ -234,7 +281,7 @@ func scanValuationHistory(row interface{ Scan(...any) error }) (ValuationHistory
 	v := h.Valuation
 	_, err = time.Parse(time.RFC3339Nano, m.SavedAt)
 	if err != nil || id <= 0 || version != h.SchemaVersion || m.AccountID != v.AccountID || m.Currency != v.Currency || m.AsOf != v.AsOf || m.LedgerAt != v.LedgerAt || m.CalculatedAt != v.CalculatedAt || m.LedgerRevision != v.LedgerRevision || m.Cash != v.Cash || m.PositionsValue != *v.PositionsValue || m.TotalAssets != *v.TotalAssets ||
-		origin != "currentrefresh" && origin != "weekly" || quoteAuditID != auditID || auditEntity != strconv.FormatInt(id, 10) || !currentAudited {
+		origin != "currentrefresh" && origin != "weekly" || quoteAuditID != auditID || auditEntity != strconv.FormatInt(id, 10) || !currentAudited || !sourceAudited {
 		return h, m, ErrCorrupt
 	}
 	h.ID, h.SavedAt = strconv.FormatInt(id, 10), m.SavedAt

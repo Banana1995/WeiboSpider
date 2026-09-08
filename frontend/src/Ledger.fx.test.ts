@@ -39,6 +39,7 @@ function start(record?: LedgerRecord) {
     props: {
       accounts: ["CNY", "USD", "HKD"].map((currency) => ({
         accounting_mode: "holdings" as const,
+        current_holdings_input: "transaction_replay" as const,
         id: currency,
         name: currency,
         currency: currency as "CNY",

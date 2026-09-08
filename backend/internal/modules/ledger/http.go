@@ -54,6 +54,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts":                                   h.accounts,
 		"/accounts/{id}":                              h.account,
 		"/accounts/{id}/positions":                    h.positions,
+		"/accounts/{id}/current-holdings":             h.currentHoldings,
 		"/accounts/{id}/valuation":                    h.valuation,
 		"/accounts/{id}/valuations":                   h.valuations,
 		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,
@@ -459,9 +460,9 @@ func (h Handler) accounts(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	result := listJSON[accountJSON]{Items: make([]accountJSON, 0, len(accounts))}
+	result := listJSON[accountView]{Items: make([]accountView, 0, len(accounts))}
 	for _, account := range accounts {
-		result.Items = append(result.Items, publicAccount(account))
+		result.Items = append(result.Items, viewAccount(account))
 	}
 	if len(accounts) == limit {
 		result.NextCursor = accounts[len(accounts)-1].ID
@@ -487,9 +488,9 @@ func (h Handler) account(w http.ResponseWriter, r *http.Request) {
 		cash = &state.Cash
 	}
 	httpapi.Write(w, 200, struct {
-		accountJSON
+		accountView
 		Cash *Money `json:"cash"`
-	}{accountJSON: publicAccount(info), Cash: cash})
+	}{accountView: viewAccount(info), Cash: cash})
 }
 
 func (h Handler) positions(w http.ResponseWriter, r *http.Request) {
@@ -592,6 +593,8 @@ func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = 409, "idempotency_conflict", "idempotency key was used for a different request"
 	case errors.Is(err, ErrVersion):
 		status, code, message = 409, "version_conflict", "expected version does not match the current operation"
+	case errors.Is(err, errWeeklyBasis):
+		status, code, message = 409, "basis_changed", "current source changed during valuation; no record saved"
 	case errors.Is(err, ErrVoided):
 		status, code, message = 409, "operation_voided", "voided operations cannot be changed"
 	case errors.Is(err, ErrConflict):

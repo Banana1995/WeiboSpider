@@ -168,7 +168,7 @@ CREATE INDEX account_records_valuation ON account_records(account_id, sequence D
 -- One global key namespace for every idempotent ledger write.
 CREATE TABLE idempotency_receipts (
     key TEXT PRIMARY KEY CHECK (length(trim(key)) > 0),
-    kind TEXT NOT NULL CHECK (kind IN ('operation', 'account_record', 'reported_account', 'import', 'valuation')),
+    kind TEXT NOT NULL CHECK (kind IN ('operation', 'account_record', 'reported_account', 'import', 'valuation', 'current_holdings')),
     request_hash TEXT NOT NULL CHECK (
         length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'
     ),
@@ -177,6 +177,67 @@ CREATE TABLE idempotency_receipts (
     audit_id INTEGER NOT NULL REFERENCES audit_log(id),
     created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0)
 ) STRICT;
+
+-- Manual current inputs are not trades, opening balances or timeline observations.
+-- One atomic JSON snapshot; immutable versions live in audit_log.
+CREATE TABLE current_holdings (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+    version INTEGER NOT NULL CHECK (version > 0),
+    audit_id INTEGER NOT NULL UNIQUE REFERENCES audit_log(id),
+    payload TEXT NOT NULL CHECK (json_valid(payload) AND json_type(payload) = 'object'
+        AND json_extract(payload,'$.version') IS CAST(version AS TEXT)
+        AND json_type(payload,'$.cash') IS 'text'
+        AND json_extract(payload,'$.cash') GLOB '[0-9]*.[0-9][0-9]'
+        AND json_extract(payload,'$.cash') NOT GLOB '*[^0-9.]*'
+        AND instr(json_extract(payload,'$.cash'),'.') = length(json_extract(payload,'$.cash'))-2
+        AND length(json_extract(payload,'$.cash')) <= 20
+        AND (length(json_extract(payload,'$.cash')) < 20 OR json_extract(payload,'$.cash') <= '92233720368547758.07')
+        AND json_type(payload,'$.saved_at') IS 'text'
+        AND length(json_extract(payload,'$.saved_at')) >= 20
+        AND json_type(payload,'$.positions') IS 'array'
+        AND json_array_length(payload,'$.positions') <= 200)
+) STRICT;
+CREATE TRIGGER current_holdings_audit_shape BEFORE INSERT ON audit_log
+WHEN NEW.entity_type='current_holdings'
+BEGIN
+    SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM json_each(NEW.after_json,'$.positions') p
+        WHERE json_type(p.value,'$.instrument_id') IS NOT 'text'
+        OR json_type(p.value,'$.quantity') IS NOT 'text'
+        OR json_extract(p.value,'$.quantity') NOT GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+        OR json_extract(p.value,'$.quantity') GLOB '*[^0-9.]*'
+        OR instr(json_extract(p.value,'$.quantity'),'.') != length(json_extract(p.value,'$.quantity'))-6
+        OR json_extract(p.value,'$.quantity') NOT GLOB '*[1-9]*'
+        OR length(json_extract(p.value,'$.quantity')) > 20
+        OR (length(json_extract(p.value,'$.quantity')) = 20 AND json_extract(p.value,'$.quantity') > '9223372036854.775807')
+        OR NOT EXISTS(SELECT 1 FROM instruments WHERE id=json_extract(p.value,'$.instrument_id'))
+    ) OR (SELECT count(*) FROM json_each(NEW.after_json,'$.positions')) !=
+        (SELECT count(DISTINCT json_extract(value,'$.instrument_id')) FROM json_each(NEW.after_json,'$.positions'))
+    THEN RAISE(ABORT,'invalid current positions') END;
+END;
+CREATE TRIGGER current_holdings_insert BEFORE INSERT ON current_holdings
+BEGIN
+    SELECT CASE WHEN NEW.version != 1 OR NOT EXISTS (
+        SELECT 1 FROM accounts WHERE id=NEW.account_id AND accounting_mode='reported'
+    ) THEN RAISE(ABORT, 'invalid manual source') END;
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1 FROM audit_log WHERE id=NEW.audit_id AND entity_type='current_holdings'
+        AND account_id=NEW.account_id AND entity_id=NEW.account_id AND version=NEW.version
+        AND after_json=NEW.payload AND before_json IS NULL
+    ) THEN RAISE(ABORT, 'source audit mismatch') END;
+END;
+CREATE TRIGGER current_holdings_update BEFORE UPDATE ON current_holdings
+BEGIN
+    SELECT CASE WHEN NEW.account_id != OLD.account_id OR NEW.version != OLD.version+1
+        THEN RAISE(ABORT, 'source version mismatch') END;
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1 FROM audit_log WHERE id=NEW.audit_id AND entity_type='current_holdings'
+        AND account_id=NEW.account_id AND entity_id=NEW.account_id AND version=NEW.version
+        AND after_json=NEW.payload AND before_json=OLD.payload
+    ) THEN RAISE(ABORT, 'source audit mismatch') END;
+END;
+CREATE TRIGGER current_holdings_no_delete BEFORE DELETE ON current_holdings
+BEGIN SELECT RAISE(ABORT, 'replace current source instead'); END;
 
 CREATE TABLE weekly_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,7 +304,11 @@ BEGIN SELECT RAISE(ABORT, 'immutable record identity'); END;
 CREATE TRIGGER weekly_jobs_identity BEFORE UPDATE ON weekly_jobs
 WHEN NEW.id != OLD.id OR NEW.account_id != OLD.account_id
   OR NEW.scheduled_business_date != OLD.scheduled_business_date
-  OR NEW.source != OLD.source OR NEW.created_at != OLD.created_at
+  OR NEW.created_at != OLD.created_at
+  OR (NEW.source != OLD.source AND NOT (
+      OLD.status IN ('pending','failed') AND NEW.status='running'
+      AND OLD.source='account_record_carry' AND NEW.source='holdings_current'
+      AND EXISTS(SELECT 1 FROM current_holdings WHERE account_id=OLD.account_id)))
 BEGIN SELECT RAISE(ABORT, 'immutable weekly identity'); END;
 CREATE TRIGGER weekly_jobs_terminal BEFORE UPDATE ON weekly_jobs
 WHEN OLD.status IN ('succeeded', 'skipped')

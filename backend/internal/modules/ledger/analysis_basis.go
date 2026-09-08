@@ -85,7 +85,7 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		out.Currency = info.Currency
 		var revision int64
 		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit_log
-			WHERE account_id=? AND entity_type='account_record'`, id).Scan(&revision); err != nil {
+			WHERE account_id=? AND entity_type IN ('account_record','current_holdings')`, id).Scan(&revision); err != nil {
 			return err
 		}
 		if since > revision {
@@ -93,20 +93,21 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		}
 		out.ChangeRevision = strconv.FormatInt(revision, 10)
 		rows, err := tx.QueryContext(ctx, `SELECT CAST(id AS TEXT),entity_id,CAST(version AS TEXT),
-			json_extract(metadata_json,'$.from_date'),coalesce(json_extract(metadata_json,'$.reason'),action)
-			FROM audit_log WHERE account_id=? AND entity_type='account_record' AND id>?
+			json_extract(metadata_json,'$.from_date'),coalesce(json_extract(metadata_json,'$.reason'),action),entity_type
+			FROM audit_log WHERE account_id=? AND entity_type IN ('account_record','current_holdings') AND id>?
 			ORDER BY id LIMIT 10001`, id, since)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var c BasisChange
-			if err := rows.Scan(&c.Revision, &c.SourceID, &c.SourceVersion, &c.From, &c.Reason); err != nil {
+			var entity string
+			if err := rows.Scan(&c.Revision, &c.SourceID, &c.SourceVersion, &c.From, &c.Reason, &entity); err != nil {
 				rows.Close()
 				return err
 			}
 			out.Changes = append(out.Changes, c)
-			if c.From <= to {
+			if c.From <= to && entity == "account_record" {
 				out.PreviousBasisAffected = true
 			}
 		}
@@ -115,6 +116,20 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 			return err
 		}
 		rows.Close()
+		// Current-input edits affect only observations actually sampled before the
+		// edit on/after its business date, never imported historical amounts.
+		var sourceAffected bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log c
+			JOIN account_records r ON r.account_id=c.account_id
+			JOIN audit_log v ON v.id=r.quote_audit_id AND v.entity_type='valuation'
+			WHERE c.account_id=? AND c.entity_type='current_holdings' AND c.id>?
+			AND r.voided=0 AND r.manual_assertion=0 AND r.business_date<=?
+			AND json_extract(c.metadata_json,'$.from_date')<=r.business_date
+			AND json_extract(v.after_json,'$.valuation.source')='manual_snapshot'
+			AND CAST(json_extract(v.after_json,'$.valuation.current_holdings.audit_id') AS INTEGER)<c.id)`, id, since, to).Scan(&sourceAffected); err != nil {
+			return err
+		}
+		out.PreviousBasisAffected = out.PreviousBasisAffected || sourceAffected
 		if len(out.Changes) > 10000 {
 			return ErrQuery
 		}
@@ -179,16 +194,17 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 				continue
 			}
 			var captured sql.NullInt64
-			if err := tx.QueryRowContext(ctx, `SELECT json_extract(metadata_json,'$.change_revision') FROM audit_log WHERE id=? AND account_id=? AND entity_type='valuation'`, r.QuoteAuditID, id).Scan(&captured); err != nil {
+			var source string
+			if err := tx.QueryRowContext(ctx, `SELECT json_extract(metadata_json,'$.change_revision'),json_extract(after_json,'$.valuation.source') FROM audit_log WHERE id=? AND account_id=? AND entity_type='valuation'`, r.QuoteAuditID, id).Scan(&captured, &source); err != nil {
 				return ErrCorrupt
 			}
 			p.Status = "untracked"
 			if captured.Valid {
 				var stale bool
 				if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log
-					WHERE account_id=? AND entity_type='account_record' AND id>?
-					AND json_extract(after_json,'$.origin')='operation'
-					AND json_extract(metadata_json,'$.from_date')<=?)`, id, captured.Int64, r.Date).Scan(&stale); err != nil {
+					WHERE account_id=? AND id>?
+					AND ((?='manual_snapshot' AND entity_type='current_holdings') OR (?='transaction_replay' AND entity_type='account_record' AND json_extract(after_json,'$.origin')='operation'))
+					AND json_extract(metadata_json,'$.from_date')<=?)`, id, captured.Int64, source, source, r.Date).Scan(&stale); err != nil {
 					return err
 				}
 				p.Status = "observed"

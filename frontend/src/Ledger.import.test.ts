@@ -8,6 +8,7 @@ import { LedgerError, request, type Account } from "./ledger";
 import type { ImportPreview } from "./ledgerImport";
 
 const holdings: Account = {
+  current_holdings_input: "transaction_replay",
   id: "holdings",
   name: "合成持仓账户",
   currency: "CNY",
@@ -21,6 +22,7 @@ const reported: Account = {
   id: "reported",
   name: "合成总资产账户",
   accounting_mode: "reported",
+  current_holdings_input: "manual_snapshot",
   opening_cash: null,
 };
 const preview: ImportPreview = {
@@ -122,6 +124,12 @@ beforeEach(() => {
     }
     if (readFailure) return response({ code: "storage_busy" }, 503);
     if (path === "/accounts") return response({ items: accounts });
+    if (path.endsWith("/current-holdings"))
+      return response({
+        account_id: path.split("/")[2],
+        audit_id: "",
+        snapshot: null,
+      });
     if (path.endsWith("/import-summary"))
       return summary404
         ? response({ code: "not_found" }, 404)
@@ -339,7 +347,7 @@ it("keeps success final when account and import reads fail, and never retries th
   );
 });
 
-it("reported accounts never request positions/current or historical valuations and cannot be trade or transfer inputs", async () => {
+it("accounts without a configured current source do not request valuations or accept transaction inputs", async () => {
   await start(Ledger);
   await wrapper.findAll(".ledger-account-list button")[1]!.trigger("click");
   await flushPromises();
@@ -375,6 +383,94 @@ it("reported accounts never request positions/current or historical valuations a
       url.includes("/accounts/holdings/valuations?"),
     ),
   ).toBe(true);
+});
+
+it("edits current holdings on the imported account, coordinates pending locks and only explicitly quotes", async () => {
+  const original = fetcher.getMockImplementation()!;
+  let snapshot: unknown = null;
+  let attempts = 0;
+  fetcher.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (url.endsWith("/accounts/reported/current-holdings")) {
+      if (init.method === "PUT") {
+        const input = JSON.parse(init.body as string);
+        snapshot = {
+          version: "1",
+          saved_at: "2026-09-08T00:00:00Z",
+          cash: input.cash,
+          positions: input.positions,
+        };
+        if (++attempts === 1) throw new TypeError("synthetic lost receipt");
+      }
+      return response({
+        account_id: "reported",
+        audit_id: snapshot ? "5" : "",
+        snapshot,
+      });
+    }
+    if (
+      url.endsWith("/accounts/reported/valuation") &&
+      init.method === "POST"
+    ) {
+      const preview = await original(url, {});
+      return response({
+        ...(await preview.json()),
+        history_id: "8",
+        source: "manual_snapshot",
+        current_holdings: { account_id: "reported", audit_id: "5", snapshot },
+      });
+    }
+    return original(url, init);
+  });
+  await start(Ledger);
+  await wrapper.findAll(".ledger-account-list button")[1]!.trigger("click");
+  await flushPromises();
+  const panel = wrapper.get('[data-test="current-holdings"]');
+  expect(panel.text()).toContain("尚未设置");
+  await panel.get('[name="current_cash"]').setValue("0.00");
+  await panel.get("form").trigger("submit");
+  await flushPromises();
+  expect(
+    wrapper.get('[data-test="refresh"]').attributes("disabled"),
+  ).toBeDefined();
+  expect(
+    wrapper
+      .findAll(".ledger-account-list button")
+      .every((b) => b.attributes("disabled") !== undefined),
+  ).toBe(true);
+  expect(wrapper.findComponent(ImportAccount).props("disabled")).toBe(true);
+  expect(
+    wrapper.findComponent({ name: "AccountRecords" }).props("disabled"),
+  ).toBe(true);
+  await panel.get('[data-test="current-retry"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(true);
+  expect(
+    fetcher.mock.calls.some(([url]) =>
+      url.endsWith("/accounts/reported/valuation"),
+    ),
+  ).toBe(false);
+  const writes = fetcher.mock.calls.filter(
+    ([url, init]) => url.endsWith("/current-holdings") && init.method === "PUT",
+  );
+  expect(writes).toHaveLength(2);
+  expect(writes[0]![1].body).toBe(writes[1]![1].body);
+  expect(new Headers(writes[0]![1].headers).get("Idempotency-Key")).toBe(
+    new Headers(writes[1]![1].headers).get("Idempotency-Key"),
+  );
+  await wrapper.get('[data-test="preview-valuation"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.get('[data-test="valuation"]').text()).toContain("10.00");
+  await wrapper.get('[data-test="save-valuation"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.text()).toContain("总资产已保存为记录 #8");
+  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
+    "90071992547409.01",
+  );
+  expect(
+    fetcher.mock.calls.some(([url]) =>
+      /\/accounts\/reported\/(positions|operations)/.test(url),
+    ),
+  ).toBe(false);
 });
 
 it("treats an unimported summary 404 as normal and does not request rows", async () => {

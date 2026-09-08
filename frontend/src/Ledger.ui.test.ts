@@ -25,6 +25,7 @@ const stock = {
   currency: "CNY",
 };
 const baseAccount: Account = {
+  current_holdings_input: "transaction_replay",
   accounting_mode: "holdings",
   id: "account",
   name: "合成账户",

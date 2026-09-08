@@ -100,6 +100,20 @@ type instrumentJSON struct {
 	Currency Currency `json:"currency"`
 }
 
+// Read capabilities are separate from immutable accounting metadata and receipts.
+type accountView struct {
+	accountJSON
+	CurrentHoldingsInput string `json:"current_holdings_input"`
+}
+
+func viewAccount(a AccountInfo) accountView {
+	input := "transaction_replay"
+	if a.AccountingMode == "reported" {
+		input = "manual_snapshot"
+	}
+	return accountView{publicAccount(a), input}
+}
+
 type positionJSON struct {
 	InstrumentID   string   `json:"instrument_id"`
 	CycleID        string   `json:"cycle_id"`

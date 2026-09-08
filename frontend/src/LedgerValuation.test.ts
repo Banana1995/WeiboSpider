@@ -5,6 +5,7 @@ import LedgerValuation from "./LedgerValuation.vue";
 import type { Valuation } from "./ledger";
 
 const value: Valuation = {
+  source: "transaction_replay",
   ledger_revision: "a".repeat(64),
   history_id: "42",
   account_id: "account",

@@ -143,7 +143,7 @@ func (w *WeeklyWorker) Tick(ctx context.Context) error {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,created_at)
-			SELECT a.id,?,CASE a.accounting_mode WHEN 'holdings' THEN 'holdings_current' ELSE 'account_record_carry' END,'pending',?
+			SELECT a.id,?,CASE WHEN a.accounting_mode='holdings' OR EXISTS(SELECT 1 FROM current_holdings c WHERE c.account_id=a.id) THEN 'holdings_current' ELSE 'account_record_carry' END,'pending',?
 			FROM accounts a WHERE NOT EXISTS(SELECT 1 FROM weekly_jobs j WHERE j.account_id=a.id AND j.scheduled_business_date=?)
 			ORDER BY a.id LIMIT ?`, date, stamp, date, weeklyBatch)
 		return err
@@ -190,7 +190,16 @@ func (w *WeeklyWorker) claim(ctx context.Context, date string) (*WeeklyJob, erro
 		if err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE weekly_jobs SET status='running',attempts=attempts+1,started_at=?,finished_at=NULL,next_attempt_at=NULL,error_code='',lease_until=? WHERE id=?`,
+		// A not-yet-claimed carry may acquire a current source in this window.
+		// Source assignment and claim share the transaction and trigger audit.
+		var configured bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM current_holdings WHERE account_id=?)`, j.AccountID).Scan(&configured); err != nil {
+			return err
+		}
+		if configured {
+			j.Source = "holdings_current"
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE weekly_jobs SET source=?,status='running',attempts=attempts+1,started_at=?,finished_at=NULL,next_attempt_at=NULL,error_code='',lease_until=? WHERE id=?`, j.Source,
 			stamp, now.Add(valuationTimeout+time.Minute).UTC().Format(weeklyStamp), j.ID)
 		if err != nil {
 			return err
@@ -218,6 +227,8 @@ func (w *WeeklyWorker) execute(ctx context.Context, job WeeklyJob) error {
 			return nil
 		case errors.Is(err, errWeeklyNoSource):
 			code = "no_source"
+		case errors.Is(err, errWeeklyBasis):
+			code = "basis_changed"
 		case errors.Is(err, errWeeklyExpired):
 			code = "expired"
 		case errors.Is(err, ErrCorrupt):
@@ -295,6 +306,13 @@ func (w *WeeklyWorker) completeCarry(ctx context.Context, job WeeklyJob) error {
 		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, job.AccountID))
 		if err != nil || info.AccountingMode != "reported" {
 			return ErrCorrupt
+		}
+		var configured bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM current_holdings WHERE account_id=?)`, job.AccountID).Scan(&configured); err != nil {
+			return err
+		}
+		if configured {
+			return errWeeklyBasis
 		}
 		source, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND kind='asset' AND voided=0 AND business_date<=?
 			AND (origin!='weekly_carry' OR manual_assertion=1)

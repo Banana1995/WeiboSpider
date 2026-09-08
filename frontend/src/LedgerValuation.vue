@@ -71,6 +71,12 @@ const errors: Record<string, string> = {
     <p v-else-if="loading" role="status">正在读取估值快照…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="snapshot">
+      <p v-if="snapshot.current_holdings?.snapshot">
+        当前持仓来源版本 {{ snapshot.current_holdings.snapshot.version }} ·
+        来源保存于 {{ snapshot.current_holdings.snapshot.saved_at }} · 审计 #{{
+          snapshot.current_holdings.audit_id
+        }}。此处为估值采样时的固定证据。
+      </p>
       <p v-if="!historical" data-test="valuation-saved">
         {{
           !complete

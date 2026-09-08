@@ -48,6 +48,8 @@ export interface ValuationItem {
   error_code?: string;
 }
 export interface Valuation {
+  source: "transaction_replay" | "manual_snapshot";
+  current_holdings?: import("./currentHoldings").CurrentHoldings;
   ledger_revision: string;
   history_id?: string;
   account_id: string;
@@ -101,6 +103,7 @@ export interface Account extends Omit<
   AccountInput,
   "positions" | "opening_cash"
 > {
+  current_holdings_input: "manual_snapshot" | "transaction_replay";
   accounting_mode: "holdings" | "reported";
   opening_cash: Decimal | null;
   version: string;
@@ -194,6 +197,7 @@ const errors: Record<string, string> = {
   request_canceled: "请求已取消，需使用原请求确认结果",
   idempotency_conflict: "幂等键与原始请求冲突，请保留原请求核查",
   version_conflict: "记录已被修改，请重新读取详情后更正",
+  basis_changed: "报价期间当前持仓已变化，未保存；请重新预览或保存估值",
   operation_voided: "记录已作废，不能更正",
   conflict: "ID 或日期序号冲突",
   body_too_large: "请求内容过大",

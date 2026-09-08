@@ -91,7 +91,7 @@ func TestReviewReadValuationAndIdempotentSave(t *testing.T) {
 	require.Zero(t, n)
 	require.Equal(t, before, auditCount(t, f.store))
 	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&n))
-	require.Equal(t, 9, n)
+	require.Equal(t, 10, n)
 	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type='view'`).Scan(&n))
 	require.Zero(t, n)
 	original := f.request(t, "POST", "/accounts/a/valuation", "save", "{}", 200).Body.String()

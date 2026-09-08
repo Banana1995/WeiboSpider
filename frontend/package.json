@@ -7,8 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
-    "format": "prettier --write src vite.config.ts tsconfig.json package.json index.html",
-    "format:check": "prettier --check src vite.config.ts tsconfig.json package.json index.html",
+    "format": "prettier --write src dev vite.config.ts tsconfig.json package.json index.html",
+    "format:check": "prettier --check src dev vite.config.ts tsconfig.json package.json index.html",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

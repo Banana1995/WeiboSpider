@@ -9,25 +9,31 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Banana1995/WeiboSpider/backend/internal/modules/ledger"
 )
 
 type Config struct {
-	Address         string
-	DataDir         string
-	APIToken        string
-	SourceURL       string
-	RequestInterval time.Duration
-	SyncTimeout     time.Duration
-	AutoSync        bool
+	Address             string
+	DataDir             string
+	APIToken            string
+	SourceURL           string
+	RequestInterval     time.Duration
+	SyncTimeout         time.Duration
+	AutoSync            bool
+	LedgerEnabled       bool
+	LedgerWeeklyEnabled bool
+	LedgerWeeklyTime    string
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Address:         "127.0.0.1:5051",
-		DataDir:         "data",
-		SourceURL:       "https://business.cj.sina.cn/api/liquor_price",
-		RequestInterval: time.Second,
-		SyncTimeout:     5 * time.Minute,
+		Address:          "127.0.0.1:5051",
+		DataDir:          "data",
+		SourceURL:        "https://business.cj.sina.cn/api/liquor_price",
+		RequestInterval:  time.Second,
+		SyncTimeout:      5 * time.Minute,
+		LedgerWeeklyTime: ledger.DefaultWeeklyTime,
 	}
 }
 
@@ -36,6 +42,7 @@ func LoadConfig() (Config, error) {
 	for name, field := range map[string]*string{
 		"BACKEND_ADDR": &cfg.Address, "BACKEND_DATA_DIR": &cfg.DataDir,
 		"BACKEND_API_TOKEN": &cfg.APIToken, "LIQUOR_SOURCE_URL": &cfg.SourceURL,
+		"LEDGER_WEEKLY_TIME": &cfg.LedgerWeeklyTime,
 	} {
 		if value, exists := os.LookupEnv(name); exists {
 			*field = value
@@ -52,17 +59,33 @@ func LoadConfig() (Config, error) {
 			*field = parsed
 		}
 	}
-	if value, exists := os.LookupEnv("LIQUOR_AUTO_SYNC"); exists {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return Config{}, fmt.Errorf("LIQUOR_AUTO_SYNC: %w", err)
+	for name, field := range map[string]*bool{
+		"LIQUOR_AUTO_SYNC": &cfg.AutoSync, "LEDGER_ENABLED": &cfg.LedgerEnabled,
+	} {
+		if value, exists := os.LookupEnv(name); exists {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", name, err)
+			}
+			*field = parsed
 		}
-		cfg.AutoSync = parsed
+	}
+	if value, exists := os.LookupEnv("LEDGER_WEEKLY_ENABLED"); exists {
+		if value != "true" && value != "false" {
+			return Config{}, errors.New("LEDGER_WEEKLY_ENABLED must be true or false")
+		}
+		cfg.LedgerWeeklyEnabled = value == "true"
 	}
 	return cfg, cfg.Validate()
 }
 
 func (c Config) Validate() error {
+	if c.LedgerWeeklyEnabled && !c.LedgerEnabled {
+		return errors.New("LEDGER_WEEKLY_ENABLED requires LEDGER_ENABLED")
+	}
+	if err := (ledger.WeeklyConfig{Enabled: c.LedgerWeeklyEnabled, Time: c.LedgerWeeklyTime}).Validate(); err != nil {
+		return err
+	}
 	host, port, err := net.SplitHostPort(c.Address)
 	if err != nil {
 		return fmt.Errorf("BACKEND_ADDR must be host:port: %w", err)
@@ -70,6 +93,9 @@ func (c Config) Validate() error {
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 0 || n > 65535 {
 		return errors.New("BACKEND_ADDR requires a port in 0..65535")
+	}
+	if c.LedgerEnabled && host != "localhost" && !net.ParseIP(host).IsLoopback() {
+		return errors.New("LEDGER_ENABLED requires an explicit loopback BACKEND_ADDR, even with a token")
 	}
 	if !loopbackHost(host) && c.APIToken == "" {
 		return errors.New("BACKEND_API_TOKEN is required for non-loopback listeners")

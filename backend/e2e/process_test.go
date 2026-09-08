@@ -82,14 +82,16 @@ func cleanEnvironment(directory string, override map[string]string) []string {
 	values := map[string]string{
 		"BACKEND_ADDR": "127.0.0.1:0", "BACKEND_DATA_DIR": directory, "BACKEND_API_TOKEN": "",
 		"LIQUOR_AUTO_SYNC": "false", "LIQUOR_REQUEST_INTERVAL": "1s", "LIQUOR_SYNC_TIMEOUT": "2m",
-		"LIQUOR_SOURCE_URL": "https://business.cj.sina.cn/api/liquor_price",
+		"LIQUOR_SOURCE_URL":     "https://business.cj.sina.cn/api/liquor_price",
+		"LEDGER_ENABLED":        "false",
+		"LEDGER_WEEKLY_ENABLED": "false", "LEDGER_WEEKLY_TIME": "08:00",
 	}
 	for key, value := range override {
 		values[key] = value
 	}
 	environment := make([]string, 0)
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "BACKEND_") && !strings.HasPrefix(value, "LIQUOR_") {
+		if !strings.HasPrefix(value, "BACKEND_") && !strings.HasPrefix(value, "LIQUOR_") && !strings.HasPrefix(value, "LEDGER_") {
 			environment = append(environment, value)
 		}
 	}
@@ -167,7 +169,11 @@ func request(t *testing.T, p *process, method, path, body string, headers map[st
 	data, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	require.NoError(t, err)
 	require.Contains(t, response.Header.Get("Content-Type"), "application/json")
-	require.True(t, json.Valid(data), "%s", data)
+	if method == http.MethodHead {
+		require.Empty(t, data)
+	} else {
+		require.True(t, json.Valid(data), "%s", data)
+	}
 	return response.StatusCode, data
 }
 

@@ -18,7 +18,9 @@ var (
 	migrationName = regexp.MustCompile(`^[0-9]{3}_[a-z0-9_]+\.sql$`)
 )
 
-func (db *DB) Migrate(ctx context.Context, files fs.FS) (err error) {
+// Optional data steps run after each new script, before its checksum is recorded,
+// inside the same transaction. Reopening never replays an applied data step.
+func (db *DB) Migrate(ctx context.Context, files fs.FS, steps ...func(context.Context, *sql.Tx, string) error) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -120,6 +122,11 @@ func (db *DB) Migrate(ctx context.Context, files fs.FS) (err error) {
 			return err
 		}); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
+		}
+		for _, step := range steps {
+			if err := step(ctx, tx, name); err != nil {
+				return fmt.Errorf("validate %s: %w", name, err)
+			}
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations(name, checksum) VALUES (?, ?)", name, checksum); err != nil {
 			return fmt.Errorf("record migration: %w", err)

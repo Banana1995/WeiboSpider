@@ -7,18 +7,22 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/database"
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
+	"github.com/Banana1995/WeiboSpider/backend/internal/modules/ledger"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/liquor"
 )
 
 type Application struct {
-	Handler http.Handler
-	db      *database.DB
-	source  *liquor.SinaSource
-	worker  *liquor.Worker
+	Handler      http.Handler
+	db           *database.DB
+	ledgerDB     *database.DB
+	source       *liquor.SinaSource
+	worker       *liquor.Worker
+	ledgerWorker *ledger.WeeklyWorker
 }
 
 func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
@@ -47,6 +51,33 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	})
 	mux := http.NewServeMux()
 	liquor.Handler{Store: store, Worker: application.worker, Logger: logger}.Register(mux)
+	if cfg.LedgerEnabled {
+		application.ledgerDB, err = ledger.Open(ctx, cfg.DataDir)
+		if err != nil {
+			return nil, errors.Join(err, application.Close())
+		}
+		ledgerMux := http.NewServeMux()
+		ledgerStore, quotes, fx := ledger.NewStore(application.ledgerDB, nil), ledger.NewTencentQuotes(), ledger.NewTencentFX()
+		application.ledgerWorker, err = ledger.NewWeeklyWorker(ledgerStore, quotes, fx, ledger.WeeklyConfig{Enabled: cfg.LedgerWeeklyEnabled, Time: cfg.LedgerWeeklyTime}, logger)
+		if err != nil {
+			return nil, errors.Join(err, application.Close())
+		}
+		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, Weekly: application.ledgerWorker}.Register(ledgerMux)
+		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
+		})
+		localLedger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Only the socket peer counts; forwarded headers cannot grant access.
+			peer, err := netip.ParseAddrPort(r.RemoteAddr)
+			if err != nil || !peer.Addr().Unmap().IsLoopback() {
+				httpapi.Fail(w, http.StatusForbidden, "local_only", "ledger requires a loopback peer")
+				return
+			}
+			ledgerMux.ServeHTTP(w, r)
+		})
+		mux.Handle("/api/platform/ledger", localLedger)
+		mux.Handle("/api/platform/ledger/", localLedger)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if httpapi.ReadMethod(w, r) {
 			httpapi.Write(w, http.StatusOK, struct {
@@ -73,17 +104,28 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	}
 	webDone := make(chan error, 1)
 	workerDone := make(chan error, 1)
+	ledgerDone := make(chan error, 1)
 	go func() { webDone <- server.Serve(listener) }()
 	go func() { workerDone <- a.worker.Run(runCtx) }()
+	go func() {
+		if a.ledgerWorker != nil {
+			ledgerDone <- a.ledgerWorker.Run(runCtx)
+		} else {
+			<-runCtx.Done()
+			ledgerDone <- nil
+		}
+	}()
 
-	var webErr, workerErr error
-	webFinished, workerFinished := false, false
+	var webErr, workerErr, ledgerErr error
+	webFinished, workerFinished, ledgerFinished := false, false, false
 	select {
 	case <-ctx.Done():
 	case webErr = <-webDone:
 		webFinished = true
 	case workerErr = <-workerDone:
 		workerFinished = true
+	case ledgerErr = <-ledgerDone:
+		ledgerFinished = true
 	}
 	cancel()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -98,15 +140,25 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	if !workerFinished {
 		workerErr = <-workerDone
 	}
+	if !ledgerFinished {
+		ledgerErr = <-ledgerDone
+	}
 	if errors.Is(webErr, http.ErrServerClosed) {
 		webErr = nil
 	}
-	return errors.Join(webErr, workerErr, shutdownErr)
+	return errors.Join(webErr, workerErr, ledgerErr, shutdownErr)
 }
 
 func (a *Application) Close() error {
 	a.source.Close()
-	if err := a.db.Close(); err != nil {
+	var err error
+	if a.ledgerDB != nil {
+		err = a.ledgerDB.Close()
+	}
+	if a.db != nil {
+		err = errors.Join(err, a.db.Close())
+	}
+	if err != nil {
 		return fmt.Errorf("close application: %w", err)
 	}
 	return nil

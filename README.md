@@ -17,6 +17,11 @@
 - [Go 后端开发与 API](backend/README.md)
 - [Vue 前端开发与测试](frontend/README.md)
 - [多数据源平台整体架构说明](docs/specs/2026-09-05-multi-source-architecture.md)
+- [投资记账需求与讨论记录](docs/specs/2026-09-06-investment-ledger-requirements.md)
+- [投资记账后续计划（优先级、顺序与验收）](docs/specs/2026-09-06-investment-ledger-roadmap.md)
+- [投资记账首批后端设计](docs/specs/2026-09-06-investment-ledger-backend-design.md)
+- [投资记账 HTTP 接口（默认关闭，仅限本机）](backend/docs/ledger-api.md)
+- [投资记账网页与本地启动（尚未部署）](frontend/README.md#本地记账)
 - [当前部署与后续方案](docs/specs/2026-09-05-multi-source-deployment.md)
 - [生产部署与公网端到端验收记录](docs/validation/2026-09-05-liquor-production.md)
 

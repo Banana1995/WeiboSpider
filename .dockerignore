@@ -3,6 +3,8 @@
 .worktrees
 .idea
 .superpowers
+.codegraph
+.omo
 .env*
 backend
 frontend

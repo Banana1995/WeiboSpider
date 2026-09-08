@@ -46,3 +46,30 @@ func TestSecurity_TokenAuthorizesReadsBehindProxy(t *testing.T) {
 		require.Equal(t, 204, response.Code, scheme)
 	}
 }
+
+func TestSecurity_PublicLedgerExemptionIsNarrow(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		cfg := DefaultConfig()
+		cfg.LedgerEnabled, cfg.APIToken = enabled, strings.Repeat("r", 32)
+		mux := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
+		for _, path := range []string{
+			"/api/platform/ledger", "/api/platform/ledger/", "/api/platform/ledger/accounts",
+			"/api/platform/ledger-private", "/api/platform/ledgerx/accounts", "/api/platform/liquor/sync",
+			"/api/platform/ledger/../liquor/sync", "/api/platform/ledger/%2e%2e/liquor/sync",
+		} {
+			for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
+				request := httptest.NewRequest(method, path, nil)
+				request.Host = "public.example:5052"
+				request.Header.Set("Origin", "http://public.example:5052")
+				request.Header.Set("Forwarded", "for=127.0.0.1;host=localhost")
+				response := httptest.NewRecorder()
+				protect(cfg, mux).ServeHTTP(response, request)
+				want := 401
+				if enabled && (path == "/api/platform/ledger" || path == "/api/platform/ledger/" || path == "/api/platform/ledger/accounts") {
+					want = 204
+				}
+				require.Equal(t, want, response.Code, "%s %s enabled=%v", method, path, enabled)
+			}
+		}
+	}
+}

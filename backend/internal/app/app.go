@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/database"
@@ -66,17 +65,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})
-		localLedger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Only the socket peer counts; forwarded headers cannot grant access.
-			peer, err := netip.ParseAddrPort(r.RemoteAddr)
-			if err != nil || !peer.Addr().Unmap().IsLoopback() {
-				httpapi.Fail(w, http.StatusForbidden, "local_only", "ledger requires a loopback peer")
-				return
-			}
-			ledgerMux.ServeHTTP(w, r)
-		})
-		mux.Handle("/api/platform/ledger", localLedger)
-		mux.Handle("/api/platform/ledger/", localLedger)
+		mux.Handle("/api/platform/ledger", ledgerMux)
+		mux.Handle("/api/platform/ledger/", ledgerMux)
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if httpapi.ReadMethod(w, r) {

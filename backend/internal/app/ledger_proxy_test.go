@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLedgerPublicProxyIsDenied(t *testing.T) {
+func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	_, filename, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	path := filepath.Join(filepath.Dir(filename), "../../..", "frontend", "nginx.conf.template")
@@ -20,10 +20,10 @@ func TestLedgerPublicProxyIsDenied(t *testing.T) {
 	config := string(data)
 	locations := regexp.MustCompile(`(?ms)^    location ([^\n{]+)\{\n(.*?)^    }`).FindAllStringSubmatch(config, -1)
 	require.NotEmpty(t, locations)
-	var liquorProxy, platformDenied bool
+	var liquorProxy, ledgerProxy, platformDenied bool
 	for _, location := range locations {
 		pattern, body := strings.TrimSpace(location[1]), location[2]
-		if strings.Contains(body, "proxy_pass") || strings.Contains(body, "${BACKEND_API_TOKEN}") {
+		if strings.Contains(body, "${BACKEND_API_TOKEN}") {
 			require.Equal(t, "/api/platform/liquor/", pattern, "public token must only reach liquor routes")
 		}
 		switch pattern {
@@ -32,6 +32,18 @@ func TestLedgerPublicProxyIsDenied(t *testing.T) {
 			require.Contains(t, body, "limit_except GET HEAD { deny all; }")
 			require.Contains(t, body, "proxy_pass http://platform:5051;")
 			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
+		case "~ ^/api/platform/ledger(?:/|$)":
+			ledgerProxy = true
+			require.Contains(t, body, "proxy_pass http://platform:5051;")
+			require.Contains(t, body, `proxy_set_header Authorization "";`)
+			require.Contains(t, body, "proxy_set_header Host $http_host;")
+			require.Contains(t, body, "client_max_body_size 8256k;")
+			require.Contains(t, body, "client_body_timeout 15s;")
+			require.Contains(t, body, "proxy_connect_timeout 5s;")
+			require.Contains(t, body, "proxy_send_timeout 15s;")
+			require.Contains(t, body, "proxy_read_timeout 30s;")
+			require.NotContains(t, body, "limit_except")
+			require.NotContains(t, body, "deny all")
 		case "/api/platform/":
 			platformDenied = true
 			require.Contains(t, body, "default_type application/json;")
@@ -45,8 +57,9 @@ func TestLedgerPublicProxyIsDenied(t *testing.T) {
 		}
 	}
 	require.True(t, liquorProxy)
+	require.True(t, ledgerProxy)
 	require.True(t, platformDenied)
-	require.Equal(t, 1, strings.Count(config, "proxy_pass"))
+	require.Equal(t, 2, strings.Count(config, "proxy_pass"))
 	require.Equal(t, 1, strings.Count(config, "${BACKEND_API_TOKEN}"))
 }
 

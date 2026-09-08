@@ -4,7 +4,7 @@
 
 当前生产入口、权限、持久化和备份说明见 [部署运维](../docs/deploy-prep.md)，实测结果见 [生产验收记录](../docs/validation/2026-09-05-liquor-production.md)。
 
-记账模块默认关闭、仅供本机访问，见[接口](docs/ledger-api.md)与[前端启动](../frontend/README.md#本地记账)。fresh schema 将当前记录统一到 `account_records`、追溯统一到 `audit_log`，只有 `001_init.sql`，不保留旧账本兼容层。GET/HEAD 估值是只读预览，POST 空对象和幂等键才显式计算并保存；已提交重试不重新获取报价，回执必须匹配历史审计。资产图和收益指标不接受 track。周六 08:00 默认关闭，任务覆盖所有账户：自动估值或明确沿用最近总资产。T05 功能待统一验收；T07 同快照前缀收益曲线、TWR 及认证复合年化已实现，定向离线验证见 [T07 记录](../docs/validation/2026-09-08-ledger-t07.md)，完整验收及发布未完成，历史回填及增量导入仍取消。
+记账模块本地默认关闭，生产 Compose 按用户授权启用公网匿名共享全部读写，见[接口](docs/ledger-api.md)与[前端启动](../frontend/README.md#本地记账)。任何人均可查看和修改全部数据，请勿上传私人财务信息。fresh schema 将当前记录统一到 `account_records`、追溯统一到 `audit_log`，只有 `001_init.sql`，不保留旧账本兼容层。GET/HEAD 估值是只读预览，POST 空对象和幂等键才显式计算并保存；已提交重试不重新获取报价，回执必须匹配历史审计。资产图和收益指标不接受 track。周六 08:00 默认关闭，任务覆盖所有账户：自动估值或明确沿用最近总资产。T05 功能待统一验收；T07 同快照前缀收益曲线、TWR 及认证复合年化已实现，定向离线验证见 [T07 记录](../docs/validation/2026-09-08-ledger-t07.md)，完整功能验收待执行，历史回填及增量导入仍取消。
 
 ## 环境与启动
 
@@ -44,7 +44,7 @@ curl 'http://127.0.0.1:5051/api/platform/liquor/products/1/history?limit=31'
 | `LIQUOR_SOURCE_URL` | `https://business.cj.sina.cn/api/liquor_price` | 运维配置，可替换为测试服务器；不是用户可提交的采集 URL |
 | `LIQUOR_REQUEST_INTERVAL` | `1s` | 顺序请求间隔，允许 0 至 1 分钟；真实来源不要设置为 0 |
 | `LIQUOR_SYNC_TIMEOUT` | `5m` | 一次完整同步超时，允许 1 秒至 30 分钟 |
-| `LEDGER_ENABLED` | `false` | 启用本机记账 API；必须回环监听，非回环地址即使有 token 也拒绝启动；不直接用于生产 Compose |
+| `LEDGER_ENABLED` | `false` | 启用匿名共享记账 API；生产 Compose 显式为 true；非回环监听仍须配置令牌以保护其他模块，但账本不校验令牌 |
 | `LEDGER_WEEKLY_ENABLED` | `false` | 只接受精确 `true`/`false`；开启周六总资产任务，必须同时 `LEDGER_ENABLED=true`，不是生产启用授权 |
 | `LEDGER_WEEKLY_TIME` | `08:00` | 用户确认的北京时间默认时刻；严格 `HH:MM`、00:00..23:59，时区固定 Asia/Shanghai、每周六；非法值即使关闭也拒绝启动 |
 
@@ -54,7 +54,7 @@ curl 'http://127.0.0.1:5051/api/platform/liquor/products/1/history?limit=31'
 Authorization: Bearer <BACKEND_API_TOKEN>
 ```
 
-无令牌模式只适合本机开发，会拒绝非回环 Host，并阻止浏览器跨站写请求。不提供跨域放行。正式同源代理需要正确保留 Host、保护全部业务入口并使用 HTTPS 或受控 VPN；此令牌不是完整的用户登录与授权系统，不能直接据此上线家庭财务数据。不要把令牌硬编码进前端构建产物、代码或命令示例。
+除启用的精确账本命名空间外，无令牌模式仅适合本机开发并拒绝非回环 Host。所有业务请求保留浏览器跨站写保护，不提供跨域放行；同源代理须保留含端口的 Host。账本按用户授权匿名共享全部读写，令牌只保护其他模块，不提供私人账本保密。不要把令牌硬编码进前端构建产物、代码或命令示例。
 
 ## API 契约
 
@@ -187,6 +187,6 @@ docker run --rm --name data-platform-backend-test \
 
 ## 扩展边界
 
-默认只注册白酒模块；显式设置 `LEDGER_ENABLED=true` 时增加独立账本库与回环限定的记账 API。新模块复用数据库基础代码及 HTTP 反馈工具，表结构、业务事务和金融计算留在模块内。代码不读取微博 Cookie、旧数据库或旧服务配置。
+默认只注册白酒模块；显式设置 `LEDGER_ENABLED=true` 时增加独立账本库与匿名共享记账 API。新模块复用数据库基础代码及 HTTP 反馈工具，表结构、业务事务和金融计算留在模块内。代码不读取微博 Cookie、旧数据库或旧服务配置。
 
 Vue 单品页面、Nginx、根 Compose 和共同自动发布已实现；完整登录、微博前端迁移、其他业务模块及按模块独立发布尚未实现。新的私有模块上线前必须重新设计入口访问控制，不能直接沿用当前公开行情的 GET/HEAD 代理策略。

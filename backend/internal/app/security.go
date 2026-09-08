@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
@@ -17,7 +18,10 @@ func protect(cfg Config, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if cfg.APIToken != "" {
+		// Only canonical ledger paths are public; never exempt sibling APIs or redirects.
+		ledgerPath := r.URL.Path == "/api/platform/ledger" || strings.HasPrefix(r.URL.Path, "/api/platform/ledger/")
+		publicLedger := cfg.LedgerEnabled && ledgerPath && path.Clean(r.URL.Path) == strings.TrimSuffix(r.URL.Path, "/")
+		if !publicLedger && cfg.APIToken != "" {
 			authorization := r.Header.Get("Authorization")
 			scheme, token, _ := strings.Cut(authorization, " ")
 			actual := sha256.Sum256([]byte(token))
@@ -26,7 +30,7 @@ func protect(cfg Config, next http.Handler) http.Handler {
 				httpapi.Fail(w, http.StatusUnauthorized, "unauthorized", "valid bearer token required")
 				return
 			}
-		} else if !loopbackHost(r.Host) {
+		} else if !publicLedger && cfg.APIToken == "" && !loopbackHost(r.Host) {
 			// Local-only mode must also reject DNS-rebinding hosts, not just CORS.
 			httpapi.Fail(w, http.StatusForbidden, "invalid_host", "loopback host required")
 			return

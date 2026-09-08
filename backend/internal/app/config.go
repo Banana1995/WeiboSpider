@@ -94,9 +94,6 @@ func (c Config) Validate() error {
 	if err != nil || n < 0 || n > 65535 {
 		return errors.New("BACKEND_ADDR requires a port in 0..65535")
 	}
-	if c.LedgerEnabled && host != "localhost" && !net.ParseIP(host).IsLoopback() {
-		return errors.New("LEDGER_ENABLED requires an explicit loopback BACKEND_ADDR, even with a token")
-	}
 	if !loopbackHost(host) && c.APIToken == "" {
 		return errors.New("BACKEND_API_TOKEN is required for non-loopback listeners")
 	}

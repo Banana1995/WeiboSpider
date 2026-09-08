@@ -41,7 +41,7 @@ export function ledgerBoundary(enabled: boolean) {
   };
 }
 
-// Development only: a broad --host flag must not publish a token-bearing proxy.
+// Keep Vite development local; production public access is provided by Nginx.
 export function ledgerDevelopment(env: NodeJS.ProcessEnv): {
   plugin: Plugin;
   proxy: Record<string, ProxyOptions>;
@@ -80,11 +80,7 @@ export function ledgerDevelopment(env: NodeJS.ProcessEnv): {
           "^/api/platform/ledger(?:/|\\?|$)": {
             target,
             changeOrigin: false,
-            ...(env.BACKEND_API_TOKEN
-              ? {
-                  headers: { Authorization: `Bearer ${env.BACKEND_API_TOKEN}` },
-                }
-              : {}),
+            headers: { Authorization: "" },
           },
         }
       : {},

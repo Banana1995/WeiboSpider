@@ -54,7 +54,7 @@ describe("local ledger proxy", () => {
     expect(new RegExp(pattern).test("/api/platform/ledger-private")).toBe(
       false,
     );
-    expect(options.headers?.Authorization).toBe("Bearer synthetic-token");
+    expect(options.headers?.Authorization).toBe("");
     expect(options.changeOrigin).toBe(false);
   });
   it("accepts same-origin loopback requests", () => {

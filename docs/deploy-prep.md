@@ -1,6 +1,6 @@
 # 服务器部署准备与运维
 
-更新：2026-09-05。当前生产版本 `e2c5476`，白酒功能已上线；[生产验收记录](validation/2026-09-05-liquor-production.md) 保存本次发布和公网测试结果。以下涉及安装、重建、停写或恢复的操作必须另行获得授权，不因阅读本文自动执行。
+更新：2026-09-08。白酒已上线，账本按用户授权开放公网匿名共享全部读写；[白酒历史验收记录](validation/2026-09-05-liquor-production.md) 保留当时发布结果。实际版本以服务器 HEAD 和部署工作流为准。以下涉及安装、重建、停写或恢复的操作必须获得授权，不因阅读本文自动执行。
 
 ## 当前拓扑
 
@@ -9,13 +9,14 @@
 | Compose 服务 | 入口 | 数据 |
 | --- | --- | --- |
 | `weibospider` | 公网 5050，原微博网页和 API | `/opt/weibospider/data/` 绑定到 `/app/weibospider/data` |
-| `platform` | Go 5051，仅容器内部，不映射宿主机端口 | `platform-data` 命名卷绑定到 `/app/data`，库为 `liquor.db` |
-| `market-entry` | 公网 5052 映射 Nginx 8080，Vue 页面 `/liquor` | 无业务数据挂载 |
+| `platform` | Go 5051，仅容器内部，不映射宿主机端口 | `platform-data` 命名卷绑定到 `/app/data`，独立 `liquor.db` 和 `ledger.db` |
+| `market-entry` | 公网 5052 映射 Nginx 8080，Vue 页面 `/liquor`、`/ledger` | 无业务数据挂载 |
 
 - 微博入口：<http://43.130.247.183:5050/>；白酒入口：<http://43.130.247.183:5052/liquor>。
 - 原微博代码、Python 依赖和数据库保留；共同发布过程中仍可能重建其容器，不能把代码不改等同于部署不受影响。
-- Go 与 Nginx 通过服务端 `.env.platform` 共享服务令牌；Nginx 为上游请求注入令牌，浏览器无需持有令牌。
-- 白酒 `/api/platform/*` 代理只允许 GET/HEAD，公开 POST 同步会返回 403；当前不代理微博写接口，不提供完整用户登录。
+- Go 与 Nginx 通过服务端 `.env.platform` 共享服务令牌；Nginx 只为白酒上游请求注入令牌，账本上游清除 Authorization，浏览器不持有令牌。
+- 白酒 `/api/platform/liquor/*` 代理只允许 GET/HEAD，公开 POST 同步会返回 403；账本精确 `/api/platform/ledger` 及子路径开放全部读写方法，其他 platform 路径 JSON 404。不代理微博写接口。
+- 账本入口：<http://43.130.247.183:5052/ledger>。Compose 显式 `LEDGER_ENABLED=true`、`LEDGER_WEEKLY_ENABLED=false`，不因公开访问开启自动任务。保留同源写保护、上传限制和超时；不删除卷、不重置数据库。
 - 生产 Compose 设置 `LIQUOR_AUTO_SYNC=true`；Go 本地启动默认关闭。采集规则见 [后端指南](../backend/README.md#同步规则)。页面刷新不触发采集。
 
 ## 1. 系统要求
@@ -26,7 +27,7 @@
 - Docker Compose 插件，以及 `git`、`curl`、`openssl`；安装脚本负责缺失的 Docker/Compose，服务令牌生成依赖 OpenSSL
 - 本机持久化磁盘，不将 SQLite 数据目录放到网络共享盘
 
-当前部署仍是 HTTP。公开只读行情与私有财务数据的安全要求不同；在接入敏感模块前必须补齐用户访问控制及 HTTPS 或受控 VPN，不能将内部 Bearer 令牌视为完整认证。
+当前部署仍是 HTTP。账本根据用户明确授权无需登录、匿名共享全部读写，任何人都能查看、导入和修改全部数据，请勿上传私人财务信息。内部 Bearer 令牌只保护其他模块，不代表账本用户认证或私人数据保护。生产验证仅限读取与无效请求校验，不创建测试账户、不导入用户附件、不触发采集。
 
 ## 2. 创建部署用户
 

@@ -410,10 +410,10 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       </button>
     </header>
     <p class="ledger-notice">
-      公网目标为匿名共享全部读写；当前仍为本机开发入口，尚未发布。外币操作自动获取腾讯参考汇率并保存固定快照，失败可明确手工录入，不代表券商结算价。浏览和刷新估值只预览，不改变账本；点击“更新并保存总资产”才重新计算并保存。收益分析提供累计收益、Modified
+      公开共享账本：无需登录，任何人都能查看、导入和修改全部数据，请勿上传私人财务信息。外币操作自动获取腾讯参考汇率并保存固定快照，失败可明确手工录入，不代表券商结算价。浏览和刷新估值只预览，不改变账本；点击“更新并保存总资产”才重新计算并保存。收益分析提供累计收益、Modified
       Dietz 与
       XIRR，按端点完整性标注状态。历史初始化、人工和自动记录共用一条账户曲线。周六任务默认关闭，下方可只读查询；TWR
-      尚未实现，历史行情回填已取消。
+      已实现，历史行情回填已取消。
     </p>
     <p v-if="message" role="status" class="ledger-success">{{ message }}</p>
     <p v-if="writeError" role="alert" class="ledger-error">{{ writeError }}</p>

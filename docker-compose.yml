@@ -21,6 +21,8 @@ services:
       BACKEND_ADDR: 0.0.0.0:5051
       BACKEND_DATA_DIR: /app/data
       LIQUOR_AUTO_SYNC: "true"
+      LEDGER_ENABLED: "true"
+      LEDGER_WEEKLY_ENABLED: "false"
     volumes:
       - platform-data:/app/data
 

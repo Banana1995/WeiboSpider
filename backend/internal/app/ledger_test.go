@@ -41,7 +41,7 @@ func TestLedgerConfig(t *testing.T) {
 			require.Equal(t, value == "true" || value == "1", cfg.LedgerEnabled)
 		})
 	}
-	for _, address := range []string{"127.0.0.1:5051", "127.12.34.56:0", "[::1]:5051", "localhost:5051", "0.0.0.0:5051", "[::]:5051", ":5051", "192.168.1.2:5051", "8.8.8.8:5051", "local.example:5051", "[127.0.0.1:12]:5051"} {
+	for _, address := range []string{"127.0.0.1:5051", "127.12.34.56:0", "[::1]:5051", "localhost:5051", "0.0.0.0:5051", "[::]:5051", ":5051", "192.168.1.2:5051", "8.8.8.8:5051", "local.example:5051"} {
 		t.Run(address, func(t *testing.T) {
 			for _, token := range []string{"", strings.Repeat("t", 32)} {
 				cfg := DefaultConfig()
@@ -50,7 +50,11 @@ func TestLedgerConfig(t *testing.T) {
 				case "127.0.0.1:5051", "127.12.34.56:0", "[::1]:5051", "localhost:5051":
 					require.NoError(t, cfg.Validate())
 				default:
-					require.ErrorContains(t, cfg.Validate(), "LEDGER_ENABLED")
+					if token == "" {
+						require.ErrorContains(t, cfg.Validate(), "BACKEND_API_TOKEN")
+					} else {
+						require.NoError(t, cfg.Validate())
+					}
 				}
 			}
 		})
@@ -74,25 +78,21 @@ func TestLedgerHTTPBoundary(t *testing.T) {
 				{"ipv4 loopback range", "GET", "/accounts", "127.23.45.67:1234", "localhost", "", "", 200},
 				{"ipv6", "GET", "/accounts", "[::1]:1234", "[::1]:5051", "", "", 200},
 				{"mapped ipv4", "GET", "/accounts", "[::ffff:127.0.0.1]:1234", "localhost", "", "", 200},
-				{"public peer", "GET", "/accounts", "8.8.8.8:1234", "localhost", "", "", 403},
-				{"private peer", "GET", "/accounts", "192.168.1.2:1234", "localhost", "", "", 403},
-				{"unspecified peer", "GET", "/accounts", "0.0.0.0:1234", "localhost", "", "", 403},
-				{"hostname peer", "GET", "/accounts", "localhost:1234", "localhost", "", "", 403},
-				{"missing peer", "GET", "/accounts", "", "localhost", "", "", 403},
-				{"missing port", "GET", "/accounts", "127.0.0.1", "localhost", "", "", 403},
-				{"bad port", "GET", "/accounts", "127.0.0.1:invalid", "localhost", "", "", 403},
-				{"exact root guarded", "GET", "", "8.8.8.8:1234", "localhost", "", "", 403},
-				{"prefix root guarded", "GET", "/", "8.8.8.8:1234", "localhost", "", "", 403},
-				{"unknown guarded", "GET", "/missing", "8.8.8.8:1234", "localhost", "", "", 403},
+				{"public peer", "GET", "/accounts", "8.8.8.8:1234", "public.example:5052", "", "", 200},
+				{"proxy peer", "GET", "/accounts", "192.168.1.2:1234", "public.example:5052", "", "", 200},
+				{"anonymous write validation", "POST", "/accounts", "192.168.1.2:1234", "public.example:5052", "http://public.example:5052", "same-origin", 400},
+				{"exact root", "GET", "", "8.8.8.8:1234", "localhost", "", "", 404},
+				{"prefix root", "GET", "/", "8.8.8.8:1234", "localhost", "", "", 404},
+				{"unknown public", "GET", "/missing", "8.8.8.8:1234", "localhost", "", "", 404},
 				{"unknown", "GET", "/missing", "127.0.0.1:1234", "localhost", "", "", 404},
 				{"method", "DELETE", "/accounts", "127.0.0.1:1234", "localhost", "", "", 405},
 				{"origin csrf", "POST", "/accounts", "127.0.0.1:1234", "localhost", "https://evil.example", "", 403},
 				{"fetch metadata csrf", "POST", "/accounts", "127.0.0.1:1234", "localhost", "", "cross-site", 403},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					request := httptest.NewRequest(test.method, "/api/platform/ledger"+test.path, nil)
+					request := httptest.NewRequest(test.method, "/api/platform/ledger"+test.path, strings.NewReader(`{}`))
 					request.RemoteAddr, request.Host = test.peer, test.host
-					request.Header.Set("Authorization", "Bearer "+token)
+					request.Header.Set("Content-Type", "application/json")
 					request.Header.Set("Origin", test.origin)
 					request.Header.Set("Sec-Fetch-Site", test.site)
 					request.Header.Set("X-Forwarded-For", "127.0.0.1")
@@ -113,11 +113,7 @@ func TestLedgerHTTPBoundary(t *testing.T) {
 				request.Header.Set("Authorization", authorization)
 				response := httptest.NewRecorder()
 				application.Handler.ServeHTTP(response, request)
-				if token == "" {
-					require.Equal(t, http.StatusForbidden, response.Code)
-				} else {
-					require.Equal(t, http.StatusUnauthorized, response.Code)
-				}
+				require.Equal(t, http.StatusOK, response.Code)
 				require.True(t, json.Valid(response.Body.Bytes()))
 			}
 		})

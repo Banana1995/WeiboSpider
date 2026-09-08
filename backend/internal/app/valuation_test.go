@@ -26,11 +26,7 @@ func TestValuationRouteKeepsLedgerBoundary(t *testing.T) {
 				r.Header.Set("X-Forwarded-For", "127.0.0.1")
 				w := httptest.NewRecorder()
 				application.Handler.ServeHTTP(w, r)
-				want := 404
-				if enabled && peer != "127.0.0.1:1234" {
-					want = 403
-				}
-				require.Equal(t, want, w.Code)
+				require.Equal(t, 404, w.Code)
 			}
 		}
 		if enabled {

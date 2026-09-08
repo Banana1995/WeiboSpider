@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccountImportUsesExistingPrivateBoundary(t *testing.T) {
+func TestAccountImportIsPublicWithCrossOriginProtection(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		cfg := DefaultConfig()
 		cfg.DataDir, cfg.SourceURL, cfg.LedgerEnabled = t.TempDir(), "http://127.0.0.1:1", enabled
@@ -30,12 +30,8 @@ func TestAccountImportUsesExistingPrivateBoundary(t *testing.T) {
 				w := httptest.NewRecorder()
 				a.Handler.ServeHTTP(w, r)
 				want := 404
-				if enabled {
-					if peer != "127.0.0.1:1234" {
-						want = 403
-					} else if tc.method == "POST" {
-						want = 400
-					}
+				if enabled && tc.method == "POST" {
+					want = 400
 				}
 				require.Equal(t, want, w.Code)
 				require.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))

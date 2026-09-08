@@ -1,8 +1,8 @@
 # 记账 HTTP 接口
 
-日期：2026-09-06。已实现本机 HTTP 接口及事务层，未部署。产品规则见[需求记录](../../docs/specs/2026-09-06-investment-ledger-requirements.md)，内部持久化契约见[后端设计](../../docs/specs/2026-09-06-investment-ledger-backend-design.md)。
+更新：2026-09-08。已实现 HTTP 接口及事务层，按用户明确授权开放公网匿名共享全部读写。产品规则见[需求记录](../../docs/specs/2026-09-06-investment-ledger-requirements.md)，内部持久化契约见[后端设计](../../docs/specs/2026-09-06-investment-ledger-backend-design.md)。
 
-一期目标已确认为公网匿名共享全部读写，任何访客可使用全部功能，不做认证或用户访问控制。当前接口仍默认关闭且回环限定，本轮不开放生产或移除保护；真实历史附件不公开。启动见[前端说明](../../frontend/README.md#本地记账)。
+入口 <http://43.130.247.183:5052/ledger>，任何访客可使用全部账本功能，不做认证或用户访问控制。所有数据公开共享且可被他人修改，请勿上传私人财务信息。此授权取代早期仅限本机的发布约束；本次不导入真实历史附件、不运行 E2E，完整功能验收另行安排。启动见[前端说明](../../frontend/README.md#本地记账)。
 
 ## 1. 启用与访问边界
 
@@ -13,12 +13,12 @@ LEDGER_ENABLED=true BACKEND_ADDR=127.0.0.1:5051 LIQUOR_AUTO_SYNC=false go run ./
 ```
 
 - 默认 `LEDGER_ENABLED=false`，不注册记账路由，也不创建 `ledger.db`。
-- 启用时仅允许回环监听；非回环地址即使配置 token 也拒绝启动。请求的真实 socket peer 也必须是回环 IP，不信任转发头。
-- 本机未配置 token 时保留 Host 防重绑定及跨站写保护；配置 `BACKEND_API_TOKEN` 后，所有账本请求还需 Bearer 令牌。
-- 仅适合受信任的本机开发，不具备用户账户授权。不要通过其他反向代理或隧道绕过本机边界；无真实数据的公网演示入口另行适配，承载私人账本前仍须有适当访问保护。
-- Nginx 仍只代理白酒。Vite 默认不转发账本，显式 `LEDGER_DEV_PROXY=true` 才启用本机代理，目标须为回环 HTTP 地址，校验实际 peer、Host 和跨源请求。服务令牌仅在开发进程注入，客户端不持有令牌；不启用时记账请求返回 `local_proxy_disabled` JSON 404。
+- 生产 Compose 显式设置 `LEDGER_ENABLED=true`，Go 5051 仍只对容器网络开放；非回环监听须配置服务令牌以保护白酒等其他模块。
+- 启用后仅规范的 `/api/platform/ledger` 及其子路径免 Bearer 令牌和回环限制，不能借相似前缀或转发头放行其他 API。所有写请求仍有同源保护；校验、幂等、数据库事务与审计不变。
+- Nginx 公开代理全部账本方法并清除 Authorization，保留含端口的 Host；上传总请求限制 8 MiB + 64 KiB，后端另限制 XLSX 8 MiB、普通 JSON 64 KiB，超时保留。
+- Vite 仅作为本机开发工具，默认不转发账本，显式 `LEDGER_DEV_PROXY=true` 才启用本机代理，目标须为回环 HTTP 地址，校验实际 peer、Host 和跨源请求，不注入服务令牌。公开服务使用 Nginx，不使用 Vite preview。
 - 账本保存于 `BACKEND_DATA_DIR/ledger.db`，不写入白酒或微博库。默认 `backend/data/` 已忽略；其他目录需自行核验访问权限、Git 及镜像排除规则。
-- 已实现汇率、当前总资产、导入初始化、人工维护及 T04 资金加权收益；T05 周任务与只读 UI 覆盖所有账户。fresh schema 将所有当前记录统一到 account_records、所有追溯统一到 audit_log，分析不接受 track。T07 收益曲线/TWR 已实现并开展本地合成验证，完整验收及发布待执行；历史回填、增量导入和批次撤销仍取消。
+- 已实现汇率、当前总资产、导入初始化、人工维护及 T04 资金加权收益；T05 周任务与只读 UI 覆盖所有账户。fresh schema 将所有当前记录统一到 account_records、所有追溯统一到 audit_log，分析不接受 track。T07 收益曲线/TWR 已实现并开展本地合成验证，完整功能验收待执行；历史回填、增量导入和批次撤销仍取消。
 
 ## 2. 通用契约
 

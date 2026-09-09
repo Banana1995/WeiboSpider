@@ -17,6 +17,7 @@ import {
   type BasisPoint,
 } from "./ledgerChart";
 import { kinds } from "./ledger";
+import { accountRecordOriginLabels } from "./accountRecords";
 
 use([
   LineChart,
@@ -186,7 +187,7 @@ function render() {
     );
     chartError.value = "";
   } catch {
-    chartError.value = "图形暂不可用，请使用下方等价日期表和明细。";
+    chartError.value = "图形暂不可用，请展开“查看资产日期数据”使用精确表格。";
   }
 }
 watch(
@@ -210,7 +211,7 @@ onMounted(() => {
     observer.observe(element.value!);
     render();
   } catch {
-    chartError.value = "图形暂不可用，请使用下方等价日期表和明细。";
+    chartError.value = "图形暂不可用，请展开“查看资产日期数据”使用精确表格。";
   }
 });
 onBeforeUnmount(() => {
@@ -226,10 +227,7 @@ onBeforeUnmount(() => {
       {{ currency }} · {{ from }} 至 {{ to }}（北京时间）
     </p>
     <p>
-      实点为明确记录，空心菱形为沿用参考；红色旧估值待重算，灰色旧估值未追踪。只有相邻自然日的同类日终点连线，缺日断开，不插值。小灰点保留同日其他明确观察。
-    </p>
-    <p>
-      下方事件带没有资产纵坐标，不代表零资产。转入红三角、转出绿菱形，日志/操作灰方块；同日聚合标记可点选全部明细。金额原值见明细，图形坐标仅近似，不是收益率。
+      实点为明确记录，空心菱形为沿用参考；资金流和日志显示在下方事件带。点选图中日期可查看当日摘要，精确金额以日期数据和来源明细为准。
     </p>
     <p v-if="!days.length" role="status">
       所选区间无记录；不把期初或截止参考值补成当日观察。
@@ -239,9 +237,8 @@ onBeforeUnmount(() => {
       ref="element"
       class="asset-canvas"
       role="img"
-      aria-label="总资产走势和资金日志事件带，等价键盘操作及精确金额见下方日期表"
+      aria-label="总资产走势和资金日志事件带，等价键盘操作及精确金额见下方可展开的日期表"
     />
-    <p class="ledger-note">图与明细来自同次只读快照：{{ revision }}</p>
     <label
       >点选日期（键盘 / 手机）<input
         type="date"
@@ -251,140 +248,159 @@ onBeforeUnmount(() => {
         :max="to"
         @change="choose(($event.target as HTMLInputElement).value)"
     /></label>
-    <div class="ledger-table-wrap">
-      <table>
-        <caption>
-          有记录日期 · 共
-          {{
-            days.length
-          }}
-          日，第
-          {{
-            page + 1
-          }}
-          页（每页 30 日）
-        </caption>
-        <thead>
-          <tr>
-            <th>日期 / 查看全部</th>
-            <th>日终资产依据（{{ currency }}）</th>
-            <th>状态</th>
-            <th>明细数</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="d in days.slice(page * 30, page * 30 + 30)" :key="d.date">
-            <td>
-              <button
-                type="button"
-                :aria-pressed="selected === d.date"
-                @click="choose(d.date)"
-              >
-                {{ d.date }}
-              </button>
-            </td>
-            <td>{{ d.chosen?.assets ?? "未记录" }}</td>
-            <td>
-              {{ pointLabels[d.chosen?.status ?? ""] ?? "仅事件 / 日志" }}
-            </td>
-            <td>{{ d.points.length }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="ledger-actions">
-      <button type="button" :disabled="page === 0" @click="page--">
-        上一页日期</button
-      ><button
-        type="button"
-        :disabled="(page + 1) * 30 >= days.length"
-        @click="page++"
+    <details data-test="asset-date-data">
+      <summary>查看资产日期数据</summary>
+      <p class="ledger-note">图与明细来自同次只读快照：{{ revision }}</p>
+      <div class="ledger-table-wrap">
+        <table>
+          <caption>
+            有记录日期 · 共
+            {{
+              days.length
+            }}
+            日（每页 30 日）
+          </caption>
+          <thead>
+            <tr>
+              <th>日期 / 查看全部</th>
+              <th>日终资产依据（{{ currency }}）</th>
+              <th>状态</th>
+              <th>明细数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="d in days.slice(page * 30, page * 30 + 30)"
+              :key="d.date"
+            >
+              <td>
+                <button
+                  type="button"
+                  :aria-pressed="selected === d.date"
+                  @click="choose(d.date)"
+                >
+                  {{ d.date }}
+                </button>
+              </td>
+              <td>{{ d.chosen?.assets ?? "未记录" }}</td>
+              <td>
+                {{ pointLabels[d.chosen?.status ?? ""] ?? "仅事件 / 日志" }}
+              </td>
+              <td>{{ d.points.length }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div
+        v-if="days.length > 30"
+        class="ledger-actions"
+        data-test="asset-date-pagination"
       >
-        下一页日期
-      </button>
-    </div>
+        <button type="button" :disabled="page === 0" @click="page--">
+          上一页</button
+        ><span>第 {{ page + 1 }} / {{ Math.ceil(days.length / 30) }} 页</span
+        ><button
+          type="button"
+          :disabled="(page + 1) * 30 >= days.length"
+          @click="page++"
+        >
+          下一页
+        </button>
+      </div>
+    </details>
     <p v-if="selected && !day" role="status">
       {{ selected }} 当日无记录，不沿用其他日期的明细。
     </p>
     <section v-if="day" aria-label="同日全部记录" aria-live="polite">
       <h4>{{ day.date }} · 全部 {{ day.points.length }} 条记录</h4>
       <p>
-        日终依据按同一账户的稳定序号选取最后有效资产/资金记录，日志不覆盖资产；更正不重排。序号用于同日排序，不代表报价的实际时间。
+        当日日终资产：{{ day.chosen?.assets ?? "未记录" }} {{ currency }} ·
+        {{ pointLabels[day.chosen?.status ?? ""] ?? "仅有资金或日志记录" }}
       </p>
-      <article
-        v-for="(p, i) in day.points.slice(
-          detailPage * 30,
-          detailPage * 30 + 30,
-        )"
-        :key="`${p.status}-${p.record_id}-${i}`"
-        class="asset-detail"
-      >
-        <h5>
-          {{ p.record_id }} · 序号 {{ p.sequence }} · 版本 {{ p.version }}
-          <span v-if="p.selected">· 当日日终依据</span>
-        </h5>
+      <details data-test="same-day-records">
+        <summary>查看数据来源与计算依据</summary>
+        <p>当日共 {{ day.points.length }} 条记录。</p>
         <p>
-          {{ pointLabels[p.status] ?? p.status }} · 资产依据
-          {{ p.assets ?? "未记录" }} {{ currency }} · {{ flowLabel(p.flow) }}
-          {{ p.flow ?? "" }}
+          明确记录使用实点，沿用参考使用空心菱形；红色旧估值待重算，灰色旧估值未追踪。只有相邻自然日的同类日终点连线，缺日断开，不插值。小灰点保留同日其他明确观察。
         </p>
-        <p v-if="p.record">
-          原行资产 {{ p.record.total_assets ?? "未记录" }}；来源
-          {{
-            {
-              import: "导入",
-              manual: "手工",
-              currentrefresh: "当前估值",
-              weekly: "每周估值",
-              weekly_carry: "每周沿用",
-              operation: "持仓操作",
-            }[p.record.origin]
-          }}；当前记录日期
-          {{ p.record.date }}
+        <p>
+          事件带没有资产纵坐标，不代表零资产。转入为红三角、转出为绿菱形，日志或操作为灰方块；图形坐标仅用于展示走势，不是精确金额或收益率。
         </p>
-        <p v-if="p.source_id">
-          资产/事件来源 {{ p.source_date }} / {{ p.source_id }} / 版本
-          {{ p.source_version }}
+        <p>
+          日终依据按同一账户的稳定序号选取最后有效资产/资金记录，日志不覆盖资产；更正不重排。序号用于同日排序，不代表报价的实际时间。
         </p>
-        <p v-if="p.operation">
-          {{ kinds[p.operation.operation.kind] }} ·
-          {{ p.operation.operation.account_id }}
-          <span v-if="p.operation.operation.to_account_id"
-            >→ {{ p.operation.operation.to_account_id }}</span
+        <article
+          v-for="(p, i) in day.points.slice(
+            detailPage * 30,
+            detailPage * 30 + 30,
+          )"
+          :key="`${p.status}-${p.record_id}-${i}`"
+          class="asset-detail"
+        >
+          <h5>
+            {{ p.record_id }} · 序号 {{ p.sequence }} · 版本 {{ p.version }}
+            <span v-if="p.selected">· 当日日终依据</span>
+          </h5>
+          <p>
+            {{ pointLabels[p.status] ?? p.status }} · 资产依据
+            {{ p.assets ?? "未记录" }} {{ currency }} · {{ flowLabel(p.flow) }}
+            {{ p.flow ?? "" }}
+          </p>
+          <p v-if="p.record">
+            原行资产 {{ p.record.total_assets ?? "未记录" }}；来源
+            {{ accountRecordOriginLabels[p.record.origin] }}；当前记录日期
+            {{ p.record.date }}
+          </p>
+          <p v-if="p.source_id">
+            资产/事件来源 {{ p.source_date }} / {{ p.source_id }} / 版本
+            {{ p.source_version }}
+          </p>
+          <p v-if="p.operation">
+            {{ kinds[p.operation.operation.kind] }} ·
+            {{ p.operation.operation.account_id }}
+            <span v-if="p.operation.operation.to_account_id"
+              >→ {{ p.operation.operation.to_account_id }}</span
+            >
+            · 操作金额 {{ p.operation.operation.amount }}；证券
+            {{ p.operation.operation.instrument_id ?? "无" }}；数量
+            {{ p.operation.operation.quantity }}；成交价
+            {{ p.operation.operation.price }}；费用
+            {{ p.operation.operation.fee ?? "未录入" }}
+          </p>
+          <p v-if="p.valuation">
+            观察日期 {{ p.valuation.as_of }}；保存于
+            {{ p.valuation.saved_at }}；现金 {{ p.valuation.cash }}；持仓市值
+            {{ p.valuation.positions_value }}。这是原始参考观察，未重算。
+          </p>
+          <p class="ledger-note">投资日志：{{ pointNote(p) || "无" }}</p>
+          <details v-if="p.record?.original">
+            <summary>原始导入明细（未改写）</summary>
+            <pre>{{ JSON.stringify(p.record.original, null, 2) }}</pre>
+          </details>
+        </article>
+        <div
+          v-if="day.points.length > 30"
+          class="ledger-actions"
+          data-test="same-day-pagination"
+        >
+          <button
+            type="button"
+            :disabled="detailPage === 0"
+            @click="detailPage--"
           >
-          · 操作金额 {{ p.operation.operation.amount }}；证券
-          {{ p.operation.operation.instrument_id ?? "无" }}；数量
-          {{ p.operation.operation.quantity }}；成交价
-          {{ p.operation.operation.price }}；费用
-          {{ p.operation.operation.fee ?? "未录入" }}
-        </p>
-        <p v-if="p.valuation">
-          观察日期 {{ p.valuation.as_of }}；保存于
-          {{ p.valuation.saved_at }}；现金 {{ p.valuation.cash }}；持仓市值
-          {{ p.valuation.positions_value }}。这是原始参考观察，未重算。
-        </p>
-        <p class="ledger-note">投资日志：{{ pointNote(p) || "无" }}</p>
-        <details v-if="p.record?.original">
-          <summary>原始导入明细（未改写）</summary>
-          <pre>{{ JSON.stringify(p.record.original, null, 2) }}</pre>
-        </details>
-      </article>
-      <p>同日明细第 {{ detailPage + 1 }} 页，每页 30 条，保留全部记录。</p>
-      <div class="ledger-actions">
-        <button
-          type="button"
-          :disabled="detailPage === 0"
-          @click="detailPage--"
-        >
-          上一页明细</button
-        ><button
-          type="button"
-          :disabled="(detailPage + 1) * 30 >= day.points.length"
-          @click="detailPage++"
-        >
-          下一页明细
-        </button>
-      </div>
+            上一页</button
+          ><span
+            >第 {{ detailPage + 1 }} /
+            {{ Math.ceil(day.points.length / 30) }} 页</span
+          ><button
+            type="button"
+            :disabled="(detailPage + 1) * 30 >= day.points.length"
+            @click="detailPage++"
+          >
+            下一页
+          </button>
+        </div>
+      </details>
     </section>
   </section>
 </template>

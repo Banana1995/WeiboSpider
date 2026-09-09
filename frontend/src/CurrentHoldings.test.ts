@@ -120,6 +120,12 @@ it("loads only GET, adds/removes exact quantities, saves complete snapshots with
     positions: [{ instrument_id: "i", quantity: "9007199254.740993" }],
   });
   expect(wrapper.emitted("configured")?.at(-1)).toEqual([true, "3"]);
+  const source = wrapper.get('[data-test="current-holdings-source"]');
+  expect((source.element as HTMLDetailsElement).open).toBe(false);
+  expect(source.get("summary").text()).toBe("查看保存版本与审计信息");
+  (source.element as HTMLDetailsElement).open = true;
+  await source.trigger("toggle");
+  expect(source.text()).toContain("版本 1 · 审计 #3");
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "移除此证券")!

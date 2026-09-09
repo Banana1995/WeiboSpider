@@ -612,7 +612,6 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       </details>
     </section>
 
-    <LedgerWeekly :accounts="accounts.data ?? []" :disabled="locked" />
     <ImportAccount
       :accounts="accounts.data ?? []"
       :disabled="
@@ -1044,5 +1043,6 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
         </button>
       </div>
     </section>
+    <LedgerWeekly :accounts="accounts.data ?? []" :disabled="locked" />
   </main>
 </template>

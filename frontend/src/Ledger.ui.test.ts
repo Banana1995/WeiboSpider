@@ -228,10 +228,20 @@ it("keeps schedule selection and refresh isolated from parent valuation reads an
     .findAll("button")
     .find((b) => b.attributes("aria-pressed") === "true")
     ?.text();
-  fetcher.mockClear();
   const panel = wrapper.get('[data-test="weekly"]');
+  expect((panel.element as HTMLDetailsElement).open).toBe(false);
+  expect(
+    wrapper
+      .get('[data-test="account-records"]')
+      .element.compareDocumentPosition(panel.element) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  (panel.element as HTMLDetailsElement).open = true;
+  await panel.trigger("toggle");
+  await flushPromises();
   await panel.get('[name="weekly_account"]').setValue("second");
   await flushPromises();
+  fetcher.mockClear();
   await panel
     .findAll("button")
     .find((b) => b.text() === "刷新调度状态")!

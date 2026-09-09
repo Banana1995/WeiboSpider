@@ -166,12 +166,17 @@ async function save() {
     <p v-if="read.error || error" role="alert">{{ read.error || error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="read.data?.snapshot">
-      版本 {{ read.data.snapshot.version }} · 保存于
-      {{ read.data.snapshot.saved_at }} · 审计 #{{ read.data.audit_id }}
+      当前持仓已保存于 {{ read.data.snapshot.saved_at }}。
     </p>
     <p v-else-if="read.data">
       尚未设置当前持仓。零现金且无证券也可保存为明确的空持仓来源。
     </p>
+    <details v-if="read.data?.snapshot" data-test="current-holdings-source">
+      <summary>查看保存版本与审计信息</summary>
+      <p>
+        版本 {{ read.data.snapshot.version }} · 审计 #{{ read.data.audit_id }}
+      </p>
+    </details>
     <button
       type="button"
       :disabled="disabled || !!pending || read.loading"

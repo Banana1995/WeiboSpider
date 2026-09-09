@@ -43,13 +43,13 @@ const states = {
         <option :value="true">基金经理（时间加权）</option>
       </select></label
     >
-    <p>
-      请求：{{ result.requested_from || "首个明确日终资产作为基准" }} 至
-      {{ result.requested_to || "北京时间今天" }}；实际计算边界：
-      {{ result.effective_from || "未知" }} 日终至
-      {{ result.effective_to || "未知" }} 日终（{{
-        result.days > 0 ? `${result.days} 自然日` : "未形成有效计算区间"
-      }}）。 没有新资产或沿用记录时，不把截止日拉长到今天。
+    <p data-test="return-summary">
+      {{ result.effective_from || "尚未形成起点" }} 至
+      {{ result.effective_to || "尚未形成终点" }} ·
+      {{ result.days > 0 ? `${result.days} 自然日` : "尚未形成有效计算区间" }}
+      <template v-if="result.start_mode === 'baseline'">
+        · 以首个明确日终资产为基准</template
+      >
     </p>
     <dl class="returns-cards">
       <div
@@ -88,8 +88,15 @@ const states = {
     <p v-for="warning in result.warnings" :key="warning" role="status">
       {{ returnWarnings[warning] }}
     </p>
-    <details>
-      <summary>计算口径、端点与现金流明细</summary>
+    <details data-test="return-calculation">
+      <summary>查看收益计算明细</summary>
+      <p>
+        请求范围：{{ result.requested_from || "首个明确日终资产作为基准" }} 至
+        {{ result.requested_to || "北京时间今天" }}；实际计算边界：
+        {{ result.effective_from || "未知" }} 日终至
+        {{ result.effective_to || "未知" }}
+        日终。没有新资产或沿用记录时，不把截止日拉长到今天。
+      </p>
       <p>
         收益 = 期末资产 - 期初资产 -
         净流入。转入为正、转出为负；账户内买卖和留存分红不是外部投入。同日选定总资产已含当日资金流，不重复加款。

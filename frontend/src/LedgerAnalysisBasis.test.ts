@@ -102,7 +102,12 @@ it("rejects a mismatched requested range and oversized snapshots without renderi
   await w.get("form").trigger("submit");
   await flushPromises();
   expect(w.find('[role="alert"]').exists()).toBe(true);
-  expect(w.text()).toContain("10,000");
+  const source = w.get('[data-test="analysis-source"]');
+  expect(source.get("summary").text()).toBe("查看数据来源与计算依据");
+  expect((source.element as HTMLDetailsElement).open).toBe(false);
+  (source.element as HTMLDetailsElement).open = true;
+  await source.trigger("toggle");
+  expect(source.text()).toContain("10,000");
   expect(w.text()).not.toContain("90071992547409.01");
   w.unmount();
 });
@@ -192,10 +197,17 @@ it("reads only on demand, explains exact carry and missing opening, and refreshe
   expect(fetch).not.toHaveBeenCalled();
   await w.get("form").trigger("submit");
   await flushPromises();
-  expect(w.text()).toContain("90071992547409.01");
-  expect(w.text()).toContain("无此前资产，不可用");
-  expect(w.text()).toContain("沿用此前原值，未增加资金流");
-  expect(w.text()).toContain("manual-a / 版本 1");
+  const summary = w.get('[data-test="analysis-summary"]');
+  expect(summary.text()).toContain("90071992547409.01");
+  expect(summary.text()).toContain("基准模式：以首个明确日终资产起算");
+  expect(summary.text()).not.toContain("manual-a");
+  const source = w.get('[data-test="analysis-source"]');
+  expect(source.get("summary").text()).toBe("查看数据来源与计算依据");
+  expect((source.element as HTMLDetailsElement).open).toBe(false);
+  (source.element as HTMLDetailsElement).open = true;
+  await source.trigger("toggle");
+  expect(source.text()).toContain("沿用此前原值，未增加资金流");
+  expect(source.text()).toContain("manual-a / 来源版本 1");
   fetch.mockResolvedValue(
     response({
       ...sample(),
@@ -206,7 +218,10 @@ it("reads only on demand, explains exact carry and missing opening, and refreshe
   await w.setProps({ refreshKey: 1 });
   await flushPromises();
   expect(fetch.mock.calls[1][0]).toContain("since_revision=4");
-  expect(w.text()).toContain("上次读取依据已受变更影响");
+  const refreshedSource = w.get('[data-test="analysis-source"]');
+  (refreshedSource.element as HTMLDetailsElement).open = true;
+  await refreshedSource.trigger("toggle");
+  expect(refreshedSource.text()).toContain("上次读取依据已受变更影响");
   w.unmount();
 });
 
@@ -226,7 +241,11 @@ it("uses one account basis without a track selector and refuses mismatched respo
   await flushPromises();
   expect(fetch.mock.calls[1][0]).not.toContain("track=");
   expect(fetch.mock.calls[1][0]).toContain("since_revision=4");
-  expect(w.text()).toContain("需要核实或修正");
+  const source = w.get('[data-test="analysis-source"]');
+  expect((source.element as HTMLDetailsElement).open).toBe(false);
+  (source.element as HTMLDetailsElement).open = true;
+  await source.trigger("toggle");
+  expect(source.text()).toContain("需要核实或修正");
   fetch.mockResolvedValue(response(sample("wrong")));
   await w.get("form").trigger("submit");
   await flushPromises();

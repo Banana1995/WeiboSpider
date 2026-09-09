@@ -83,18 +83,30 @@ it("accepts and explains uncertified XIRR precision without displaying zero", ()
   w.unmount();
 });
 
-it("shows all three metrics, investor signs, endpoint conventions and no extra request", () => {
+it("shows all three metrics, investor signs, endpoint conventions and no extra request", async () => {
   const result = fixture();
   const w = mount(LedgerReturns, {
     props: { result, currency: "CNY", points: [] },
   });
-  expect(w.text()).toContain("10.00 CNY");
-  expect(w.text().match(/10.00%/g)).toHaveLength(2);
-  expect(w.text()).toContain("365 自然日");
-  expect(w.text()).toContain("期末日权重为零");
-  expect(w.text()).toContain("不是 Dietz 复利年化");
-  expect(w.text()).toContain("-100.00 CNY");
-  expect(w.text()).toContain("快照版本 synthetic");
+  expect(w.get(".returns-cards").text()).toContain("10.00 CNY");
+  expect(
+    w
+      .get(".returns-cards")
+      .text()
+      .match(/10.00%/g),
+  ).toHaveLength(2);
+  const summary = w.get('[data-test="return-summary"]');
+  expect(summary.text()).toContain("365 自然日");
+  expect(summary.text()).toContain("以首个明确日终资产为基准");
+  expect(summary.text()).not.toContain("synthetic");
+  const calculation = w.get('[data-test="return-calculation"]');
+  expect((calculation.element as HTMLDetailsElement).open).toBe(false);
+  (calculation.element as HTMLDetailsElement).open = true;
+  await calculation.trigger("toggle");
+  expect(calculation.text()).toContain("期末日权重为零");
+  expect(calculation.text()).toContain("不是 Dietz 复利年化");
+  expect(calculation.text()).toContain("-100.00 CNY");
+  expect(calculation.text()).toContain("快照版本 synthetic");
   w.unmount();
 });
 
@@ -160,15 +172,19 @@ it("paginates cashflow details and resets pages with the snapshot", async () => 
   const w = mount(LedgerReturns, {
     props: { result, currency: "USD", points: [] },
   });
-  expect(w.text()).toContain("manual-29");
-  expect(w.text()).not.toContain("manual-30");
+  const calculation = w.get('[data-test="return-calculation"]');
+  expect((calculation.element as HTMLDetailsElement).open).toBe(false);
+  (calculation.element as HTMLDetailsElement).open = true;
+  await calculation.trigger("toggle");
+  expect(calculation.text()).toContain("manual-29");
+  expect(calculation.text()).not.toContain("manual-30");
   const next = w.findAll("button").find((b) => b.text() === "下一页资金流")!;
   await next.trigger("click");
-  expect(w.text()).toContain("manual-30");
-  expect(w.text()).toContain("92233720368547758.07 USD");
+  expect(calculation.text()).toContain("manual-30");
+  expect(calculation.text()).toContain("92233720368547758.07 USD");
   await w.setProps({ result: { ...result, revision: "updated" } });
-  expect(w.text()).toContain("manual-29");
-  expect(w.text()).not.toContain("manual-30");
+  expect(calculation.text()).toContain("manual-29");
+  expect(calculation.text()).not.toContain("manual-30");
   w.unmount();
 });
 

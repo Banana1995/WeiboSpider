@@ -166,9 +166,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function start(items = accounts) {
+async function setPanelOpen(open = true) {
+  const panel = wrapper.get('[data-test="weekly"]');
+  (panel.element as HTMLDetailsElement).open = open;
+  await panel.trigger("toggle");
+  await flushPromises();
+}
+async function start(items = accounts, open = true) {
   wrapper = mount(LedgerWeekly, { props: { accounts: items } });
   await flushPromises();
+  if (open) await setPanelOpen();
 }
 async function click(text: string) {
   await wrapper
@@ -179,7 +186,12 @@ async function click(text: string) {
 }
 it("loads status with no accounts, exposes no enable/retry action and never polls", async () => {
   vi.useFakeTimers();
-  await start([]);
+  await start([], false);
+  const panel = wrapper.get('[data-test="weekly"]');
+  expect(panel.get("summary").text()).toBe("周六自动更新记录（只读）");
+  expect((panel.element as HTMLDetailsElement).open).toBe(false);
+  expect(fetcher).not.toHaveBeenCalled();
+  await setPanelOpen();
   expect(wrapper.text()).toContain("查询时：全局已关闭");
   expect(wrapper.text()).toContain("暂无可选账户");
   expect(fetcher).toHaveBeenCalledTimes(1);
@@ -195,6 +207,41 @@ it("loads status with no accounts, exposes no enable/retry action and never poll
     "任务首页",
     "任务下一页",
   ]);
+});
+it("cancels lazy status and list reads when the panel closes, then reloads cleanly", async () => {
+  const pending: {
+    url: string;
+    signal?: AbortSignal | null;
+    resolve: (value: Response) => void;
+  }[] = [];
+  fetcher.mockImplementation(
+    (url: string, init: RequestInit) =>
+      new Promise<Response>((resolve) =>
+        pending.push({ url, signal: init.signal, resolve }),
+      ),
+  );
+  await start(accounts, false);
+  expect(fetcher).not.toHaveBeenCalled();
+  await setPanelOpen();
+  expect(pending).toHaveLength(2);
+  await setPanelOpen(false);
+  expect(pending.every((request) => request.signal?.aborted)).toBe(true);
+  for (const request of pending)
+    request.resolve(
+      request.url.endsWith("/weekly-status")
+        ? response({ ...off, enabled: true })
+        : response({ items: [success] }),
+    );
+  await flushPromises();
+  expect(wrapper.text()).not.toContain("查询时：全局已启用");
+  fetcher.mockImplementation(async (url: string) =>
+    url.endsWith("/weekly-status")
+      ? response(off)
+      : response({ items: [success] }),
+  );
+  await setPanelOpen();
+  expect(wrapper.text()).toContain("查询时：全局已关闭");
+  expect(wrapper.get("tbody").text()).toContain(success.id);
 });
 it.each([false, true])(
   "shows enabled snapshot, open window=%s and next fixed time without heartbeat claims",

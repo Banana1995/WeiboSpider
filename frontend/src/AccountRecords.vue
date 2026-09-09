@@ -14,9 +14,11 @@ import {
 import type {
   AccountEntry,
   AccountRecord,
+  AccountRecordOrigin,
   AccountRecordRevision,
   EffectiveSummary,
 } from "./accountRecords";
+import { accountRecordOriginLabels } from "./accountRecords";
 import { useLedgerRead } from "./useLedgerRead";
 import LedgerAnalysisBasis from "./LedgerAnalysisBasis.vue";
 import LedgerAudit from "./LedgerAudit.vue";
@@ -38,7 +40,7 @@ const busy = ref(false);
 const error = ref("");
 const message = ref("");
 const name = ref("");
-const currency = ref<Currency>("CNY");
+const reportedCurrency = ref<Currency>("CNY");
 const openingDate = ref("");
 const fresh = (): AccountEntry => ({
   kind: "asset",
@@ -49,15 +51,45 @@ const fresh = (): AccountEntry => ({
 });
 const draft = ref(fresh());
 const editing = ref<AccountRecord>();
+const inspected = ref<AccountRecord>();
 const historyID = ref("");
 const reason = ref("");
 const from = ref("");
 const to = ref("");
 let applied = { from: "", to: "" };
+const historyOpen = ref(false);
+const recordPage = ref(0);
+const recordCursors = ref([""]);
+const revisionPage = ref(0);
+const revisionCursors = ref([""]);
 let expectedID = "";
 let creating = false;
 const locked = computed(() => !!pending.value);
+const totalRecords = computed(() =>
+  summary.data ? summary.data.row_count + summary.data.voided_count : undefined,
+);
 watch(locked, (value) => emit("locked", value), { flush: "sync" });
+const kindLabels = {
+  asset: "总资产",
+  cash_flow: "资金转入",
+  log: "投资日志",
+} as const;
+function kindLabel(record: AccountEntry) {
+  if (record.kind === "cash_flow" && record.flow?.startsWith("-"))
+    return "资金转出";
+  return kindLabels[record.kind];
+}
+function originLabel(origin: AccountRecordOrigin) {
+  return accountRecordOriginLabels[origin] ?? "其他来源";
+}
+function amountLabel(record: AccountEntry) {
+  if (record.kind === "log") return "—";
+  const value = record.kind === "asset" ? record.total_assets : record.flow;
+  if (value === null || value === "") return "—";
+  const signed =
+    record.kind === "cash_flow" && !value.startsWith("-") ? `+${value}` : value;
+  return `${signed} ${props.currency ?? "账户本位币"}`;
+}
 const valid = computed(() => {
   const d = draft.value;
   return (
@@ -74,8 +106,9 @@ const valid = computed(() => {
     (!editing.value || !!reason.value.trim())
   );
 });
-function loadRows(cursor = "") {
+function loadRows(cursor = "", page = 0) {
   const id = props.accountId;
+  recordPage.value = page;
   records.clear();
   if (id)
     void records.load(async (signal) => {
@@ -92,9 +125,10 @@ function loadRows(cursor = "") {
       return result;
     });
 }
-function loadHistory(cursor = "") {
+function loadHistory(cursor = "", page = 0) {
   const id = props.accountId,
     record = historyID.value;
+  revisionPage.value = page;
   revisions.clear();
   if (id && record)
     void revisions.load(async (signal) => {
@@ -132,18 +166,34 @@ function load() {
         throw new LedgerError("invalid_response");
       return result;
     });
-  loadRows();
+  recordPage.value = 0;
+  recordCursors.value = [""];
+  if (historyOpen.value) loadRows();
+  else records.clear();
   loadHistory();
 }
 function reset() {
   draft.value = fresh();
   editing.value = undefined;
+  inspected.value = undefined;
   reason.value = "";
+  revisionPage.value = 0;
+  revisionCursors.value = [""];
 }
 function select(record: AccountRecord) {
   if (locked.value || props.disabled) return;
+  error.value = "";
+  inspected.value = record;
+  historyID.value = record.id;
+  revisionPage.value = 0;
+  revisionCursors.value = [""];
   if (record.operation_id) {
-    error.value = `此记录由持仓操作 ${record.operation_id} 管理，请在持仓操作列表修正或作废；转账两腿会一起更新。`;
+    editing.value = undefined;
+    draft.value = fresh();
+    reason.value = "";
+    error.value =
+      "此记录由持仓操作生成，请在“操作流水”中查看、更正或作废；转账两腿会一起更新。";
+    loadHistory();
     return;
   }
   editing.value = record;
@@ -155,7 +205,6 @@ function select(record: AccountRecord) {
     note: record.note,
   };
   reason.value = "";
-  historyID.value = record.id;
   loadHistory();
 }
 async function send(
@@ -207,7 +256,7 @@ function createAccount() {
     new PendingWrite("/reported-accounts", "POST", {
       id,
       name: name.value,
-      currency: currency.value,
+      currency: reportedCurrency.value,
       opening_date: openingDate.value,
     }),
     id,
@@ -252,7 +301,36 @@ function voidRecord() {
 }
 function filter() {
   applied = { from: from.value, to: to.value };
+  recordPage.value = 0;
+  recordCursors.value = [""];
   loadRows();
+}
+function toggleHistory(event: Event) {
+  historyOpen.value = (event.currentTarget as HTMLDetailsElement).open;
+  if (historyOpen.value && !records.data && !records.loading) loadRows();
+}
+function previousRecords() {
+  if (recordPage.value > 0)
+    loadRows(recordCursors.value[recordPage.value - 1]!, recordPage.value - 1);
+}
+function nextRecords() {
+  const cursor = records.data?.next_cursor;
+  if (!cursor || records.loading || records.error) return;
+  recordCursors.value.splice(recordPage.value + 1, Infinity, cursor);
+  loadRows(cursor, recordPage.value + 1);
+}
+function previousRevisions() {
+  if (revisionPage.value > 0)
+    loadHistory(
+      revisionCursors.value[revisionPage.value - 1]!,
+      revisionPage.value - 1,
+    );
+}
+function nextRevisions() {
+  const cursor = revisions.data?.next_cursor;
+  if (!cursor || revisions.loading || revisions.error) return;
+  revisionCursors.value.splice(revisionPage.value + 1, Infinity, cursor);
+  loadHistory(cursor, revisionPage.value + 1);
 }
 watch(
   () => props.accountId,
@@ -262,6 +340,11 @@ watch(
     from.value = "";
     to.value = "";
     applied = { from: "", to: "" };
+    historyOpen.value = false;
+    recordPage.value = 0;
+    recordCursors.value = [""];
+    revisionPage.value = 0;
+    revisionCursors.value = [""];
     load();
   },
   { immediate: true },
@@ -273,7 +356,8 @@ watch(() => props.refreshKey, load);
   <section class="ledger-panel" data-test="account-records">
     <h2>总资产账户 · 持续记账</h2>
     <p>
-      导入、人工记录与自动估值保存在同一账户记录表。人工记录不生成持仓买卖或改变持仓现金；转出无需持仓现金余额。持仓操作生成的记录须从原操作修正。
+      用总资产、资金转入转出和投资日志持续记录账户。Excel
+      导入、手工记录和估值会合并到同一条账户历史中。
     </p>
     <details>
       <summary>不使用 Excel，新建总资产账户</summary>
@@ -287,7 +371,7 @@ watch(() => props.refreshKey, load);
               maxlength="512"
           /></label>
           <label
-            >币种<select v-model="currency" name="reported_currency">
+            >币种<select v-model="reportedCurrency" name="reported_currency">
               <option>CNY</option>
               <option>HKD</option>
               <option>USD</option>
@@ -321,7 +405,7 @@ watch(() => props.refreshKey, load);
     <template v-if="accountId">
       <p>
         当前账户：{{ accountName ?? accountId }} · 金额单位：{{
-          currency ?? "账户本位币"
+          props.currency ?? "账户本位币"
         }}
       </p>
       <h3>当前有效统计（不含作废，全部记录日期）</h3>
@@ -375,18 +459,12 @@ watch(() => props.refreshKey, load);
           </dd>
         </div>
       </dl>
-      <LedgerAnalysisBasis
-        :account-id="accountId"
-        :holdings="holdings"
-        :refresh-key="basisRefresh"
-      />
-      <LedgerAudit :account-id="accountId" />
       <form data-test="account-entry" @submit.prevent="save">
         <fieldset :disabled="locked || disabled" class="ledger-grid">
           <legend>
             {{
               editing
-                ? `记录 ${editing.id} · 版本 ${editing.version}${editing.voided ? " · 已作废" : ""}`
+                ? `${kindLabel(editing)} · ${editing.voided ? "已作废" : "更正已选记录"}`
                 : "新增账户级记录"
             }}
           </legend>
@@ -422,10 +500,15 @@ watch(() => props.refreshKey, load);
               inputmode="decimal"
               :required="draft.kind === 'asset'"
           /></label>
-          <p>
-            同行总资产为资金进出之后的金额。资金流未填资产时，分析沿用该日期和序号之前最近的有效资产原值，不加本笔资金流；
-            无此前资产则不可用。沿用值不保存为新资产观察。
-          </p>
+          <details class="entry-help">
+            <summary>填写说明</summary>
+            <p>
+              资金流正数为转入、负数为转出；同行总资产填写资金进出后的金额。人工记录不会生成持仓交易或改变持仓现金，持仓操作生成的记录需从原操作更正。
+            </p>
+            <p>
+              资金流未填总资产时，分析会沿用此前最近的有效资产原值，但不会把沿用值保存成新的资产观察；此前没有资产记录时，相关收益无法计算。
+            </p>
+          </details>
           <label
             >投资日志<textarea
               v-model="draft.note"
@@ -453,133 +536,207 @@ watch(() => props.refreshKey, load);
           <button v-if="editing" type="button" @click="reset">返回新增</button>
         </fieldset>
       </form>
-      <form
-        class="ledger-grid"
-        data-test="record-filters"
-        @submit.prevent="filter"
+      <details v-if="inspected" data-test="record-technical">
+        <summary>查看所选记录的来源与版本</summary>
+        <dl class="ledger-record">
+          <dt>记录编号</dt>
+          <dd>{{ inspected.id }}</dd>
+          <dt>当前版本</dt>
+          <dd>{{ inspected.version }}</dd>
+          <dt>同日顺序</dt>
+          <dd>{{ inspected.sequence ?? "历史回执未附顺序" }}</dd>
+          <dt>记录来源</dt>
+          <dd>{{ originLabel(inspected.origin) }}</dd>
+          <dt>记录日期</dt>
+          <dd>{{ inspected.date }}</dd>
+          <dt>同行总资产</dt>
+          <dd>
+            {{ inspected.total_assets ?? "—" }}
+            {{
+              inspected.total_assets === null
+                ? ""
+                : (props.currency ?? "账户本位币")
+            }}
+          </dd>
+          <template v-if="inspected.carried_from">
+            <dt>沿用来源</dt>
+            <dd>
+              {{ inspected.carried_from.date }} /
+              {{ inspected.carried_from.id }} / 版本
+              {{ inspected.carried_from.version }}
+            </dd>
+          </template>
+          <template v-if="inspected.operation_id">
+            <dt>关联持仓操作</dt>
+            <dd>{{ inspected.operation_id }}</dd>
+          </template>
+          <template v-if="inspected.quote_audit_id">
+            <dt>关联估值审计</dt>
+            <dd>{{ inspected.quote_audit_id }}</dd>
+          </template>
+        </dl>
+        <p v-if="inspected.manual_assertion">
+          此金额经过人工确认，原报价证据仍保留。
+        </p>
+        <details v-if="inspected.original">
+          <summary>查看原始 Excel 导入行</summary>
+          <pre>{{ JSON.stringify(inspected.original, null, 2) }}</pre>
+        </details>
+      </details>
+      <LedgerAnalysisBasis
+        :account-id="accountId"
+        :holdings="holdings"
+        :refresh-key="basisRefresh"
+      />
+      <details
+        :key="accountId"
+        class="records-history"
+        data-test="records-history"
+        @toggle="toggleHistory"
       >
-        <label
-          >起始日期<input v-model="from" name="record_from" type="date"
-        /></label>
-        <label
-          >结束日期<input v-model="to" name="record_to" type="date"
-        /></label>
-        <button :disabled="!!from && !!to && from > to">
-          筛选有效记录列表
-        </button>
-        <button type="button" @click="load">刷新当前统计和记录</button>
-      </form>
-      <p v-if="records.loading">正在读取记录…</p>
-      <p v-if="records.error" role="alert">{{ records.error }}</p>
-      <div class="ledger-table">
-        <table v-if="records.data" data-test="effective-records">
-          <thead>
-            <tr>
-              <th>日期 / 来源</th>
-              <th>类型 / 状态</th>
-              <th>资金流</th>
-              <th>总资产</th>
-              <th>日志</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="record in records.data.items" :key="record.id">
-              <td>
-                {{ record.date }} /
-                {{
-                  {
-                    import: "导入初始化",
-                    manual: "手工",
-                    currentrefresh: "当前估值",
-                    weekly: "每周估值",
-                    weekly_carry: "每周沿用",
-                    operation: "持仓操作",
-                  }[record.origin]
-                }}
-                {{
-                  record.manual_assertion ? "（人工修正，原报价证据保留）" : ""
-                }}
-                <span v-if="record.carried_from">
-                  （沿用 {{ record.carried_from.date }} /
-                  {{ record.carried_from.id }} v{{
-                    record.carried_from.version
-                  }}）
-                </span>
-                · 序号 {{ record.sequence ?? "历史回执未附序号" }}
-              </td>
-              <td>
-                {{ record.kind }} / {{ record.voided ? "已作废" : "有效" }} ·
-                v{{ record.version }}
-              </td>
-              <td>{{ record.flow ?? "未记录" }}</td>
-              <td>{{ record.total_assets ?? "未记录" }}</td>
-              <td class="ledger-note">{{ record.note }}</td>
-              <td>
-                <button
-                  type="button"
-                  :disabled="
-                    locked || disabled || records.loading || !!records.error
-                  "
-                  @click="select(record)"
-                >
-                  查看 / 更正 / 修订
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="records.data?.items.length === 0">此范围暂无记录。</p>
-      <div class="ledger-actions">
-        <button type="button" @click="loadRows()">记录首页</button
-        ><button
-          v-if="records.data?.next_cursor"
-          type="button"
-          :disabled="records.loading || !!records.error"
-          @click="loadRows(records.data.next_cursor)"
+        <summary>
+          查看全部历史记录<span v-if="totalRecords !== undefined"
+            >（{{ totalRecords }} 条）</span
+          >
+        </summary>
+        <form
+          class="ledger-grid"
+          data-test="record-filters"
+          @submit.prevent="filter"
         >
-          下一页记录
-        </button>
-      </div>
-      <template v-if="historyID">
-        <h3>修订历史 · {{ historyID }}</h3>
-        <p>原始导入快照不会被更正覆盖；以下各版本均保留。</p>
-        <p v-if="revisions.loading">正在读取修订…</p>
-        <p v-if="revisions.error" role="alert">{{ revisions.error }}</p>
-        <article
-          v-for="revision in revisions.data?.items"
-          :key="revision.record.version"
+          <label
+            >起始日期<input v-model="from" name="record_from" type="date"
+          /></label>
+          <label
+            >结束日期<input v-model="to" name="record_to" type="date"
+          /></label>
+          <button :disabled="!!from && !!to && from > to">筛选历史记录</button>
+          <button type="button" @click="load">刷新当前统计和记录</button>
+        </form>
+        <p v-if="records.loading">正在读取记录…</p>
+        <p v-if="records.error" role="alert">{{ records.error }}</p>
+        <div class="ledger-table">
+          <table v-if="records.data" data-test="effective-records">
+            <caption>
+              按记录日期倒序，金额为账户本位币；更正与作废入口在每行末尾
+            </caption>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>记录类型</th>
+                <th>金额</th>
+                <th>备注</th>
+                <th>状态 / 来源</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="record in records.data.items" :key="record.id">
+                <td>{{ record.date }}</td>
+                <td>{{ kindLabel(record) }}</td>
+                <td class="record-amount">{{ amountLabel(record) }}</td>
+                <td class="ledger-note">{{ record.note || "—" }}</td>
+                <td class="record-badges">
+                  <span class="record-badge" :data-voided="record.voided">
+                    {{ record.voided ? "已作废" : "有效" }}
+                  </span>
+                  <span class="record-badge record-source">
+                    {{ originLabel(record.origin) }}
+                  </span>
+                  <small v-if="record.manual_assertion">人工确认</small>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    :disabled="
+                      locked || disabled || records.loading || !!records.error
+                    "
+                    @click="select(record)"
+                  >
+                    查看 / 更正 / 修订
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-if="records.data?.items.length === 0">此范围暂无记录。</p>
+        <div
+          v-if="recordPage > 0 || records.data?.next_cursor"
+          class="ledger-actions"
+          data-test="record-pagination"
         >
-          <h4>
-            版本 {{ revision.record.version }} ·
-            {{ revision.record.voided ? "已作废" : "有效" }}
-          </h4>
-          <p>
-            {{ revision.record.date }} · {{ revision.record.kind }} · 资金流
-            {{ revision.record.flow ?? "未记录" }} · 总资产
-            {{ revision.record.total_assets ?? "未记录" }}
-          </p>
-          <p class="ledger-note">{{ revision.record.note }}</p>
-          <p>
-            原因：{{ revision.reason || "原始记录" }} ·
-            {{ revision.record.updated_at }}
-          </p>
-          <details v-if="revision.record.original">
-            <summary>不可变来源行</summary>
-            <pre>{{ JSON.stringify(revision.record.original, null, 2) }}</pre>
-          </details>
-        </article>
-        <button type="button" @click="loadHistory()">修订首页</button
-        ><button
-          v-if="revisions.data?.next_cursor"
-          type="button"
-          :disabled="revisions.loading || !!revisions.error"
-          @click="loadHistory(revisions.data.next_cursor)"
-        >
-          下一页修订
-        </button>
-      </template>
+          <button
+            type="button"
+            :disabled="recordPage === 0 || records.loading"
+            @click="previousRecords"
+          >
+            上一页</button
+          ><span>第 {{ recordPage + 1 }} 页</span
+          ><button
+            type="button"
+            :disabled="
+              !records.data?.next_cursor || records.loading || !!records.error
+            "
+            @click="nextRecords"
+          >
+            下一页
+          </button>
+        </div>
+        <details v-if="historyID" :key="historyID" data-test="record-revisions">
+          <summary>查看更正与作废历史</summary>
+          <p>原始 Excel 导入快照不会被更正覆盖；以下各版本均保留。</p>
+          <p v-if="revisions.loading">正在读取修订…</p>
+          <p v-if="revisions.error" role="alert">{{ revisions.error }}</p>
+          <article
+            v-for="revision in revisions.data?.items"
+            :key="revision.record.version"
+          >
+            <h4>
+              版本 {{ revision.record.version }} ·
+              {{ revision.record.voided ? "已作废" : "有效" }}
+            </h4>
+            <p>
+              {{ revision.record.date }} · {{ kindLabel(revision.record) }} ·
+              {{ amountLabel(revision.record) }}
+            </p>
+            <p class="ledger-note">{{ revision.record.note || "—" }}</p>
+            <p>
+              原因：{{ revision.reason || "原始记录" }} ·
+              {{ revision.record.updated_at }}
+            </p>
+            <details v-if="revision.record.original">
+              <summary>查看原始 Excel 导入行</summary>
+              <pre>{{ JSON.stringify(revision.record.original, null, 2) }}</pre>
+            </details>
+          </article>
+          <div
+            v-if="revisionPage > 0 || revisions.data?.next_cursor"
+            class="ledger-actions"
+            data-test="revision-pagination"
+          >
+            <button
+              type="button"
+              :disabled="revisionPage === 0 || revisions.loading"
+              @click="previousRevisions"
+            >
+              上一页</button
+            ><span>第 {{ revisionPage + 1 }} 页</span
+            ><button
+              type="button"
+              :disabled="
+                !revisions.data?.next_cursor ||
+                revisions.loading ||
+                !!revisions.error
+              "
+              @click="nextRevisions"
+            >
+              下一页
+            </button>
+          </div>
+        </details>
+      </details>
+      <LedgerAudit :account-id="accountId" />
     </template>
   </section>
 </template>
@@ -607,6 +764,42 @@ pre {
 td.ledger-note {
   min-width: 160px;
   max-width: 320px;
+}
+.entry-help,
+.records-history,
+[data-test="record-technical"] {
+  margin: 12px 0;
+}
+.records-history {
+  border-top: 1px solid #dde3db;
+  padding-top: 8px;
+}
+.records-history > summary,
+[data-test="record-technical"] > summary {
+  font-weight: 600;
+}
+.record-badges {
+  white-space: normal;
+}
+.record-badge {
+  display: inline-block;
+  border: 1px solid #bac9be;
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin: 2px 4px 2px 0;
+  background: #eaf3eb;
+  white-space: nowrap;
+}
+.record-badge[data-voided="true"] {
+  border-color: #d7b4ab;
+  background: #fff0ed;
+}
+.record-source {
+  background: #f3f6f1;
+}
+.record-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 article {
   border-top: 1px solid #dde3db;

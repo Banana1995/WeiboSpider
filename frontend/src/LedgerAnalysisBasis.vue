@@ -165,21 +165,62 @@ watch(
       </button>
     </form>
     <p>
-      导入初始化、后续人工记录和自动估值属于同一账户、同一条曲线。默认截止北京时间今天，未来记录不进入分析。明确开始日期时，期初取开始日之前最后有效资产，期间资金流含首尾日，同行资产已含资金进出。收益默认以首个已知日终资产为基准，资产图不是收益率曲线。
-    </p>
-    <p>
-      读取上限：截至截止日 10,000 条原始记录/估值、10,000 条变更及区间内 10,000
-      条合并明细。超限拒绝，不截断；invalid_query
-      也可能表示超限。缩短截止日后重试，仍超限需后续分页分析支持。
+      选择日期后查看账户资产走势和收益；未指定开始日期时，以首个明确日终资产为正常计算基准。
     </p>
     <p v-if="basis.loading" role="status">正在读取分析依据…</p>
     <p v-if="basis.error" role="alert">{{ basis.error }}</p>
+    <details v-if="!basis.data" data-test="analysis-source">
+      <summary>查看数据来源与计算依据</summary>
+      <p>
+        导入、手工记录和自动估值会合并为同一账户曲线；明确开始日期时，期初取开始日前最后一笔有效资产。未来记录不进入分析。
+      </p>
+      <p>
+        单次最多读取截至截止日 10,000 条原始记录/估值、10,000 条变更及区间内
+        10,000 条合并明细。超限时不截断，请缩短截止日期后重试。
+      </p>
+    </details>
     <template v-if="basis.data">
       <LedgerReturns
         :points="basis.data.points"
         :result="basis.data.returns"
         :currency="basis.data.currency"
       />
+      <dl class="ledger-stats" data-test="analysis-summary">
+        <div>
+          <dt>分析期间</dt>
+          <dd>
+            <template
+              v-if="
+                basis.data.returns.effective_from &&
+                basis.data.returns.effective_to
+              "
+            >
+              {{ basis.data.returns.effective_from }} 至
+              {{ basis.data.returns.effective_to }}
+            </template>
+            <template v-else>尚未形成有效区间</template>
+          </dd>
+        </div>
+        <div>
+          <dt>期初资产</dt>
+          <dd>
+            {{
+              basis.data.opening?.assets ??
+              (basis.data.returns.start_mode === "baseline"
+                ? "基准模式：以首个明确日终资产起算"
+                : "尚无开始日前资产记录")
+            }}
+          </dd>
+        </div>
+        <div>
+          <dt>期末资产</dt>
+          <dd>{{ basis.data.closing?.assets ?? "尚无截止资产记录" }}</dd>
+        </div>
+        <div>
+          <dt>期间净流入</dt>
+          <dd>{{ basis.data.net_flow }} {{ basis.data.currency }}</dd>
+        </div>
+      </dl>
       <LedgerAssetChart
         :points="basis.data.points"
         :currency="basis.data.currency"
@@ -187,41 +228,36 @@ watch(
         :to="basis.data.to"
         :revision="basis.data.revision"
       />
-      <p role="status">{{ labels[basis.data.status] ?? basis.data.status }}</p>
-      <p v-if="basis.data.previous_basis_affected">
-        上次读取依据已受变更影响；本次重新投影账户记录，历史估值没有重算。
-      </p>
-      <dl class="ledger-stats">
-        <div>
-          <dt>分析截止</dt>
-          <dd>{{ basis.data.to }} · 北京时间</dd>
-        </div>
-        <div>
-          <dt>区间期初资产</dt>
-          <dd>{{ basis.data.opening?.assets ?? "无此前资产，不可用" }}</dd>
-        </div>
-        <div>
-          <dt>截止资产依据</dt>
-          <dd>{{ basis.data.closing?.assets ?? "不可用" }}</dd>
-        </div>
-        <div>
-          <dt>期间净流入</dt>
-          <dd>{{ basis.data.net_flow }}</dd>
-        </div>
-      </dl>
-      <p v-if="basis.data.closing">
-        {{ labels[basis.data.closing.status] ?? basis.data.closing.status }}；
-        最后记录 {{ basis.data.closing.date }} / 序号
-        {{ basis.data.closing.sequence }}； 资产来源
-        {{ basis.data.closing.source_date || "无" }} /
-        {{ basis.data.closing.source_id || "无" }} / 版本
-        {{ basis.data.closing.source_version || "无" }}。
-      </p>
-      <p>
-        同日最后有效资产/资金记录胜出，日志不抹除资产。账户级沿用金额不加资金流，不是真实新增估值；持仓估值按日期、保存序号取最后观察，未追踪或过期观察不能作为已核实结果。
-      </p>
-      <details>
-        <summary>版本与变更影响（{{ basis.data.changes.length }} 项）</summary>
+      <details data-test="analysis-source">
+        <summary>查看数据来源与计算依据</summary>
+        <p role="status">
+          {{ labels[basis.data.status] ?? basis.data.status }}
+        </p>
+        <p v-if="basis.data.previous_basis_affected">
+          上次读取依据已受变更影响；本次重新投影账户记录，历史估值没有重算。
+        </p>
+        <p>
+          分析截止
+          {{
+            basis.data.to
+          }}（北京时间）。导入初始化、后续人工记录和自动估值属于同一账户、同一条曲线。未来记录不进入分析。明确开始日期时，期初取开始日之前最后有效资产，期间资金流含首尾日，同行资产已含资金进出。资产图不是收益率曲线。
+        </p>
+        <p v-if="basis.data.closing">
+          {{ labels[basis.data.closing.status] ?? basis.data.closing.status }}；
+          最后记录 {{ basis.data.closing.date }} / 同日顺序
+          {{ basis.data.closing.sequence }}；资产来源日期
+          {{ basis.data.closing.source_date || "无" }} / 来源记录
+          {{ basis.data.closing.source_id || "无" }} / 来源版本
+          {{ basis.data.closing.source_version || "无" }}。
+        </p>
+        <p>
+          同日最后有效资产/资金记录胜出，日志不抹除资产。账户级沿用金额不加资金流，不是真实新增估值；持仓估值按日期、保存顺序取最后观察，未追踪或过期观察不能作为已核实结果。
+        </p>
+        <p>
+          单次最多读取截至截止日 10,000 条原始记录/估值、10,000 条变更及区间内
+          10,000 条合并明细。超限时不截断，请缩短截止日期后重试。
+        </p>
+        <h4>版本与变更影响（{{ basis.data.changes.length }} 项）</h4>
         <p class="ledger-note">
           依据版本 {{ basis.data.revision }}；变更水位
           {{ basis.data.change_revision }}

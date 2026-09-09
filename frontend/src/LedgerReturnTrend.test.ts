@@ -126,6 +126,9 @@ it("uses safe Canvas exact text, same-snapshot red/green events, local selectors
   const fetch = vi.fn();
   vi.stubGlobal("fetch", fetch);
   const w = setup(points, [p, { ...p, flow: "-67.89" }]);
+  const data = w.get('[data-test="return-trend-data"]');
+  expect(data.get("summary").text()).toBe("查看收益趋势数据");
+  expect((data.element as HTMLDetailsElement).open).toBe(false);
   const option = chart.setOption.mock.calls.at(-1)![0];
   expect(option.tooltip.renderMode).toBe("richText");
   expect(option.series[0].lineStyle.type).toBe("solid");
@@ -139,10 +142,12 @@ it("uses safe Canvas exact text, same-snapshot red/green events, local selectors
   expect(
     option.tooltip.formatter({ data: option.series[1].data[0] }),
   ).not.toContain(malicious);
-  expect(w.text()).toContain(malicious);
+  (data.element as HTMLDetailsElement).open = true;
+  await data.trigger("toggle");
+  expect(data.text()).toContain(malicious);
   expect(w.find("img").exists()).toBe(false);
-  expect(w.text()).toContain("90071992547409.03");
-  expect(w.text()).toContain("外部资金流边界缺少总资产");
+  expect(data.text()).toContain("90071992547409.03");
+  expect(data.text()).toContain("外部资金流边界缺少总资产");
   await w.get('select[name="return_trend_metric"]').setValue("profit");
   expect(chart.setOption.mock.calls.at(-1)![0].yAxis[0].name).toContain(
     "收益坐标",
@@ -157,10 +162,15 @@ it("uses safe Canvas exact text, same-snapshot red/green events, local selectors
 
 it("paginates 30 exact rows, resets on new snapshot and retains a fallback on chart error", async () => {
   const w = setup(Array.from({ length: 61 }, (_, i) => point(i)));
+  const data = w.get('[data-test="return-trend-data"]');
+  (data.element as HTMLDetailsElement).open = true;
+  await data.trigger("toggle");
   expect(w.findAll("tbody tr")).toHaveLength(30);
-  await w
+  const pagination = w.get('[data-test="return-trend-pagination"]');
+  expect(pagination.text()).toContain("第 1 / 3 页");
+  await pagination
     .findAll("button")
-    .find((b) => b.text() === "下一页趋势")!
+    .find((b) => b.text() === "下一页")!
     .trigger("click");
   expect(w.text()).toContain("synthetic-30");
   expect(w.text()).not.toContain("synthetic-29");
@@ -169,6 +179,7 @@ it("paginates 30 exact rows, resets on new snapshot and retains a fallback on ch
   });
   await w.setProps({ result: result([point(0)]) });
   expect(w.findAll("tbody tr")).toHaveLength(1);
+  expect(w.find('[data-test="return-trend-pagination"]').exists()).toBe(false);
   expect(w.text()).toContain("图形暂不可用");
   w.unmount();
 });

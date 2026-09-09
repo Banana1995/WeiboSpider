@@ -121,11 +121,24 @@ afterEach(() => {
   wrapper?.unmount();
   vi.unstubAllGlobals();
 });
-async function start(accountId = "a") {
+async function setOpen(selector: string, open = true) {
+  const details = wrapper.get(selector);
+  (details.element as HTMLDetailsElement).open = open;
+  await details.trigger("toggle");
+  await flushPromises();
+}
+async function start(accountId = "a", openHistory = true, currency = "CNY") {
   wrapper = mount(AccountRecords, {
-    props: { accountId, refreshKey: 0, disabled: false },
+    props: {
+      accountId,
+      accountName: "合成账户",
+      currency,
+      refreshKey: 0,
+      disabled: false,
+    },
   });
   await flushPromises();
+  if (accountId && openHistory) await setOpen('[data-test="records-history"]');
 }
 async function draft(kind = "asset", assets = "0") {
   await wrapper.get('[name="entry_kind"]').setValue(kind);
@@ -134,6 +147,101 @@ async function draft(kind = "asset", assets = "0") {
     await wrapper.get('[name="entry_assets"]').setValue(assets);
 }
 const writes = () => calls.filter((c) => c.method !== "GET");
+
+it("keeps history collapsed until requested and uses business labels without row metadata", async () => {
+  records = [
+    sample(),
+    {
+      ...sample("manual-in"),
+      kind: "cash_flow",
+      flow: "2.02",
+      total_assets: null,
+      origin: "manual",
+      original: null,
+    },
+    {
+      ...sample("estimate-out"),
+      kind: "cash_flow",
+      flow: "-3.03",
+      total_assets: null,
+      origin: "currentrefresh",
+      original: null,
+    },
+    {
+      ...sample("weekly-log"),
+      kind: "log",
+      flow: null,
+      total_assets: null,
+      origin: "weekly",
+      original: null,
+    },
+    { ...sample("carry"), origin: "weekly_carry", original: null },
+    {
+      ...sample("operation"),
+      origin: "operation",
+      original: null,
+      operation_id: "holding-op-1",
+      sequence: "6",
+      voided: true,
+    },
+  ];
+  await start("a", false);
+  const history = wrapper.get('[data-test="records-history"]');
+  expect((history.element as HTMLDetailsElement).open).toBe(false);
+  expect(history.get("summary").text()).toBe("查看全部历史记录（6 条）");
+  expect(wrapper.find('[data-test="effective-records"]').exists()).toBe(false);
+  expect(
+    calls.some(({ path }) => /^\/accounts\/a\/records(?:\?|$)/.test(path)),
+  ).toBe(false);
+  await setOpen('[data-test="records-history"]');
+  const table = wrapper.get('[data-test="effective-records"]');
+  expect(table.text()).toContain("总资产");
+  expect(table.text()).toContain("资金转入");
+  expect(table.text()).toContain("资金转出");
+  expect(table.text()).toContain("投资日志");
+  for (const source of [
+    "Excel 导入",
+    "手工记录",
+    "自动估值",
+    "周六估值",
+    "每周沿用",
+    "持仓操作",
+  ])
+    expect(table.text()).toContain(source);
+  expect(table.text()).toContain("90071992547409.01 CNY");
+  expect(table.text()).toContain("+2.02 CNY");
+  expect(table.text()).toContain("-3.03 CNY");
+  expect(table.text()).toContain("—");
+  expect(table.text()).toContain("有效");
+  expect(table.text()).toContain("已作废");
+  expect(table.text()).not.toContain("import-1");
+  expect(table.text()).not.toContain("序号");
+  expect(table.text()).not.toContain("v1");
+  await table
+    .findAll("tr")
+    .find((row) => row.text().includes("持仓操作"))!
+    .get("button")
+    .trigger("click");
+  await flushPromises();
+  expect(wrapper.get('[data-test="account-entry"] legend').text()).toBe(
+    "新增账户级记录",
+  );
+  expect(wrapper.get('[role="alert"]').text()).toContain(
+    "请在“操作流水”中查看、更正或作废",
+  );
+  await setOpen('[data-test="record-technical"]');
+  const technical = wrapper.get('[data-test="record-technical"]');
+  const labels = technical.findAll("dt").map((field) => field.text());
+  const values = technical.findAll("dd").map((field) => field.text());
+  expect(
+    Object.fromEntries(labels.map((label, index) => [label, values[index]])),
+  ).toMatchObject({
+    记录编号: "operation",
+    当前版本: "1",
+    同日顺序: "6",
+    关联持仓操作: "holding-op-1",
+  });
+});
 
 it("creates a reported account without cash, positions or Excel", async () => {
   await start("");
@@ -155,12 +263,26 @@ it("creates a reported account without cash, positions or Excel", async () => {
   ]);
 });
 it("renders imported exact money and immutable source revisions", async () => {
-  await start();
-  expect(wrapper.text()).toContain("90071992547409.01");
+  await start("a", true, "USD");
+  const table = wrapper.get('[data-test="effective-records"]');
+  expect(table.text()).toContain("90071992547409.01 USD");
+  expect(wrapper.text()).toContain("金额单位：USD");
+  expect(table.text()).toContain("总资产");
+  expect(table.text()).toContain("Excel 导入");
+  expect(table.text()).not.toContain("import-1");
   await wrapper.get('[data-test="effective-records"] button').trigger("click");
   await flushPromises();
-  expect(wrapper.text()).toContain("Synthetic detail");
-  expect(wrapper.text()).toContain("版本 1");
+  const technical = wrapper.get('[data-test="record-technical"]');
+  expect((technical.element as HTMLDetailsElement).open).toBe(false);
+  await setOpen('[data-test="record-technical"]');
+  expect(technical.text()).toContain("import-1");
+  expect(technical.findAll("dd").map((value) => value.text())).toContain("1");
+  expect(technical.text()).toContain("90071992547409.01 USD");
+  const revisions = wrapper.get('[data-test="record-revisions"]');
+  expect((revisions.element as HTMLDetailsElement).open).toBe(false);
+  await setOpen('[data-test="record-revisions"]');
+  expect(revisions.text()).toContain("Synthetic detail");
+  expect(revisions.text()).toContain("版本 1");
   expect(writes()).toHaveLength(0);
 });
 it("records zero assets without turning them into cash", async () => {
@@ -292,6 +414,7 @@ it("ignores late reads on account switch even when fetch ignores abort", async (
   records = [sample("manual-b", "b")];
   await wrapper.setProps({ accountId: "b" });
   await flushPromises();
+  await setOpen('[data-test="records-history"]');
   release(response({ items: [sample()] }));
   await flushPromises();
   expect(wrapper.get('[data-test="effective-records"]').text()).not.toContain(
@@ -341,9 +464,11 @@ it("keeps applied date filters across list pages and paginates revisions", async
   await wrapper.get('[data-test="record-filters"]').trigger("submit");
   await flushPromises();
   await wrapper.get('[name="record_from"]').setValue("2021-01-01");
-  await wrapper
+  const recordPagination = wrapper.get('[data-test="record-pagination"]');
+  expect(recordPagination.text()).toContain("第 1 页");
+  await recordPagination
     .findAll("button")
-    .find((b) => b.text() === "下一页记录")!
+    .find((b) => b.text() === "下一页")!
     .trigger("click");
   await flushPromises();
   const url = new URL(calls.at(-1)!.path, "http://localhost");
@@ -351,9 +476,11 @@ it("keeps applied date filters across list pages and paginates revisions", async
   expect(url.searchParams.get("cursor")).toBe("2020-01-01:import-1");
   await wrapper.get('[data-test="effective-records"] button').trigger("click");
   await flushPromises();
-  await wrapper
+  await setOpen('[data-test="record-revisions"]');
+  const revisionPagination = wrapper.get('[data-test="revision-pagination"]');
+  await revisionPagination
     .findAll("button")
-    .find((b) => b.text() === "下一页修订")!
+    .find((b) => b.text() === "下一页")!
     .trigger("click");
   await flushPromises();
   expect(calls.at(-1)!.path).toContain("/revisions?limit=30&cursor=1");

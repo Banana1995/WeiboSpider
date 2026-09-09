@@ -25,6 +25,12 @@ it("reads only on demand, filters and paginates 30, and renders frozen JSON as e
     .mockResolvedValue(response({ items: [entry], next_cursor: entry.id }));
   vi.stubGlobal("fetch", fetcher);
   const w = mount(LedgerAudit, { props: { accountId: "a" } });
+  const panel = w.get('[data-test="ledger-audit"]');
+  expect(panel.get("summary").text()).toBe("高级：操作审计");
+  expect((panel.element as HTMLDetailsElement).open).toBe(false);
+  expect(fetcher).not.toHaveBeenCalled();
+  (panel.element as HTMLDetailsElement).open = true;
+  await panel.trigger("toggle");
   expect(fetcher).not.toHaveBeenCalled();
   await w.get('input[name="audit_action"]').setValue("replace");
   await w.get("form").trigger("submit");
@@ -32,6 +38,8 @@ it("reads only on demand, filters and paginates 30, and renders frozen JSON as e
   expect(fetcher.mock.calls[0][0]).toContain("account_id=a");
   expect(fetcher.mock.calls[0][0]).toContain("limit=30");
   expect(fetcher.mock.calls[0][0]).toContain("action=replace");
+  expect(w.get("li").text()).toContain("更正 · 账户记录");
+  expect(w.get("li").text()).toContain("手工操作");
   const raw =
     '{"version":9007199254740993,"note":"<img src=x onerror=alert(1)>"}';
   fetcher.mockResolvedValue(
@@ -67,6 +75,9 @@ it("clears context on account switch and rejects late or cross-account detail", 
   const fetcher = vi.fn().mockResolvedValue(response({ items: [entry] }));
   vi.stubGlobal("fetch", fetcher);
   const w = mount(LedgerAudit, { props: { accountId: "a" } });
+  const panel = w.get('[data-test="ledger-audit"]');
+  (panel.element as HTMLDetailsElement).open = true;
+  await panel.trigger("toggle");
   await w.get("form").trigger("submit");
   await flushPromises();
   fetcher.mockImplementationOnce(

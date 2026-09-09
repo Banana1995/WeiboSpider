@@ -88,12 +88,19 @@ it("clicks any event/point to select ALL same-day details; labels escape and coo
   const callback = chart.on.mock.calls[0]![1];
   callback({ data: { date: "2020-01-01" } });
   await w.vm.$nextTick();
-  expect(w.get('[aria-label="同日全部记录"]').text()).toContain(
-    "全部 2 条记录",
-  );
-  expect(w.text()).toContain(malicious);
+  const selectedDay = w.get('[aria-label="同日全部记录"]');
+  expect(selectedDay.get("h4").text()).toContain("全部 2 条记录");
+  const sameDay = w.get('[data-test="same-day-records"]');
+  expect((sameDay.element as HTMLDetailsElement).open).toBe(false);
+  expect(sameDay.get("summary").text()).toBe("查看数据来源与计算依据");
+  expect(
+    (w.get('[data-test="asset-date-data"]').element as HTMLDetailsElement).open,
+  ).toBe(false);
+  (sameDay.element as HTMLDetailsElement).open = true;
+  await sameDay.trigger("toggle");
+  expect(sameDay.text()).toContain(malicious);
   expect(w.find("img").exists()).toBe(false);
-  expect(w.text()).toContain(p.assets);
+  expect(sameDay.text()).toContain(p.assets);
   const option = chart.setOption.mock.calls.at(-1)![0];
   expect(option.tooltip.renderMode).toBe("richText");
   const tooltip = option.tooltip.formatter({ data: option.series[0].data[0] });
@@ -118,10 +125,15 @@ it("offers keyboard dates and paged HTML fallback including every same-day recor
     ),
   );
   await w.vm.$nextTick();
+  const sameDay = w.get('[data-test="same-day-records"]');
+  (sameDay.element as HTMLDetailsElement).open = true;
+  await sameDay.trigger("toggle");
   expect(w.findAll("article")).toHaveLength(30);
-  await w
+  const pagination = w.get('[data-test="same-day-pagination"]');
+  expect(pagination.text()).toContain("第 1 / 2 页");
+  await pagination
     .findAll("button")
-    .find((b) => b.text() === "下一页明细")!
+    .find((b) => b.text() === "下一页")!
     .trigger("click");
   expect(w.findAll("article")).toHaveLength(5);
   expect(w.text()).toContain("manual-34");
@@ -151,6 +163,34 @@ it("offers keyboard dates and paged HTML fallback including every same-day recor
   expect(w.find("article").exists()).toBe(false);
   w.unmount();
 });
+it("keeps the exact date table collapsed and uses plain pagination only when needed", async () => {
+  const w = setup(
+    Array.from({ length: 35 }, (_, i) =>
+      point({
+        date: new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
+        record_id: `manual-${i}`,
+        sequence: String(i + 1),
+      }),
+    ),
+  );
+  await w.vm.$nextTick();
+  const data = w.get('[data-test="asset-date-data"]');
+  expect(data.get("summary").text()).toBe("查看资产日期数据");
+  expect((data.element as HTMLDetailsElement).open).toBe(false);
+  (data.element as HTMLDetailsElement).open = true;
+  await data.trigger("toggle");
+  expect(data.findAll("tbody tr")).toHaveLength(30);
+  const pagination = data.get('[data-test="asset-date-pagination"]');
+  expect(pagination.text()).toContain("第 1 / 2 页");
+  expect(pagination.text()).not.toContain("上一页日期");
+  await pagination
+    .findAll("button")
+    .find((button) => button.text() === "下一页")!
+    .trigger("click");
+  expect(data.findAll("tbody tr")).toHaveLength(5);
+  expect(pagination.text()).toContain("第 2 / 2 页");
+  w.unmount();
+});
 it("retains accessible detail if ECharts rendering fails", async () => {
   chart.setOption.mockImplementationOnce(() => {
     throw new Error("synthetic renderer failure");
@@ -158,6 +198,10 @@ it("retains accessible detail if ECharts rendering fails", async () => {
   const w = setup([point()]);
   await w.vm.$nextTick();
   expect(w.text()).toContain("图形暂不可用");
-  expect(w.text()).toContain("100.00");
+  const data = w.get('[data-test="asset-date-data"]');
+  expect((data.element as HTMLDetailsElement).open).toBe(false);
+  (data.element as HTMLDetailsElement).open = true;
+  await data.trigger("toggle");
+  expect(data.text()).toContain("100.00");
   w.unmount();
 });

@@ -142,7 +142,7 @@ function render() {
     );
     error.value = "";
   } catch {
-    error.value = "图形暂不可用，请使用下方精确日期表。";
+    error.value = "图形暂不可用，请展开“查看收益趋势数据”使用精确表格。";
   }
 }
 watch(
@@ -160,7 +160,7 @@ onMounted(() => {
     observer.observe(element.value!);
     render();
   } catch {
-    error.value = "图形暂不可用，请使用下方精确日期表。";
+    error.value = "图形暂不可用，请展开“查看收益趋势数据”使用精确表格。";
   }
 });
 onBeforeUnmount(() => {
@@ -187,59 +187,73 @@ onBeforeUnmount(() => {
       ref="element"
       class="return-canvas"
       role="img"
-      aria-label="收益采样连线与资金事件带，精确值和不可用原因见下方键盘可访问表格"
+      aria-label="收益采样连线与资金事件带，精确值和不可用原因见下方可展开的键盘可访问表格"
     />
-    <div class="ledger-table-wrap">
-      <table>
-        <caption>
-          同一快照收益采样点 ·
-          {{
-            result.revision
-          }}
-        </caption>
-        <thead>
-          <tr>
-            <th>日期</th>
-            <th>累计收益 {{ currency }}</th>
-            <th>{{ manager ? "TWR" : "Modified Dietz" }}</th>
-            <th>来源记录</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="p in result.curve.slice(page * 30, (page + 1) * 30)"
-            :key="p.date"
-          >
-            <td>{{ p.date }}{{ p.baseline ? " 基准锚点" : "" }}</td>
-            <td>
-              {{ p.profit.value ?? "不可用" }} · {{ states[p.profit.status] }}
-              {{ returnReasons[p.profit.reason] }}
-            </td>
-            <td>
-              {{
-                returnPercent(
-                  p[manager ? "twr" : "modified_dietz"].value,
-                  p[manager ? "twr" : "modified_dietz"].percentage,
-                )
-              }}
-              · {{ states[p[manager ? "twr" : "modified_dietz"].status] }}
-              {{ returnReasons[p[manager ? "twr" : "modified_dietz"].reason] }}
-            </td>
-            <td>{{ p.record_id }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-if="result.curve.length > 30" class="ledger-actions">
-      <button :disabled="page === 0" @click="page--">上一页趋势</button
-      ><span>{{ page + 1 }} / {{ Math.ceil(result.curve.length / 30) }}</span
-      ><button
-        :disabled="(page + 1) * 30 >= result.curve.length"
-        @click="page++"
+    <details data-test="return-trend-data">
+      <summary>查看收益趋势数据</summary>
+      <div class="ledger-table-wrap">
+        <table>
+          <caption>
+            同一快照收益采样点 ·
+            {{
+              result.revision
+            }}
+          </caption>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>累计收益 {{ currency }}</th>
+              <th>{{ manager ? "TWR" : "Modified Dietz" }}</th>
+              <th>来源记录</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="p in result.curve.slice(page * 30, (page + 1) * 30)"
+              :key="p.date"
+            >
+              <td>{{ p.date }}{{ p.baseline ? " 基准锚点" : "" }}</td>
+              <td>
+                {{ p.profit.value ?? "不可用" }} ·
+                {{ states[p.profit.status] }}
+                {{ returnReasons[p.profit.reason] }}
+              </td>
+              <td>
+                {{
+                  returnPercent(
+                    p[manager ? "twr" : "modified_dietz"].value,
+                    p[manager ? "twr" : "modified_dietz"].percentage,
+                  )
+                }}
+                · {{ states[p[manager ? "twr" : "modified_dietz"].status] }}
+                {{
+                  returnReasons[p[manager ? "twr" : "modified_dietz"].reason]
+                }}
+              </td>
+              <td>{{ p.record_id }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div
+        v-if="result.curve.length > 30"
+        class="ledger-actions"
+        data-test="return-trend-pagination"
       >
-        下一页趋势
-      </button>
-    </div>
+        <button type="button" :disabled="page === 0" @click="page--">
+          上一页</button
+        ><span
+          >第 {{ page + 1 }} /
+          {{ Math.ceil(result.curve.length / 30) }} 页</span
+        ><button
+          type="button"
+          :disabled="(page + 1) * 30 >= result.curve.length"
+          @click="page++"
+        >
+          下一页
+        </button>
+      </div>
+    </details>
   </section>
 </template>
 

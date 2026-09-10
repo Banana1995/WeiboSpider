@@ -1,506 +1,87 @@
 // @vitest-environment jsdom
+// Updated for the permanent production record table; not executed in this change.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import AccountRecords from "./AccountRecords.vue";
+import type { Account, Page } from "./ledger";
 import type { AccountRecord } from "./accountRecords";
+import { money, recordPage } from "./ledgerView";
+import { createLedgerWorkspace, ledgerWorkspaceKey } from "./useLedgerWorkspace";
 
+const account: Account = { id: "a", name: "合成账户", currency: "CNY", opening_date: "2020-01-01", opening_cash: null, version: "1", accounting_mode: "reported", current_holdings_input: "manual_snapshot" };
+const sample = (overrides: Partial<AccountRecord> = {}): AccountRecord => ({
+  id: "manual-test", account_id: "a", sequence: "9007199254740993", kind: "cash_flow", date: "2020-01-02", flow: "10.01", total_assets: "90071992547409.01", note: "Synthetic note",
+  version: "9007199254740993", origin: "manual", original: null, voided: false, created_at: "2020-01-02T00:00:00Z", updated_at: "2020-01-02T00:00:00Z", ...overrides,
+});
 let wrapper: VueWrapper;
-let records: AccountRecord[];
-let calls: { path: string; method: string; body: string; key: string }[];
-let loseWrite: boolean;
-let readFailure: boolean;
-let conflict: boolean;
-let intercept:
-  ((path: string, method: string) => Promise<Response> | undefined) | undefined;
-const response = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-const sample = (id = "import-1", account = "a"): AccountRecord => ({
-  id,
-  account_id: account,
-  kind: "asset",
-  date: "2020-01-01",
-  flow: null,
-  total_assets: "90071992547409.01",
-  note: "Synthetic original",
-  version: "1",
-  origin: "import",
-  original: {
-    source_row: 5,
-    kind: "asset",
-    date: "2020-01-01",
-    flow: null,
-    total_assets: "90071992547409.01",
-    note: "Synthetic original",
-    source_created_at: "",
-    detail: "Synthetic detail",
-    date_raw: "2020/1/1",
-    created_raw: "",
-  },
-  voided: false,
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-});
+let calls: { path: string; method: string }[];
+let responsePage: Page<AccountRecord>;
+let failed: boolean;
+const workspace = () => createLedgerWorkspace(() => {});
 beforeEach(() => {
-  records = [sample()];
-  calls = [];
-  loseWrite = false;
-  readFailure = false;
-  conflict = false;
-  intercept = undefined;
-  const receipts = new Map<string, unknown>();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, options: RequestInit = {}) => {
-      const path = String(url).replace("/api/platform/ledger", "");
-      const method = options.method ?? "GET";
-      const body = String(options.body ?? "");
-      const key = new Headers(options.headers).get("Idempotency-Key") ?? "";
-      calls.push({ path, method, body, key });
-      const intercepted = intercept?.(path, method);
-      if (intercepted) return intercepted;
-      if (method !== "GET") {
-        if (conflict) return response({ code: "version_conflict" }, 409);
-        if (receipts.has(key)) return response(receipts.get(key));
-        const input = JSON.parse(body);
-        let result;
-        if (path === "/reported-accounts")
-          result = {
-            ...input,
-            accounting_mode: "reported",
-            opening_cash: null,
-            version: "1",
-          };
-        else {
-          const id = input.id ?? path.split("/").at(-1);
-          const previous = records.find((record) => record.id === id);
-          result = {
-            ...(previous ?? sample(id)),
-            ...input.entry,
-            id,
-            version: String(Number(previous?.version ?? 0) + 1),
-            origin: previous?.origin ?? "manual",
-            original: previous?.original ?? null,
-            voided: method === "DELETE",
-          };
-          records = [result, ...records.filter((record) => record.id !== id)];
-        }
-        receipts.set(key, result);
-        if (loseWrite) {
-          loseWrite = false;
-          throw new TypeError("Synthetic lost receipt");
-        }
-        return response(result);
-      }
-      if (readFailure) return response({ code: "storage_busy" }, 503);
-      if (path.includes("effective-summary"))
-        return response({
-          row_count: records.filter((r) => !r.voided).length,
-          asset_count: 1,
-          flow_count: 0,
-          log_count: 0,
-          voided_count: records.filter((r) => r.voided).length,
-          from: "2020-01-01",
-          to: "2020-01-01",
-          total_in: "0.00",
-          total_out: "0.00",
-          latest_assets: records[0]?.total_assets,
-          latest_asset_date: "2020-01-01",
-          latest_asset_count: 1,
-        });
-      if (path.includes("revisions"))
-        return response({ items: [{ record: sample(), reason: "" }] });
-      if (path.includes("/records")) return response({ items: records });
-      throw new Error(`Unexpected ${path}`);
-    }),
-  );
+  calls = []; responsePage = { items: [sample()] }; failed = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit = {}) => {
+    calls.push({ path: String(url), method: options.method ?? "GET" });
+    return new Response(JSON.stringify(failed ? { code: "storage_busy" } : responsePage), { status: failed ? 503 : 200, headers: { "Content-Type": "application/json" } });
+  }));
 });
-afterEach(() => {
-  wrapper?.unmount();
-  vi.unstubAllGlobals();
-});
-async function setOpen(selector: string, open = true) {
-  const details = wrapper.get(selector);
-  (details.element as HTMLDetailsElement).open = open;
-  await details.trigger("toggle");
+afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
+async function start() {
+  wrapper = mount(AccountRecords, { props: { account, refreshKey: 0 }, global: { provide: { [ledgerWorkspaceKey as symbol]: workspace() } } });
   await flushPromises();
 }
-async function start(accountId = "a", openHistory = true, currency = "CNY") {
-  wrapper = mount(AccountRecords, {
-    props: {
-      accountId,
-      accountName: "合成账户",
-      currency,
-      refreshKey: 0,
-      disabled: false,
-    },
-  });
-  await flushPromises();
-  if (accountId && openHistory) await setOpen('[data-test="records-history"]');
-}
-async function draft(kind = "asset", assets = "0") {
-  await wrapper.get('[name="entry_kind"]').setValue(kind);
-  await wrapper.get('[name="entry_date"]').setValue("2099-01-01");
-  if (kind !== "log")
-    await wrapper.get('[name="entry_assets"]').setValue(assets);
-}
-const writes = () => calls.filter((c) => c.method !== "GET");
-
-it("keeps history collapsed until requested and uses business labels without row metadata", async () => {
-  records = [
-    sample(),
-    {
-      ...sample("manual-in"),
-      kind: "cash_flow",
-      flow: "2.02",
-      total_assets: null,
-      origin: "manual",
-      original: null,
-    },
-    {
-      ...sample("estimate-out"),
-      kind: "cash_flow",
-      flow: "-3.03",
-      total_assets: null,
-      origin: "currentrefresh",
-      original: null,
-    },
-    {
-      ...sample("weekly-log"),
-      kind: "log",
-      flow: null,
-      total_assets: null,
-      origin: "weekly",
-      original: null,
-    },
-    { ...sample("carry"), origin: "weekly_carry", original: null },
-    {
-      ...sample("operation"),
-      origin: "operation",
-      original: null,
-      operation_id: "holding-op-1",
-      sequence: "6",
-      voided: true,
-    },
-  ];
-  await start("a", false);
-  const history = wrapper.get('[data-test="records-history"]');
-  expect((history.element as HTMLDetailsElement).open).toBe(false);
-  expect(history.get("summary").text()).toBe("查看全部历史记录（6 条）");
-  expect(wrapper.find('[data-test="effective-records"]').exists()).toBe(false);
-  expect(
-    calls.some(({ path }) => /^\/accounts\/a\/records(?:\?|$)/.test(path)),
-  ).toBe(false);
-  await setOpen('[data-test="records-history"]');
-  const table = wrapper.get('[data-test="effective-records"]');
-  expect(table.text()).toContain("总资产");
-  expect(table.text()).toContain("资金转入");
-  expect(table.text()).toContain("资金转出");
-  expect(table.text()).toContain("投资日志");
-  for (const source of [
-    "Excel 导入",
-    "手工记录",
-    "自动估值",
-    "周六估值",
-    "每周沿用",
-    "持仓操作",
-  ])
-    expect(table.text()).toContain(source);
-  expect(table.text()).toContain("90071992547409.01 CNY");
-  expect(table.text()).toContain("+2.02 CNY");
-  expect(table.text()).toContain("-3.03 CNY");
-  expect(table.text()).toContain("—");
-  expect(table.text()).toContain("有效");
-  expect(table.text()).toContain("已作废");
-  expect(table.text()).not.toContain("import-1");
-  expect(table.text()).not.toContain("序号");
-  expect(table.text()).not.toContain("v1");
-  await table
-    .findAll("tr")
-    .find((row) => row.text().includes("持仓操作"))!
-    .get("button")
-    .trigger("click");
-  await flushPromises();
-  expect(wrapper.get('[data-test="account-entry"] legend').text()).toBe(
-    "新增账户级记录",
-  );
-  expect(wrapper.get('[role="alert"]').text()).toContain(
-    "请在“操作流水”中查看、更正或作废",
-  );
-  await setOpen('[data-test="record-technical"]');
-  const technical = wrapper.get('[data-test="record-technical"]');
-  const labels = technical.findAll("dt").map((field) => field.text());
-  const values = technical.findAll("dd").map((field) => field.text());
-  expect(
-    Object.fromEntries(labels.map((label, index) => [label, values[index]])),
-  ).toMatchObject({
-    记录编号: "operation",
-    当前版本: "1",
-    同日顺序: "6",
-    关联持仓操作: "holding-op-1",
-  });
-});
-
-it("creates a reported account without cash, positions or Excel", async () => {
-  await start("");
-  await wrapper.get('[name="reported_name"]').setValue("Synthetic");
-  await wrapper.get('[name="reported_opening_date"]').setValue("2020-01-01");
-  await wrapper.get('[data-test="reported-create"]').trigger("submit");
-  await flushPromises();
-  expect(writes()).toHaveLength(1);
-  expect(writes()[0]!.path).toBe("/reported-accounts");
-  expect(JSON.parse(writes()[0]!.body)).toEqual({
-    id: expect.any(String),
-    name: "Synthetic",
-    currency: "CNY",
-    opening_date: "2020-01-01",
-  });
-  expect(writes()[0]!.key).toBeTruthy();
-  expect(wrapper.emitted("created")?.[0]).toEqual([
-    JSON.parse(writes()[0]!.body).id,
-  ]);
-});
-it("renders imported exact money and immutable source revisions", async () => {
-  await start("a", true, "USD");
-  const table = wrapper.get('[data-test="effective-records"]');
-  expect(table.text()).toContain("90071992547409.01 USD");
-  expect(wrapper.text()).toContain("金额单位：USD");
-  expect(table.text()).toContain("总资产");
-  expect(table.text()).toContain("Excel 导入");
-  expect(table.text()).not.toContain("import-1");
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  await flushPromises();
-  const technical = wrapper.get('[data-test="record-technical"]');
-  expect((technical.element as HTMLDetailsElement).open).toBe(false);
-  await setOpen('[data-test="record-technical"]');
-  expect(technical.text()).toContain("import-1");
-  expect(technical.findAll("dd").map((value) => value.text())).toContain("1");
-  expect(technical.text()).toContain("90071992547409.01 USD");
-  const revisions = wrapper.get('[data-test="record-revisions"]');
-  expect((revisions.element as HTMLDetailsElement).open).toBe(false);
-  await setOpen('[data-test="record-revisions"]');
-  expect(revisions.text()).toContain("Synthetic detail");
-  expect(revisions.text()).toContain("版本 1");
-  expect(writes()).toHaveLength(0);
-});
-it("records zero assets without turning them into cash", async () => {
+it("reads active records immediately and preserves both money columns exactly", async () => {
   await start();
-  await draft();
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(JSON.parse(writes()[0]!.body).entry).toEqual({
-    kind: "asset",
-    date: "2099-01-01",
-    flow: null,
-    total_assets: "0",
-    note: "",
-  });
-  expect(calls.some((c) => /positions|valuation|operations/.test(c.path))).toBe(
-    false,
-  );
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.method).toBe("GET");
+  expect(calls[0]!.path).toContain("status=active");
+  const cells = wrapper.get("tbody tr").findAll("td");
+  expect(cells[2]!.text()).toBe("10.01");
+  expect(cells[3]!.text()).toBe("—");
+  expect(cells[4]!.text()).toBe("90,071,992,547,409.01");
+  expect(wrapper.text()).not.toContain("9007199254740993");
+  expect(wrapper.find("pre").exists()).toBe(false);
 });
-it.each(["", "0", "90071992547409.01"])(
-  "preserves flow optional assets %s and exact negative amounts",
-  async (assets) => {
-    await start();
-    await draft("cash_flow", assets);
-    await wrapper.get('[name="entry_flow"]').setValue("-90071992547409.01");
-    await wrapper.get('[data-test="account-entry"]').trigger("submit");
-    await flushPromises();
-    expect(JSON.parse(writes()[0]!.body).entry).toMatchObject({
-      flow: "-90071992547409.01",
-      total_assets: assets || null,
-    });
-  },
-);
-it("records logs without leaking hidden asset or flow fields", async () => {
+it("shows a positive withdrawal and a dash for absent assets", async () => {
+  responsePage = { items: [sample({ flow: "-10.01", total_assets: null })] };
   await start();
-  await draft("cash_flow", "100");
-  await wrapper.get('[name="entry_flow"]').setValue("20");
-  await wrapper.get('[name="entry_kind"]').setValue("log");
-  await wrapper.get('[name="entry_note"]').setValue("Synthetic log\nnext line");
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(JSON.parse(writes()[0]!.body).entry).toMatchObject({
-    kind: "log",
-    flow: null,
-    total_assets: null,
-    note: "Synthetic log\nnext line",
-  });
+  const cells = wrapper.get("tbody tr").findAll("td");
+  expect(cells[1]!.text()).toBe("转出");
+  expect(cells[2]!.text()).toBe("—");
+  expect(cells[3]!.text()).toBe("10.01");
+  expect(cells[4]!.text()).toBe("—");
 });
-it("replaces and voids with selected versions and reasons", async () => {
+it("delegates source-managed edits to the original transaction without writing", async () => {
+  responsePage = { items: [sample({ origin: "operation", operation_id: "op-original" })] };
   await start();
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  await flushPromises();
-  await wrapper.get('[name="entry_assets"]').setValue("0");
-  await wrapper.get('[name="entry_reason"]').setValue("Synthetic correction");
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(writes()[0]).toMatchObject({
-    method: "PUT",
-    path: "/accounts/a/records/import-1",
-  });
-  expect(JSON.parse(writes()[0]!.body)).toMatchObject({
-    expected_version: "1",
-    reason: "Synthetic correction",
-  });
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  await flushPromises();
-  await wrapper.get('[name="entry_reason"]').setValue("Synthetic void");
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text() === "作废此记录")!
-    .trigger("click");
-  await flushPromises();
-  expect(JSON.parse(writes()[1]!.body)).toEqual({
-    expected_version: "2",
-    reason: "Synthetic void",
-  });
-  expect(wrapper.text()).toContain("已作废");
+  const buttons = wrapper.get("tbody").findAll("button");
+  expect(buttons.some(b => b.text() === "编辑")).toBe(false);
+  await buttons.find(b => b.text() === "在持仓交易中修改")!.trigger("click");
+  expect(wrapper.emitted("operation")).toEqual([["op-original"]]);
+  expect(calls.every(c => c.method === "GET")).toBe(true);
 });
-it("locks ambiguous writes and retries exact bytes even after a later revision", async () => {
+it("clears old rows on failed refresh instead of showing stale financial facts", async () => {
+  await start(); failed = true;
+  await wrapper.setProps({ refreshKey: 1 }); await flushPromises();
+  expect(wrapper.find("tbody").exists()).toBe(false);
+  expect(wrapper.get('[role="alert"]').text()).toContain("读取失败");
+});
+it("uses server cursors unchanged and returns through cursor history", async () => {
+  const cursor = "2020-01-02:9007199254740993";
+  responsePage = { items: [sample()], next_cursor: cursor };
   await start();
-  await draft();
-  loseWrite = true;
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(
-    wrapper.get('[data-test="account-entry"] fieldset').attributes("disabled"),
-  ).toBeDefined();
-  expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
-  records[0] = { ...records[0]!, version: "2", total_assets: "23.00" };
-  await wrapper.get('[data-test="record-retry"]').trigger("click");
-  await flushPromises();
-  expect(writes()).toHaveLength(2);
-  expect(writes()[0]).toEqual(writes()[1]);
-  expect(wrapper.get('[data-test="effective-records"]').text()).toContain(
-    "23.00",
-  );
-  expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
+  responsePage = { items: [sample({ id: "manual-earlier", sequence: "9007199254740992" })] };
+  await wrapper.findAll("button").find(b => b.text() === "下一页")!.trigger("click"); await flushPromises();
+  expect(new URL(calls.at(-1)!.path, "http://localhost").searchParams.get("cursor")).toBe(cursor);
+  responsePage = { items: [sample()], next_cursor: cursor };
+  await wrapper.findAll("button").find(b => b.text() === "上一页")!.trigger("click"); await flushPromises();
+  expect(new URL(calls.at(-1)!.path, "http://localhost").searchParams.has("cursor")).toBe(false);
 });
-it("keeps confirmed writes successful when independent reads fail", async () => {
-  await start();
-  await draft();
-  readFailure = true;
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(wrapper.text()).toContain("写入已确认成功");
-  expect(wrapper.text()).toContain("读取失败");
-  expect(wrapper.find('[data-test="record-retry"]').exists()).toBe(false);
-});
-it("does not automatically overwrite a CAS conflict", async () => {
-  await start();
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  await flushPromises();
-  await wrapper.get('[name="entry_reason"]').setValue("Synthetic");
-  conflict = true;
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(wrapper.text()).toContain("version_conflict");
-  expect(writes()).toHaveLength(1);
-  expect(wrapper.find('[data-test="record-retry"]').exists()).toBe(false);
-});
-it("ignores late reads on account switch even when fetch ignores abort", async () => {
-  let release!: (response: Response) => void;
-  intercept = (path, method) =>
-    method === "GET" && path.startsWith("/accounts/a/records")
-      ? new Promise((resolve) => {
-          release = resolve;
-        })
-      : undefined;
-  await start();
-  records = [sample("manual-b", "b")];
-  await wrapper.setProps({ accountId: "b" });
-  await flushPromises();
-  await setOpen('[data-test="records-history"]');
-  release(response({ items: [sample()] }));
-  await flushPromises();
-  expect(wrapper.get('[data-test="effective-records"]').text()).not.toContain(
-    "import-1",
-  );
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  expect(wrapper.text()).toContain("manual-b");
-});
-it("rejects excess precision before writing and rejects malformed read responses", async () => {
-  await start();
-  await draft("asset", "1.001");
-  await wrapper.get('[data-test="account-entry"]').trigger("submit");
-  await flushPromises();
-  expect(writes()).toHaveLength(0);
-  intercept = (path, method) =>
-    method === "GET" && path.includes("/records")
-      ? Promise.resolve(response({ wrong: true }))
-      : undefined;
-  await wrapper.setProps({ refreshKey: 1 });
-  await flushPromises();
-  expect(wrapper.text()).toContain("invalid_response");
-});
-
-it("keeps applied date filters across list pages and paginates revisions", async () => {
-  intercept = (path, method) => {
-    if (method !== "GET" || !path.includes("/records")) return;
-    const url = new URL(path, "http://localhost");
-    if (path.includes("revisions"))
-      return Promise.resolve(
-        response({
-          items: [{ record: sample(), reason: "" }],
-          next_cursor: url.searchParams.has("cursor") ? undefined : "1",
-        }),
-      );
-    return Promise.resolve(
-      response({
-        items: [sample()],
-        next_cursor: url.searchParams.has("cursor")
-          ? undefined
-          : "2020-01-01:import-1",
-      }),
-    );
-  };
-  await start();
-  await wrapper.get('[name="record_from"]').setValue("2020-01-01");
-  await wrapper.get('[name="record_to"]').setValue("2020-12-31");
-  await wrapper.get('[data-test="record-filters"]').trigger("submit");
-  await flushPromises();
-  await wrapper.get('[name="record_from"]').setValue("2021-01-01");
-  const recordPagination = wrapper.get('[data-test="record-pagination"]');
-  expect(recordPagination.text()).toContain("第 1 页");
-  await recordPagination
-    .findAll("button")
-    .find((b) => b.text() === "下一页")!
-    .trigger("click");
-  await flushPromises();
-  const url = new URL(calls.at(-1)!.path, "http://localhost");
-  expect(url.searchParams.get("from")).toBe("2020-01-01");
-  expect(url.searchParams.get("cursor")).toBe("2020-01-01:import-1");
-  await wrapper.get('[data-test="effective-records"] button').trigger("click");
-  await flushPromises();
-  await setOpen('[data-test="record-revisions"]');
-  const revisionPagination = wrapper.get('[data-test="revision-pagination"]');
-  await revisionPagination
-    .findAll("button")
-    .find((b) => b.text() === "下一页")!
-    .trigger("click");
-  await flushPromises();
-  expect(calls.at(-1)!.path).toContain("/revisions?limit=30&cursor=1");
-});
-
-it("retries uncertain account creation using its durable receipt rather than adopting a GET", async () => {
-  await start("");
-  await wrapper.get('[name="reported_name"]').setValue("Synthetic");
-  await wrapper.get('[name="reported_opening_date"]').setValue("2020-01-01");
-  loseWrite = true;
-  await wrapper.get('[data-test="reported-create"]').trigger("submit");
-  await flushPromises();
-  expect(
-    wrapper
-      .get('[data-test="reported-create"] fieldset')
-      .attributes("disabled"),
-  ).toBeDefined();
-  await wrapper.get('[data-test="record-retry"]').trigger("click");
-  await flushPromises();
-  expect(writes()[0]).toEqual(writes()[1]);
-  expect(calls.every((c) => c.method === "POST")).toBe(true);
-  expect(wrapper.emitted("created")).toHaveLength(1);
+it("rejects cross-account, out-of-filter and misordered pages without coercing IDs", () => {
+  expect(() => recordPage({ items: [sample({ account_id: "b" })] }, "a", "", "", "active")).toThrow();
+  expect(() => recordPage({ items: [sample({ voided: true })] }, "a", "", "", "active")).toThrow();
+  expect(() => recordPage({ items: [sample()] }, "a", "2021-01-01", "", "active")).toThrow();
+  expect(() => recordPage({ items: [sample({ sequence: "9007199254740992" }), sample()] }, "a", "", "", "active")).toThrow();
+  expect(money("0.00")).toBe("0.00");
+  expect(money(null)).toBe("—");
 });

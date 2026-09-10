@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref } from "vue";
-import App from "./App.vue";
+const App = defineAsyncComponent(() => import("./App.vue"));
 const Ledger = defineAsyncComponent(() => import("./Ledger.vue"));
-const ledger = window.location.pathname.replace(/\/$/, "") === "/ledger";
-document.title = ledger ? "投资账本 · 观价" : "白酒行情 · 观价";
+const LedgerPrototype = defineAsyncComponent(
+  () => import("./prototype/LedgerPrototype.vue"),
+);
+const path = window.location.pathname.replace(/\/$/, "");
+const ledger = path === "/ledger";
+const prototype = path === "/ledger-prototype";
+document.title = prototype
+  ? "账本交互原型 · 观价"
+  : ledger
+    ? "投资账本 · 观价"
+    : "白酒行情 · 观价";
 const locked = ref(false);
 </script>
 
 <template>
-  <nav class="root-nav" aria-label="模块导航">
+  <nav v-if="!prototype && !ledger" class="root-nav" aria-label="模块导航">
     <a
       href="/liquor"
       :aria-current="!ledger ? 'page' : undefined"
@@ -23,7 +32,8 @@ const locked = ref(false);
     >
     <span v-if="locked">请先确认待处理写入，暂不可离开</span>
   </nav>
-  <Ledger v-if="ledger" @locked="locked = $event" />
+  <LedgerPrototype v-if="prototype" />
+  <Ledger v-else-if="ledger" @locked="locked = $event" />
   <App v-else />
 </template>
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref, shallowRef, watch } from "vue";
+import { computed, reactive, ref, shallowRef, watch } from "vue";
+import LedgerDialog from "./LedgerDialog.vue";
+import { money } from "./ledgerView";
 import {
   decimal,
   failure,
@@ -35,6 +37,21 @@ const pending = shallowRef<PendingWrite<CurrentHoldings>>();
 const busy = ref(false);
 const error = ref("");
 const message = ref("");
+const editing = ref(false);
+const original = ref("");
+const dirty = computed(() => JSON.stringify([cash.value, positions.value]) !== original.value);
+const instrumentName = (id: string) => props.instruments.find(i => i.id === id)?.name ?? "未知证券";
+function openEdit() {
+  cash.value = read.data?.snapshot?.cash ?? "0.00";
+  positions.value = read.data?.snapshot?.positions.map(p => ({ ...p })) ?? [];
+  original.value = JSON.stringify([cash.value, positions.value]);
+  error.value = "";
+  editing.value = true;
+}
+function reloadDraft() {
+  if (pending.value || props.disabled) return;
+  if (!dirty.value || window.confirm("重新读取将放弃当前持仓草稿，是否继续？")) { error.value = ""; void load(); }
+}
 let generation = 0;
 async function load() {
   if (pending.value) return;
@@ -59,6 +76,7 @@ async function load() {
     return;
   cash.value = read.data.snapshot?.cash ?? "0.00";
   positions.value = read.data.snapshot?.positions.map((p) => ({ ...p })) ?? [];
+  original.value = JSON.stringify([cash.value, positions.value]);
   emit("configured", read.data.snapshot !== null, read.data.audit_id);
 }
 watch(
@@ -73,6 +91,7 @@ watch(
 async function save() {
   if (
     busy.value ||
+    (!pending.value && error.value.includes("[version_conflict]")) ||
     (!pending.value &&
       (props.disabled || read.loading || read.error || !read.data))
   )
@@ -81,10 +100,12 @@ async function save() {
   if (!pending.value) {
     if (
       !decimal(cash.value, 2) ||
+      cash.value.startsWith("-") ||
       positions.value.some(
         (p) =>
           !props.instruments.some((i) => i.id === p.instrument_id) ||
           !decimal(p.quantity, 6) ||
+          p.quantity.startsWith("-") ||
           !/[1-9]/.test(p.quantity),
       ) ||
       new Set(positions.value.map((p) => p.instrument_id)).size !==
@@ -148,6 +169,7 @@ async function save() {
   }
   pending.value = undefined;
   emit("locked", false);
+  editing.value = false;
   emit("saved");
   await load();
   message.value =
@@ -156,12 +178,9 @@ async function save() {
 </script>
 
 <template>
-  <section class="ledger-panel" data-test="current-holdings">
-    <h2>当前持仓</h2>
-    <p>
-      在这个账户内维护当前现金与证券数量，无需补录历史交易或成本。保存只更新今后的估值来源，不改变
-      Excel 原始记录、历史总资产或资金流。手工总资产记录仍独立填写。
-    </p>
+  <section data-test="current-holdings">
+    <div class="lp-section-title"><h2>当前持仓</h2><button :disabled="disabled || !!pending || read.loading || !!read.error || !read.data" @click="openEdit">编辑持仓</button></div>
+    <p class="lp-muted">独立维护现金与证券数量。保存持仓不生成交易、资金流水或总资产记录。</p>
     <p v-if="read.loading" role="status">正在读取当前持仓…</p>
     <p v-if="read.error || error" role="alert">{{ read.error || error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
@@ -171,20 +190,17 @@ async function save() {
     <p v-else-if="read.data">
       尚未设置当前持仓。零现金且无证券也可保存为明确的空持仓来源。
     </p>
-    <details v-if="read.data?.snapshot" data-test="current-holdings-source">
-      <summary>查看保存版本与审计信息</summary>
-      <p>
-        版本 {{ read.data.snapshot.version }} · 审计 #{{ read.data.audit_id }}
-      </p>
-    </details>
+    <div v-if="read.data?.snapshot" class="lp-holding-summary"><span>当前现金 <small>{{ currency }}</small></span><strong>{{ money(read.data.snapshot.cash) }}</strong><small>现金不是总资产</small></div>
+    <ul class="lp-business-list"><li v-for="p in read.data?.snapshot?.positions" :key="p.instrument_id"><strong>{{ instrumentName(p.instrument_id) }}</strong><span>{{ money(p.quantity) }} 份</span></li></ul>
     <button
       type="button"
       :disabled="disabled || !!pending || read.loading"
       @click="load"
     >
-      重新读取当前持仓（放弃未保存编辑）
+      刷新持仓
     </button>
-    <form data-test="current-holdings-form" @submit.prevent="save">
+    <LedgerDialog v-if="editing" title="编辑当前持仓" :dirty="dirty" @close="editing = false" v-slot="{ requestClose }">
+    <form class="lp-form" data-test="current-holdings-form" @submit.prevent="save">
       <fieldset
         :disabled="
           disabled || !!pending || read.loading || !!read.error || !read.data
@@ -225,6 +241,7 @@ async function save() {
             移除此证券
           </button>
         </div>
+        <p class="lp-field-hint">删除所有证券后保存表示纯现金。零现金且无证券表示明确空持仓，不是删除估值来源。</p>
         <div class="ledger-actions">
           <button
             type="button"
@@ -234,11 +251,14 @@ async function save() {
           >
             添加当前证券
           </button>
-          <button type="submit">保存当前持仓</button>
+          <button type="submit" :disabled="error.includes('[version_conflict]')">保存当前持仓</button>
+          <button type="button" @click="requestClose">取消</button>
         </div>
       </fieldset>
     </form>
-    <div v-if="pending" class="ledger-pending" role="status">
+    <p v-if="error" class="lp-error" role="alert">{{ error }}</p>
+    <button v-if="error && !pending" type="button" class="lp-text-button" :disabled="disabled || read.loading" @click="reloadDraft">重新读取最新持仓</button>
+    <div v-if="pending" class="ledger-pending lp-dialog-body" role="status">
       <p>
         写入结果待确认，账户、原始内容、版本和幂等键已锁定。请勿关闭或刷新页面。
       </p>
@@ -251,5 +271,6 @@ async function save() {
         按原请求重试确认持仓
       </button>
     </div>
+    </LedgerDialog>
   </section>
 </template>

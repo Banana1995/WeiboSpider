@@ -25,13 +25,14 @@ const props = defineProps<{
   positionsFresh: boolean;
   locked: boolean;
   record?: LedgerRecord;
+  initialAccount?: string;
 }>();
 const emit = defineEmits<{ save: [mutation: Mutation]; cancel: [] }>();
 const old = props.record;
 const op = reactive<Operation>(
   old
     ? JSON.parse(JSON.stringify(old.operation))
-    : { id: newID(), account_id: "", kind: "deposit", date: "", sequence: "" },
+    : { id: newID(), account_id: props.initialAccount ?? "", kind: "deposit", date: today(), sequence: "" },
 );
 const note = ref(old?.note ?? "");
 const reason = ref("");
@@ -93,7 +94,7 @@ function validSnapshot(value: FX) {
   return (
     typeof value.rate === "string" &&
     decimal(value.rate, 8) &&
-    Number(value.rate) > 0 &&
+    !value.rate.startsWith("-") && /[1-9]/.test(value.rate) &&
     validDate(value.date) &&
     value.date <= op.date &&
     typeof value.source === "string" &&
@@ -290,8 +291,7 @@ function save() {
   <form class="ledger-form" data-test="operation-form" @submit.prevent="save">
     <h3>{{ old ? "整笔更正操作" : "录入操作" }}</h3>
     <p v-if="old">
-      操作 {{ op.id }} · 预期版本
-      {{ old.version }}。整笔替换，不是局部补丁；提交前核对所有字段。
+      修改整笔交易，提交前请核对全部金额、证券和账户。
     </p>
     <fieldset :disabled="locked">
       <div class="ledger-grid">

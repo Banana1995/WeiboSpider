@@ -298,15 +298,24 @@ export async function request<T>(
 }
 export async function all<T>(path: string, signal: AbortSignal): Promise<T[]> {
   const items: T[] = [];
+  const cursors = new Set<string>();
   let cursor = "";
   do {
+    if (signal.aborted) throw new LedgerError("request_canceled");
+    if (cursors.has(cursor) || cursors.size >= 100)
+      throw new Error("记录较多或分页发生变化，无法完整读取。请重新加载，不展示部分合计。");
+    cursors.add(cursor);
     const page = await request<Page<T>>(
       path + query({ limit: "100", cursor }),
       { signal },
     );
+    if (!page || !Array.isArray(page.items) || page.items.length > 100 ||
+      (page.next_cursor !== undefined && typeof page.next_cursor !== "string"))
+      throw new LedgerError("invalid_response");
     items.push(...page.items);
     cursor = page.next_cursor ?? "";
-  } while (cursor && !signal.aborted);
+  } while (cursor);
+  if (signal.aborted) throw new LedgerError("request_canceled");
   return items;
 }
 // A write owns immutable bytes and identity. A network error never creates a new key.

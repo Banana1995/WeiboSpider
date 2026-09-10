@@ -20,6 +20,28 @@ function fixture(): Returns {
     status: "available" as const,
     reason: "",
   };
+  const opening = {
+    date: "2021-01-01",
+    record_id: "synthetic-opening",
+    sequence: "1",
+    version: "1",
+    selected: true,
+    status: "reported",
+    assets: "100.00",
+    flow: null,
+    source_id: "synthetic-opening",
+    source_version: "1",
+    source_date: "2021-01-01",
+  };
+  const closing = {
+    ...opening,
+    date: "2022-01-01",
+    record_id: "synthetic-closing",
+    sequence: "2",
+    assets: "110.00",
+    source_id: "synthetic-closing",
+    source_date: "2022-01-01",
+  };
   return {
     revision: "synthetic",
     requested_from: "",
@@ -28,8 +50,9 @@ function fixture(): Returns {
     effective_from: "2021-01-01",
     effective_to: "2022-01-01",
     days: 365,
-    opening: null,
-    closing: null,
+    period_days: 366,
+    opening,
+    closing,
     net_flow: "0.00",
     denominator: "100",
     profit: { ...metric, value: "10.00", percentage: null },
@@ -37,7 +60,24 @@ function fixture(): Returns {
     xirr: { ...metric },
     twr: { ...metric },
     twr_annualized: { ...metric },
-    curve: [],
+    curve: [opening, closing].map((p, i) => ({
+      date: p.date,
+      record_id: p.record_id,
+      baseline: i === 0,
+      profit: {
+        ...metric,
+        value: i === 0 ? "0.00" : "10.00",
+        percentage: null,
+      },
+      modified_dietz:
+        i === 0
+          ? { ...metric, value: "0.000000000000", percentage: "0.00" }
+          : { ...metric },
+      twr:
+        i === 0
+          ? { ...metric, value: "0.000000000000", percentage: "0.00" }
+          : { ...metric },
+    })),
     warnings: [],
     flows: [],
     investor_flows: [
@@ -167,7 +207,7 @@ it("paginates cashflow details and resets pages with the snapshot", async () => 
     version: "1",
     flow: "92233720368547758.07",
     weight_days: 334,
-    period_days: 365,
+    period_days: 366,
   }));
   const w = mount(LedgerReturns, {
     props: { result, currency: "USD", points: [] },
@@ -218,6 +258,11 @@ it("rejects malformed metrics, identity, input range and unbounded detail lists"
     { flows: Array(10001).fill(null) },
     { warnings: ["invented"] },
     { twr: undefined },
+    { period_days: undefined },
+    { period_days: 365 },
+    { period_days: 0 },
+    { period_days: -1 },
+    { period_days: 366.5 },
     { curve: Array(10002).fill(null) },
   ])
     expect(

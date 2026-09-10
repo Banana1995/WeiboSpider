@@ -75,15 +75,24 @@ func TestReturnsBaselineAndCustomBoundariesHTTP(t *testing.T) {
 	require.Equal(t, b.Revision, r.Revision)
 	require.Equal(t, "-10.00", r.NetFlow)
 	require.Equal(t, "5.00", *r.Profit.Value)
-	require.Equal(t, "120", *r.Denominator)
+	require.Equal(t, 2, r.Days)
+	require.Equal(t, 3, r.PeriodDays)
+	require.Equal(t, "350/3", *r.Denominator)
+	require.Equal(t, "0.042857142857", *r.Dietz.Value)
 	require.Len(t, r.Flows, 2)
 	require.Equal(t, []int{1, 0}, []int{r.Flows[0].WeightDays, r.Flows[1].WeightDays})
+	require.Equal(t, []int{3, 3}, []int{r.Flows[0].PeriodDays, r.Flows[1].PeriodDays})
 	require.Equal(t, []InvestorFlow{{"2020-01-01", "-110.00"}, {"2020-01-02", "-20.00"}, {"2020-01-03", "135.00"}}, r.InvestorFlows)
 	custom := basisRead(t, f, "a", "reported", "&from=2020-01-02&to=2020-01-03").Returns
 	require.Equal(t, r.Profit, custom.Profit)
+	require.Equal(t, r.Dietz, custom.Dietz)
+	require.Equal(t, r.PeriodDays, custom.PeriodDays)
 	require.Equal(t, "custom", custom.StartMode)
 	one := basisRead(t, f, "a", "reported", "&from=2020-01-03&to=2020-01-03").Returns
 	require.Equal(t, 1, one.Days)
+	require.Equal(t, 2, one.PeriodDays)
+	require.Equal(t, 0, one.Flows[0].WeightDays)
+	require.Equal(t, 2, one.Flows[0].PeriodDays)
 	require.Equal(t, "130", *one.Denominator)
 	require.Equal(t, "5.00", *one.Profit.Value)
 	missing := basisRead(t, f, "a", "reported", "&from=2020-01-01").Returns
@@ -93,6 +102,7 @@ func TestReturnsBaselineAndCustomBoundariesHTTP(t *testing.T) {
 	require.NotEqual(t, b.Revision, missing.Revision)
 	empty := basisRead(t, f, "a", "reported", "&from=2020-03-01").Returns
 	require.Equal(t, "no_interval", empty.Profit.Reason)
+	require.Equal(t, 0, empty.PeriodDays)
 }
 
 func TestReturnsMissingCarryAndTrust(t *testing.T) {
@@ -238,6 +248,16 @@ func TestReturnsCancellationAndCapacity(t *testing.T) {
 	}
 	flows[dates[len(dates)-1]] = big.NewInt(10002)
 	r, err := solveXIRR(t.Context(), dates, flows, "available")
+	require.NoError(t, err)
+	require.NotNil(t, r.Value, r.Reason)
+	// The full supported capacity also accepts repeated withdrawals/redeposits
+	// with an exact prefix certificate; it is not limited to one sign change.
+	flows[dates[0]] = big.NewInt(-10002)
+	for i := 1; i < len(dates)-1; i++ {
+		flows[dates[i]] = big.NewInt(int64(2*(i%2) - 1))
+	}
+	flows[dates[len(dates)-1]] = big.NewInt(10003)
+	r, err = solveXIRR(t.Context(), dates, flows, "available")
 	require.NoError(t, err)
 	require.NotNil(t, r.Value, r.Reason)
 	_, err = solveXIRR(t.Context(), append(dates, "9999-01-01"), flows, "available")

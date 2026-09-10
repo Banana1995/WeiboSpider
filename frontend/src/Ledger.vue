@@ -52,6 +52,21 @@ function refresh() {
   if (locked.value || modal.value) return;
   refreshKey.value++;
 }
+function selectAccount(id: string) {
+  if (locked.value || modal.value) return;
+  selected.value = id;
+}
+function accountKey(event: KeyboardEvent) {
+  if (locked.value || modal.value || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+  const index = tabs.indexOf(event.target as HTMLButtonElement);
+  if (index < 0 || !tabs.length) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 :
+    (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next]!.click();
+  tabs[next]!.focus();
+}
 function openRecord(mode: "create" | "edit" | "detail", id = "") {
   if (locked.value || !account.value) return;
   error.value = "";
@@ -106,12 +121,15 @@ onBeforeUnmount(() => { window.removeEventListener("beforeunload", beforeUnload)
     <header class="lp-masthead"><div class="brand"><span class="brand-mark">观</span>观价<span class="brand-divider">/</span><span class="brand-sub">投资账本</span></div>
       <nav aria-label="模块导航"><a href="/liquor" :aria-disabled="locked || !!modal">白酒行情</a><a href="/ledger" aria-current="page" :aria-disabled="locked || !!modal">投资账本</a></nav></header>
     <main class="lp-main">
-      <div class="lp-account-heading"><div><label for="ledger-account" class="lp-caption">当前账户</label><h1>
-        <select v-if="accounts.data?.length" id="ledger-account" v-model="selected" aria-label="选择账户" :disabled="locked || !!modal"><option v-for="a in accounts.data" :key="a.id" :value="a.id">{{ a.name }}</option></select>
-        <span v-else>投资账本</span></h1></div>
+      <div class="lp-account-heading"><h1>投资账本</h1>
         <div class="lp-actions"><template v-if="!manage"><button class="lp-text-button" :disabled="locked || !!modal" @click="manageAccount()">管理账户</button>
           <button class="lp-primary" data-ledger-focus :disabled="locked || !account || !!modal" @click="openRecord('create')">＋ 记一笔</button></template>
           <button v-else :disabled="locked || !!modal" @click="manage = false">返回账户</button></div>
+      </div>
+      <div v-if="accounts.data?.length" class="lp-account-tabs" role="tablist" aria-label="选择账户" @keydown="accountKey">
+        <button v-for="a in accounts.data" :id="`account-tab-${a.id}`" :key="a.id" role="tab" :aria-selected="selected === a.id"
+          :aria-controls="`account-panel-${a.id}`" :tabindex="selected === a.id ? 0 : -1" :disabled="locked || !!modal"
+          :title="a.name" @click="selectAccount(a.id)">{{ a.name }}</button>
       </div>
       <p v-if="notice" class="lp-notice" role="status">{{ notice }}</p>
       <p v-if="error && !modal" class="lp-error" role="alert">{{ error }}</p>
@@ -119,14 +137,19 @@ onBeforeUnmount(() => { window.removeEventListener("beforeunload", beforeUnload)
         <p>原始内容和账户已锁定，请保留此页，不要刷新或重复录入。</p><button :disabled="busy" @click="retry">按原请求重试确认</button></div>
       <p v-if="accounts.loading" class="lp-empty" role="status">正在读取账户…</p>
       <div v-else-if="accounts.error" class="lp-empty"><p class="lp-error" role="alert">{{ accounts.error }}</p><button :disabled="locked" @click="loadAccounts()">重新读取账户</button></div>
-      <template v-else-if="!manage && account">
-        <LedgerOverview :account="account" :refresh-key="refreshKey" @locate="locate" />
-        <AccountRecords ref="records" :account="account" :refresh-key="refreshKey" @edit="openRecord('edit', $event)" @detail="openRecord('detail', $event)" @operation="operation" />
-      </template>
-      <LedgerManagement v-else-if="manage" :account="account" :accounts="accounts.data ?? []" :instruments="instruments.data ?? []" :instruments-error="instruments.error" :instruments-loading="instruments.loading"
+      <div v-else-if="account" :id="`account-panel-${account.id}`" role="tabpanel" :aria-labelledby="`account-tab-${account.id}`">
+        <template v-if="!manage">
+          <LedgerOverview :key="account.id" :account="account" :refresh-key="refreshKey" @locate="locate" />
+          <AccountRecords :key="account.id" ref="records" :account="account" :refresh-key="refreshKey" @edit="openRecord('edit', $event)" @detail="openRecord('detail', $event)" @operation="operation" />
+        </template>
+        <LedgerManagement v-else :account="account" :accounts="accounts.data ?? []" :instruments="instruments.data ?? []" :instruments-error="instruments.error" :instruments-loading="instruments.loading"
+          :initial-tab="managementTab" :operation-id="operationId" :refresh-key="refreshKey" @locked="workspace.externalLock.value = $event" @create="openAccount" @imported="imported" @instruments="loadInstruments" @changed="refreshKey++" />
+      </div>
+      <LedgerManagement v-else-if="manage" :accounts="accounts.data ?? []" :instruments="instruments.data ?? []" :instruments-error="instruments.error" :instruments-loading="instruments.loading"
         :initial-tab="managementTab" :operation-id="operationId" :refresh-key="refreshKey" @locked="workspace.externalLock.value = $event" @create="openAccount" @imported="imported" @instruments="loadInstruments" @changed="refreshKey++" />
       <section v-else class="lp-income lp-empty"><h2>从第一份账户开始</h2><p>记录转入、转出和总资产，留下一条清楚的投资轨迹。</p>
         <div class="lp-actions lp-empty-actions"><button class="lp-primary" @click="openAccount">新建账户</button><button @click="manageAccount('import')">导入 Excel 账本</button></div></section>
+      <template v-for="a in accounts.data" :key="a.id"><div v-if="a.id !== selected" :id="`account-panel-${a.id}`" role="tabpanel" :aria-labelledby="`account-tab-${a.id}`" hidden /></template>
       <footer class="lp-page-footer"><span>观价 · 投资账本</span><div class="lp-actions"><span>金额按账户币种记录</span><button class="lp-text-button" :disabled="locked || !!modal" @click="refresh">刷新当前数据</button></div></footer>
     </main>
     <LedgerRecordDialog v-if="account && (modal === 'create' || modal === 'edit' || modal === 'detail')" :account="account" :record-id="recordId || undefined" :initial-mode="modal" @close="modal = ''" @operation="operation" />

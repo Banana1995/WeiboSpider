@@ -117,11 +117,13 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 				profit.Sub(profit, net)
 				point.Profit = returnValue(new(big.Rat).SetFrac(profit, big.NewInt(100)), 2, status)
 				// sum(flow*(n-flowDay)) = n*sum(flow)-sum(flow*flowDay).
-				den := new(big.Int).Mul(new(big.Int).Add(opening, net), big.NewInt(n))
+				// Only opening uses the inclusive period; flows gain no extra day.
+				den := new(big.Int).Mul(opening, big.NewInt(n+1))
+				den.Add(den, new(big.Int).Mul(net, big.NewInt(n)))
 				den.Sub(den, moment)
 				point.Dietz = returnUnavailable("nonpositive_denominator")
 				if den.Sign() > 0 {
-					point.Dietz = returnValue(new(big.Rat).SetFrac(new(big.Int).Mul(profit, big.NewInt(n)), den), 12, status)
+					point.Dietz = returnValue(new(big.Rat).SetFrac(new(big.Int).Mul(profit, big.NewInt(n+1)), den), 12, status)
 				}
 			}
 		}
@@ -170,6 +172,12 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 			}
 		}
 		if d.point != nil {
+			// A known later flow invalidates the endpoint, not earlier prefixes.
+			// Propagate this gate explicitly, never overwrite computed end values.
+			if date == r.EffectiveTo && r.Profit.Reason == "closing_before_flow" {
+				twrReason = "closing_before_flow"
+				point.Profit, point.Dietz, point.TWR = returnUnavailable(twrReason), returnUnavailable(twrReason), returnUnavailable(twrReason)
+			}
 			r.Curve = append(r.Curve, point)
 			if date == r.EffectiveTo {
 				r.TWR = point.TWR
@@ -188,10 +196,6 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 	}
 	if r.Days <= 0 {
 		r.TWR, r.TWRAnnualized = returnUnavailable("no_interval"), returnUnavailable("no_interval")
-	}
-	if len(r.Curve) > 1 {
-		last := &r.Curve[len(r.Curve)-1]
-		last.Profit, last.Dietz, last.TWR = r.Profit, r.Dietz, r.TWR
 	}
 	if r.TWR.Status == "reference" {
 		found := false

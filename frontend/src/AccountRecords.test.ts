@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-// Updated for the permanent production record table; not executed in this change.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import AccountRecords from "./AccountRecords.vue";
@@ -26,12 +25,23 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
-async function start() {
+async function start(open = true) {
   wrapper = mount(AccountRecords, { props: { account, refreshKey: 0 }, global: { provide: { [ledgerWorkspaceKey as symbol]: workspace() } } });
   await flushPromises();
+  if (open) {
+    await wrapper.get(".lp-record-summary").trigger("click");
+    await wrapper.get("details.lp-records").trigger("toggle");
+    await flushPromises();
+  }
 }
-it("reads active records immediately and preserves both money columns exactly", async () => {
-  await start();
+it("defers the first records read until expanded and preserves exact money columns", async () => {
+  await start(false);
+  expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(false);
+  expect(calls).toHaveLength(0);
+  expect(wrapper.get(".lp-record-summary").findAll("button, input, select")).toHaveLength(0);
+  await wrapper.get(".lp-record-summary").trigger("click");
+  await wrapper.get("details.lp-records").trigger("toggle");
+  await flushPromises();
   expect(calls).toHaveLength(1);
   expect(calls[0]!.method).toBe("GET");
   expect(calls[0]!.path).toContain("status=active");
@@ -41,6 +51,48 @@ it("reads active records immediately and preserves both money columns exactly", 
   expect(cells[4]!.text()).toBe("90,071,992,547,409.01");
   expect(wrapper.text()).not.toContain("9007199254740993");
   expect(wrapper.find("pre").exists()).toBe(false);
+});
+it("keeps the fold state through refresh but closes and clears it for a new account", async () => {
+  await start();
+  await wrapper.setProps({ refreshKey: 1 }); await flushPromises();
+  expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(true);
+  expect(calls).toHaveLength(2);
+  await wrapper.get(".lp-record-summary").trigger("click");
+  await wrapper.get("details.lp-records").trigger("toggle");
+  await wrapper.setProps({ refreshKey: 2 }); await flushPromises();
+  expect(calls).toHaveLength(2);
+  expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(false);
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  expect(wrapper.find("tbody").exists()).toBe(false);
+  expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(false);
+});
+it("opens before locating a collapsed record and ignores the ensuing native toggle", async () => {
+  await start(false);
+  const scroll = vi.fn();
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    const locating = (wrapper.vm as unknown as { locate: (e: { id: string; date: string; accountId: string }) => Promise<void> }).locate({ id: "manual-test", date: "2020-01-02", accountId: "a" });
+    expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(true);
+    await wrapper.get("details.lp-records").trigger("toggle");
+    await locating; await flushPromises();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.path).toContain("from=2020-01-02&to=2020-01-02");
+    expect(wrapper.get("tbody tr").classes()).toContain("lp-highlighted");
+    expect(scroll).toHaveBeenCalledOnce();
+  } finally { HTMLElement.prototype.scrollIntoView = original; }
+});
+it("fences a delayed locate after switching accounts", async () => {
+  await start(false);
+  let resolve!: (value: Response) => void;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(done => { resolve = done; })));
+  const locating = (wrapper.vm as unknown as { locate: (e: { id: string; date: string; accountId: string }) => Promise<void> }).locate({ id: "manual-test", date: "2020-01-02", accountId: "a" });
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  resolve(new Response(JSON.stringify(responsePage), { headers: { "Content-Type": "application/json" } }));
+  await locating; await flushPromises();
+  expect(wrapper.find("tbody").exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("已定位资金记录");
+  expect((wrapper.get("details.lp-records").element as HTMLDetailsElement).open).toBe(false);
 });
 it("shows a positive withdrawal and a dash for absent assets", async () => {
   responsePage = { items: [sample({ flow: "-10.01", total_assets: null })] };

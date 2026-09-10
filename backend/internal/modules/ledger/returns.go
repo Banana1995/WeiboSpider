@@ -39,6 +39,7 @@ type Returns struct {
 	EffectiveFrom string         `json:"effective_from"` // opening day-end boundary
 	EffectiveTo   string         `json:"effective_to"`
 	Days          int            `json:"days"`
+	PeriodDays    int            `json:"period_days"` // inclusive endpoints, only for Dietz weights
 	Opening       *BasisPoint    `json:"opening"`
 	Closing       *BasisPoint    `json:"closing"`
 	NetFlow       string         `json:"net_flow"`
@@ -137,6 +138,9 @@ func calculateMoneyReturns(ctx context.Context, b AnalysisBasis, requestedFrom, 
 		return block("missing_closing")
 	}
 	r.Days = civilDay(r.EffectiveTo) - civilDay(r.EffectiveFrom)
+	if r.Days >= 0 {
+		r.PeriodDays = r.Days + 1
+	}
 	if r.Days <= 0 {
 		return block("no_interval")
 	}
@@ -186,7 +190,7 @@ func calculateMoneyReturns(ctx context.Context, b AnalysisBasis, requestedFrom, 
 			continue
 		}
 		days := civilDay(r.EffectiveTo) - civilDay(p.Date)
-		r.Flows = append(r.Flows, ReturnFlow{p.Date, p.RecordID, p.Version, *p.Flow, days, r.Days})
+		r.Flows = append(r.Flows, ReturnFlow{p.Date, p.RecordID, p.Version, *p.Flow, days, r.PeriodDays})
 		amount := big.NewInt(int64(*p.Flow))
 		net.Add(net, amount)
 		weighted.Add(weighted, new(big.Int).Mul(amount, big.NewInt(int64(days))))
@@ -197,13 +201,13 @@ func calculateMoneyReturns(ctx context.Context, b AnalysisBasis, requestedFrom, 
 	profit := new(big.Int).Sub(big.NewInt(int64(*r.Closing.Assets)), big.NewInt(int64(*r.Opening.Assets)))
 	profit.Sub(profit, net)
 	r.Profit = returnValue(new(big.Rat).SetFrac(profit, big.NewInt(100)), 2, status)
-	den := new(big.Int).Mul(big.NewInt(int64(*r.Opening.Assets)), big.NewInt(int64(r.Days)))
+	den := new(big.Int).Mul(big.NewInt(int64(*r.Opening.Assets)), big.NewInt(int64(r.PeriodDays)))
 	den.Add(den, weighted)
-	denText := new(big.Rat).SetFrac(den, big.NewInt(int64(r.Days)*100)).RatString()
+	denText := new(big.Rat).SetFrac(den, big.NewInt(int64(r.PeriodDays)*100)).RatString()
 	r.Denominator = &denText
 	r.Dietz = returnUnavailable("nonpositive_denominator")
 	if den.Sign() > 0 {
-		r.Dietz = returnValue(new(big.Rat).SetFrac(new(big.Int).Mul(profit, big.NewInt(int64(r.Days))), den), 12, status)
+		r.Dietz = returnValue(new(big.Rat).SetFrac(new(big.Int).Mul(profit, big.NewInt(int64(r.PeriodDays))), den), 12, status)
 	}
 	dates := make([]string, 0, len(grouped))
 	for date := range grouped {
@@ -218,9 +222,8 @@ func calculateMoneyReturns(ctx context.Context, b AnalysisBasis, requestedFrom, 
 	return r, err
 }
 
-// One sign variation in an exponential polynomial guarantees exactly one real
-// log-rate root. More variations are POSSIBLY multiple, not proof of multiplicity.
-// This deliberately does not claim uniqueness from a finite sign-change scan.
+// Solve only after proving global uniqueness, by one sign variation or the
+// cumulative cash-flow certificate. A finite sign scan is not a uniqueness proof.
 func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int, status string) (ReturnMetric, error) {
 	if err := ctx.Err(); err != nil {
 		return ReturnMetric{}, err
@@ -231,7 +234,10 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 	changes, prior := 0, 0
 	nonzero := make([]string, 0, len(dates))
 	total, scale := new(big.Int), new(big.Int)
-	for _, date := range dates {
+	for i, date := range dates {
+		if i%256 == 0 && ctx.Err() != nil {
+			return ReturnMetric{}, ctx.Err()
+		}
 		a := grouped[date]
 		total.Add(total, a)
 		scale.Add(scale, new(big.Int).Abs(a))
@@ -250,7 +256,13 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 		return returnUnavailable("no_solution"), nil
 	}
 	if changes > 1 {
-		return returnUnavailable("possible_multiple_roots"), nil
+		unique, err := certifyXIRRUnique(ctx, nonzero, grouped)
+		if err != nil {
+			return ReturnMetric{}, err
+		}
+		if !unique {
+			return returnUnavailable("possible_multiple_roots"), nil
+		}
 	}
 	if total.Sign() == 0 {
 		return returnValue(new(big.Rat), 12, status), nil
@@ -307,8 +319,23 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 	if err != nil {
 		return ReturnMetric{}, err
 	}
-	if flo == 0 || fhi == 0 || math.Signbit(flo) == math.Signbit(fhi) {
-		return returnUnavailable("out_of_solver_range"), nil
+	lastSign := grouped[nonzero[len(nonzero)-1]].Sign()
+	if flo*float64(lastSign) <= 0 || fhi*float64(lastSign) >= 0 {
+		// Floating cancellation cannot establish that a root is outside the
+		// range. Certify the signs at the exact rational boundary rates instead.
+		for _, bound := range []struct {
+			y    float64
+			sign int
+		}{{lo, lastSign}, {hi, -lastSign}} {
+			sign, err := xirrSignAtRate(ctx, nonzero, grouped, new(big.Rat).SetFloat64(math.Expm1(bound.y)))
+			if err != nil {
+				return ReturnMetric{}, err
+			}
+			if sign == -bound.sign {
+				return returnUnavailable("out_of_solver_range"), nil
+			}
+		}
+		return returnUnavailable("precision_unresolved"), nil
 	}
 	for i := 0; i < 256; i++ {
 		mid := (lo + hi) / 2
@@ -365,8 +392,8 @@ func certifyXIRRRounding(ctx context.Context, dates []string, grouped map[string
 	if lo.Cmp(hi) >= 0 || hi.Cmp(big.NewRat(-1, 1)) <= 0 {
 		return false, nil
 	}
-	// One sign variation implies opposite first/last signs, with the last term
-	// dominating as r approaches -1. That open domain boundary needs no NPV call.
+	// Both uniqueness certificates imply opposite first/last signs, with the last
+	// term dominating as r approaches -1. That open boundary needs no NPV call.
 	lastSign := grouped[dates[len(dates)-1]].Sign()
 	for _, bound := range []struct {
 		rate *big.Rat

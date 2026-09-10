@@ -46,6 +46,19 @@ function point(
 }
 function result(curve: ReturnPoint[]): LedgerReturns {
   const last = curve.at(-1)!;
+  const endpoint = (p: ReturnPoint): BasisPoint => ({
+    date: p.date,
+    record_id: p.record_id,
+    sequence: "1",
+    version: "1",
+    assets: "100.00",
+    flow: null,
+    selected: true,
+    status: "reported",
+    source_id: p.record_id,
+    source_version: "1",
+    source_date: p.date,
+  });
   return {
     revision: "synthetic",
     requested_from: "",
@@ -54,8 +67,9 @@ function result(curve: ReturnPoint[]): LedgerReturns {
     effective_from: curve[0]!.date,
     effective_to: last.date,
     days: (curve.length - 1) * 7,
-    opening: null,
-    closing: null,
+    period_days: (curve.length - 1) * 7 + 1,
+    opening: endpoint(curve[0]!),
+    closing: endpoint(last),
     net_flow: "0.00",
     denominator: null,
     profit: last.profit,

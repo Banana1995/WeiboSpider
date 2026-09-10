@@ -22,6 +22,7 @@ const sample = (account = "a") => ({
     effective_from: "",
     effective_to: "",
     days: 0,
+    period_days: 0,
     opening: null,
     closing: null,
     net_flow: "0.00",

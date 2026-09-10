@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, reactive, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { query, request, type Account, type Page } from "./ledger";
 import type { AccountRecord } from "./accountRecords";
 import { money, recordKind, recordPage, validDay } from "./ledgerView";
@@ -19,9 +19,16 @@ const notice = ref("");
 const highlighted = ref("");
 const page = ref(0);
 const cursors = ref([""]);
-const table = ref<HTMLElement>();
+const table = ref<HTMLDetailsElement>();
+const expanded = ref(false);
 const applied = reactive({ from: "", to: "", status: "active" });
 let generation = 0;
+function toggle() {
+  const open = table.value?.open ?? false;
+  if (open === expanded.value) return;
+  expanded.value = open;
+  if (open && !rows.data && !rows.loading) load();
+}
 function load(cursor = "", index = 0) {
   generation++;
   rows.clear();
@@ -53,6 +60,9 @@ function next() {
 }
 async function locate(event: { id: string; date: string; accountId: string }) {
   if (locked.value || event.accountId !== props.account.id || !validDay(event.date)) return;
+  // Set both before reading so the native toggle cannot replace this lookup.
+  expanded.value = true;
+  if (table.value) table.value.open = true;
   const current = ++generation;
   from.value = event.date; to.value = event.date; showVoided.value = false;
   Object.assign(applied, { from: event.date, to: event.date, status: "active" });
@@ -84,19 +94,35 @@ async function locate(event: { id: string; date: string; accountId: string }) {
   notice.value = rows.error ? "定位未完成。" : found ? "已定位资金记录，下方仅显示该日记录。" : "未找到这笔有效记录，可能已被更改日期或作废。请刷新收益曲线。";
   if (found) {
     await nextTick();
+    if (current !== generation || id !== props.account.id || !expanded.value) return;
     const row = Array.from(table.value?.querySelectorAll<HTMLElement>("[data-record-id]") ?? []).find(el => el.dataset.recordId === event.id);
     row?.scrollIntoView({ block: "center", behavior: "auto" });
     row?.focus({ preventScroll: true });
   }
 }
 defineExpose({ locate });
-watch(() => props.account.id, reset, { immediate: true });
-watch(() => props.refreshKey, () => { cursors.value = [""]; highlighted.value = ""; load(); });
+watch(() => props.account.id, () => {
+  generation++;
+  rows.clear();
+  expanded.value = false;
+  if (table.value) table.value.open = false;
+  from.value = ""; to.value = ""; showVoided.value = false;
+  Object.assign(applied, { from: "", to: "", status: "active" });
+  cursors.value = [""]; page.value = 0; highlighted.value = ""; notice.value = ""; filterError.value = "";
+  if (filterMenu.value) filterMenu.value.open = false;
+}, { immediate: true });
+watch(() => props.refreshKey, () => {
+  generation++;
+  rows.clear(); cursors.value = [""]; page.value = 0; highlighted.value = ""; notice.value = "";
+  if (expanded.value) load();
+});
+onBeforeUnmount(() => { generation++; });
 </script>
 
 <template>
-  <section ref="table" class="lp-records" aria-labelledby="records-title" data-test="account-records">
-    <div class="lp-section-title"><div class="lp-title-count"><h2 id="records-title">账户记录</h2><span v-if="rows.data">本页 {{ rows.data.items.length }} 笔</span></div>
+  <details ref="table" :open="expanded" class="lp-records" aria-labelledby="records-title" data-test="account-records" @toggle="toggle">
+    <summary class="lp-record-summary"><h2 id="records-title">账户记录</h2><span v-if="rows.data">本页 {{ rows.data.items.length }} 笔</span></summary>
+    <div class="lp-section-title">
       <div class="lp-record-tools"><details ref="filterMenu" class="lp-filter-menu"><summary>筛选<span v-if="applied.from || applied.to || applied.status === 'all'" class="lp-filter-dot" /></summary>
         <form @submit.prevent="filter"><fieldset :disabled="locked"><strong>仅筛选下方记录</strong>
           <label>记录开始日期<input v-model="from" type="date" /></label><label>记录结束日期<input v-model="to" type="date" /></label>
@@ -130,5 +156,5 @@ watch(() => props.refreshKey, () => { cursors.value = [""]; highlighted.value = 
     <footer class="lp-table-footer"><span>按日期、同日记录顺序从新到旧 · 未填写的总资产不沿用前值</span>
       <div class="lp-pagination"><span>第 {{ page + 1 }} 页</span><button :disabled="locked || rows.loading || page === 0" @click="load(cursors[page - 1]!, page - 1)">上一页</button>
         <button :disabled="locked || rows.loading || !!rows.error || !rows.data?.next_cursor" @click="next">下一页</button></div></footer>
-  </section>
+  </details>
 </template>

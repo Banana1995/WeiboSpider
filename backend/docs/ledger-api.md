@@ -392,7 +392,7 @@ T03 合成验证与限制见[本机验收记录](../../docs/validation/2026-09-0
 ```text
 returns: {
   revision, requested_from, requested_to, start_mode,
-  effective_from, effective_to, days, opening, closing, net_flow, denominator,
+  effective_from, effective_to, days, period_days, opening, closing, net_flow, denominator,
   profit, modified_dietz, xirr, twr, twr_annualized, curve, warnings, flows, investor_flows
 }
 metric: { value: string|null, percentage: string|null,
@@ -406,9 +406,9 @@ curve: [{ date, record_id, baseline, profit, modified_dietz, twr }]
 - `requested_from/requested_to` 保留调用者传入的日期，省略为 `""`；外层 to 给出本次解析后的默认截止。`start_mode=baseline` 表示未传 from：以首个已知日终资产为基准，排除该日全部资金流，不推断此前初始财富。首行只有 total_assets、flow=null 是有效基准，不是缺少本金，不生成初始入金。同日选最后明确资产，不被后置资金流行替换；原行金额及顺序不变。
 - `start_mode=custom`：opening 为 from 之前最近资产，计算边界 effective_from 为 from 前一日日终；资金流包含 from 当天。没有此前资产或显式 from=0001-01-01 时 missing_opening，不补零、不反推入金。
 - effective_to 为截止日及之前最后资产/沿用记录日期，不用空白截止日、导出日、后续日志或今天延长年化。所有账户均按统一规则处理缺资产资金流；carried 日期可作为终点，原額不加流量，reference 明示入金后可能显示账面亏损。若输入存在最后 closing 之后的非零资金流则 closing_before_flow，不悄悄排除它们，即使同日净额为零。空区间或同一基准点为 no_interval；明确 from=to 且有前置资产可形成一天区间。
-- 日期使用北京时间业务日和公历整数日差，支持 0001..9999，不使用可能溢出的 time.Duration。`days` 是两端日终之间的天数；无有效区间时可能为零或负，指标均不可用。opening/closing 是完整 BasisPoint，带声明日期、source 日期/ID/版本及估值采样元数据，不重新解释原报价日期。
+- 日期使用北京时间业务日和公历整数日差，支持 0001..9999，不使用可能溢出的 time.Duration。`days` 保留两端日终之间的实际日差，用于 XIRR ACT/365、TWR 年化、短期提示及 no_interval 判断；无有效区间时可能为零或负。新增 `period_days` 仅作为 Dietz 时间权重分母：已建立有资产的正序端点（包括同日）时为 `days+1`，包含 effective_from/effective_to 两天；端点未建立或日期倒序时为 0。同日 `days=0, period_days=1` 仍 no_interval，不因此生成收益指标。opening/closing 是完整 BasisPoint，带声明日期、source 日期/ID/版本及估值采样元数据，不重新解释原报价日期。
 - profit = close - open - net_flow。仅账户边界的外部资金流为正流入、负流出；持仓买卖/分红不再计投入，组合交易只计独立 amount，单账户转账计对应腿。同行资产是 post-flow，绝不重复加款。
-- Dietz = profit / (open + Σ flow × weight_days / days)，流量按日终，weight_days=effective_to-date，期末日权重为零。金额合计与加权分子用 big.Int，分母和收益率用 big.Rat；`denominator` 是本位币单位的精确有理数字符串（例如 `120` 或 `100/3`），不大于零仅使 Dietz 不可用。
+- Dietz = profit / (open + Σ flow × weight_days / period_days)，流量按日终，weight_days=effective_to-date，分子不加 1，期末日权重仍为零。每条 flows.period_days 等于摘要 period_days，无现金流的区间收益率不变。金额合计与加权分子用 big.Int，分母和收益率用 big.Rat；`denominator` 是本位币单位的精确有理数字符串（例如 `12000` 或 `350/3`），不大于零仅使 Dietz 不可用。用户提供的公开合成比较：2024-01-01 期初 10000，2025-05-02 转入 10000 后总资产 20000，2025-09-01 期末 23000；days=609、period_days=610、weight_days=122、denominator=12000、Dietz=25.00%，不再用 609 得到 24.99%。此数据仅为测试样例，不是私人账户转录。
 - `profit.value` 是两位金额；两种 rate.value 是十二位小数的比率（0.1 = 10%），属于舍入后的输出，不作为后续计算输入。percentage 为两位百分数数值字符串，不带 `%`；直接从未舍入计算值产生，避免从十二位 value 再舍入造成双重舍入。收益金额和不可用指标的 percentage=null。全部 half-away-from-zero，舍入为零不带负号，数值不回写原始事实。浮点只用于 XIRR 数值求解及既有图坐标。
 - `flows` 保留纳入计算的每笔精确金额、版本和权重分子/分母；`investor_flows` 是加入 -opening、-deposits、+withdrawals、+closing 后按日期以任意精度分合并的净额，零额也可见。默认基准日流量不再次出现。端点缺失、过期或其他前置条件失败时，明细可能为空/不完整，不能当成完成的对账。
 - `available` 仅表示依据足以计算，不是审计背书或价格是收盘价。carried 或 opening 来源早于计算边界时为 reference，三项分别带状态。任一端点 stale/untracked 阻止三项指标；无关中间过期观察不阻止只依赖端点和资金流的计算，因此外层 status 仍可能 pending_recalculation 而 returns 可算。端点观察日期已追踪不等于价格/FX 均为当日收盘，holdings 始终提示 sampled_valuation_not_daily_close。
@@ -418,20 +418,22 @@ curve: [{ date, record_id, baseline, profit, modified_dietz, twr }]
 XIRR 对投资者现金流求 `Σ amount / (1+r)^(actual_days/365) = 0`，独立于 Dietz，不把其机械年化。不足 365 天添加 short_period_extrapolation，仍展示可解结果；未将参考产品“超过半年才展示”的规则当作已确认需求。
 
 - 同日精确净额后无正负变号：no_solution（不包括把 -100% 作为有限根）；全部为零：indeterminate_all_zero，不能显示信息量为零的年化。
-- 一次符号变化的指数多项式在完整定义域具有唯一根；多次符号变化返回 possible_multiple_roots，仅表示未证明唯一，**不是宣称已证明多根或无根**。经典 -100,+230,-132 的两根案例也不选择任意根。当前不实现完整非传统现金流根隔离。
-- 精确路径：仅一次变号且精确净额为零时 XIRR=0；仅两笔非零现金流且相隔恰好 365 天时，使用 `r=-last/first-1` 的精确有理数，不经过浮点。此路径无浮点搜索范围限制；例如整数分 `[-20000,20001]` 和 `[-20000,19999]` 返回比率 `±0.000050000000`、percentage `±0.01`，不因浮点落在数学中点一侧而错误归零。输出 value 仍是十二位舍入值；真实比率严格大于 -1 时，也可能舍入显示为 `-1.000000000000`，不能把显示值重新作为求解输入。
-- 其他情况在 y=log(1+r) 的 [-32,32] 内二分，最多 256 轮；指数缩放、归一化残差、补偿加总，近零使用精确净额与 expm1 保留超大资产下的分级差值。归一化残差 <1e-12、利率区间宽度 <2e-14、利率浮点 ULP <1e-14 同时通过后，只产生一个**候选显示值**，不是舍入正确的证明。范围不足/边界消失为 out_of_solver_range，未满足搜索精度/收敛为 not_converged；极端非精确路径年化仍可能不可用。
+- 一次符号变化的指数多项式在完整定义域具有唯一根。多次符号变化先尝试精确累计现金流证书：去掉零额日期，把整体符号归一为首笔负数，若每个真前缀累计 S_i≤0 且最终总额 S_n≥0，则完整 r>-1 定义域恰有一个根（r≥0）。这支持提款后再投入，例如按 365 天间隔的 `[-100,+30,-20,+120]`，不再因三次变号直接拒绝。
+- 证书依据：令 d_0=0、q=(1+r)^(-1/365)，`P(q)=S_n*q^d_n+Σ S_i*(q^d_i-q^d_(i+1))`。在 0<q<1 上 `P(q)/q^d_n` 从负无穷严格递增到 S_n，在 q>1 上 P(q)>0，因此 S_n>0 时根在 0<q<1；S_n=0 时唯一根 q=1。对金额倒序并反射日期的多项式为 `q^d_n*P(1/q)`，应用相同证书可证明唯一 r≤0 的情况，支持一部分亏损且多次进出的历史；不是把正根证明直接用于负根。整体金额变号不改变根，证书不要求日期等间隔。
+- 两个方向均无法证明唯一时仍返回 possible_multiple_roots，仅表示未证明唯一，**不是宣称已证明多根或无根**。例如按 365 天间隔的 -100,+230,-132 确有 10%、20% 两根，但不选择任意根；切触根、未证明无根或其他复杂多次变号也保持保守不可用。当前不实现完整非传统现金流根隔离，不新增 multiple_roots 等原因码。
+- 精确路径：已由上述任一方法证明唯一且精确净额为零时 XIRR=0；仅两笔非零现金流且相隔恰好 365 天时，使用 `r=-last/first-1` 的精确有理数，不经过浮点。此路径无浮点搜索范围限制；例如整数分 `[-20000,20001]` 和 `[-20000,19999]` 返回比率 `±0.000050000000`、percentage `±0.01`，不因浮点落在数学中点一侧而错误归零。输出 value 仍是十二位舍入值；真实比率严格大于 -1 时，也可能舍入显示为 `-1.000000000000`，不能把显示值重新作为求解输入。
+- 其他已证明唯一的情况在 y=log(1+r) 的 [-32,32] 内二分，最多 256 轮；指数缩放、归一化残差、补偿加总，近零使用精确净额与 expm1 保留超大资产下的分级差值。归一化残差 <1e-12、利率区间宽度 <2e-14、利率浮点 ULP <1e-14 同时通过后，只产生一个**候选显示值**，不是舍入正确的证明。浮点端点没有正确括区时，用端点浮点 rate 的精确有理数及向外舍入 NPV 独立确认：能证明根在这些边界之外才返回 out_of_solver_range，无法证明则 precision_unresolved，不以任意 epsilon 决定边界。未满足搜索精度/收敛为 not_converged；极端非精确路径年化仍可能不可用。
 - 候选结果还必须通过独立舍入认证：将十二位 value 和两位 percentage 对应的比率舍入区间取交集，以精确十进制有理数表达两端。在每个端点令 `q=(1+r)^(-1/365)`，用 192 位 `big.Float` 向外舍入包围 q，并以整数日数幂计算 NPV 的上下界。所有运算为有向舍入的加减乘除/整数幂，不依赖 math.Exp/Expm1 的误差估计。上下端 NPV 必须严格异号且符合唯一根方向，证明真实根严格处于两种舍入区间内；靠近 -1 时以定义域开边界处理下界。
 - 若区间仍包含零、候选舍入边界无法认证或精确路径之外的真实根恰落在中点，返回 `precision_unresolved`，value/percentage 均 null，前端说明“数值不确定性跨越舍入边界”。不加固定 epsilon、不相信单纯浮点括区、不将近零残差当成精确根，也不从十二位 value 二次舍入百分数。730 天 `[-400000000,400040001]` 等真实年化 `+0.00005` 的案例目前保守不可用；这不表示该根无解。其他恰好十二位比率中点、三笔或更多现金流同样受此守卫，不承诺所有数学可解根均能展示。
 - 前置不可用原因：missing_opening、missing_closing、no_interval、stale_endpoint、untracked_endpoint、closing_before_flow；Dietz 特有 nonpositive_denominator。warnings 为 carried_assets_unchanged、sampled_valuation_not_daily_close、short_period_extrapolation 的适用组合。
-- 沿用 T02/T03 各 10,000 条限制；纯计算最多 10,000 points，XIRR 最多 10,002 个分组日期（包括端点），超限拒绝不截断。循环检查 ctx 取消，浮点搜索最多 256 轮；每次舍入认证最多两个端点，每端 q 根区间固定 [0.5,2]、最多 192 次二分，NPV 整数幂用平方求幂，复杂度 O(分组日期数 × log(日差))，精度固定 192 位，无自适应无界计算。认证范围不足同样 precision_unresolved。未改善 T02 已有全账本重放的大账本限制。
+- 沿用 T02/T03 各 10,000 条限制；纯计算最多 10,000 points，XIRR 最多 10,002 个分组日期（包括端点），超限拒绝不截断。唯一性证书最多两次线性整数累计，不展开百万日高次多项式。循环检查 ctx 取消，浮点搜索最多 256 轮；舍入认证或搜索范围认证各最多两个端点，每端 q 根区间固定 [0.5,2]、最多 192 次二分，NPV 整数幂用平方求幂，复杂度 O(分组日期数 × log(日差))，精度固定 192 位，无自适应无界计算。认证范围不足同样 precision_unresolved。未改善 T02 已有全账本重放的大账本限制。
 
 Vue 同请求展示三张收益卡及每页 30 条详情。账户、日期或刷新变化中止旧读，校验 revision 和账户身份；无来源轨道选择器，不另取资金流拼接。周任务只读面板及统一审计面板已实现；T07 见下，基准仍未实现，T06 仍取消。旧阶段证据保留。
 
 ### T07 曲线与 TWR（2026-09-08）
 
 - 仅扩展同一 returns 快照，无额外数据库读取、API、网络、缓存或写入。curve 是一枚明确 baseline 锚点加其后实际 selected 日期，最多 10,001 点；不补齐自然日。锚点有效时三项为零（零本金不是其含义），无正日数区间时摘要仍 no_interval。custom 锚点在 effective_from，保留真实 opening 记录身份及参考状态。
-- 每点 profit 和 modified_dietz 都从共同 opening 计算。以 big.Int 累计净流量 S 和资金流日数矩 M，前缀加权分母为 `n*(opening+S)-M`，每点 O(1) 次大数运算，整段 O(n) 遍历；不逐点调用 calculateReturns 或 XIRR。最终曲线点与摘要的值、状态、原因相同。
+- 每点 profit 和 modified_dietz 都从共同 opening 计算。以 big.Int 累计净流量 S 和资金流日数矩 M，该点实际日差为 n，Dietz 分子为 `profit*(n+1)`，加权分母整数为 `opening*(n+1)+n*S-M`，对应本位币分母需除以 `(n+1)*100`；不能用 `(opening+S)*(n+1)-M` 给每笔流量多加一天权重。每点 O(1) 次大数运算，整段线性遍历；不逐点调用 calculateReturns 或 XIRR。最终曲线点与摘要独立计算自然一致，不用摘要强制覆盖末点数值；closing_before_flow 单独传播为终点不可用，不污染更早前缀。
 - TWR 日终约定：`factor=(当日 post-flow 总资产-当日净资金流)/上一必需资金边界的 post-flow 资产`。仅在包含非零外部资金事件的日期永久链乘，非零进出即使净额抵消也要求当天边界。普通观察点从上一必需边界计算展示值，但不永久链乘，避免无关旧观察污染后续结果。
 - 必需边界缺资产为 missing_flow_boundary；stale/untracked 阻断该点及后续链，普通无资金日 stale/untracked 仅该点不可用。carried 边界让必需链持续 reference；没有实际新记录的日期不造观察。周沿用不是新观察，人工确认后才按明确资产参与每日选择。
 - 分母零为 zero_twr_base；负因子为 negative_twr_factor；因子零合法表示 -100%，年化同为 -100%。若之后需要除以零资金边界才阻断。TWR 不借用 Dietz 代替缺失边界，摘要资金加权指标仍保留自身规则。

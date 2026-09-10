@@ -30,7 +30,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", beforeUnload);
   dialog.value?.close();
   void nextTick(() => {
-    const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>(".ledger-page [data-ledger-focus]") ?? document.getElementById("ledger-account");
+    const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>(".ledger-page [data-ledger-focus]") ?? document.querySelector<HTMLElement>('.lp-account-tabs [aria-selected="true"]');
     target?.focus();
   });
 });

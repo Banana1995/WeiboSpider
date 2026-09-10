@@ -14,6 +14,7 @@ export interface LedgerReturns {
   effective_from: string;
   effective_to: string;
   days: number;
+  period_days: number;
   opening: BasisPoint | null;
   closing: BasisPoint | null;
   net_flow: string;
@@ -56,7 +57,7 @@ export const returnReasons: Record<string, string> = {
   indeterminate_all_zero: "同日抵消后全部为零，年化没有信息量",
   no_solution: "净额现金流没有正负两种符号，XIRR 无解",
   possible_multiple_roots: "现金流多次变号，可能多解；未证明唯一，不选择任意根",
-  out_of_solver_range: "唯一根超出数值求解范围，或边界精度不足",
+  out_of_solver_range: "超出数值求解范围，或边界精度不足，暂无法给出可靠年化",
   not_converged: "求解未达到残差与精度要求",
   precision_unresolved: "数值不确定性跨越舍入边界，不能确认展示精度",
   missing_flow_boundary: "外部资金流边界缺少总资产，不能计算真实 TWR",
@@ -139,6 +140,14 @@ export function validReturns(
     date(r.effective_to) &&
     Number.isInteger(r.days) &&
     Math.abs(r.days) <= 3652059 &&
+    Number.isInteger(r.period_days) &&
+    r.period_days >= 0 &&
+    r.period_days <= 3652060 &&
+    (r.opening?.assets != null && r.closing?.assets != null
+      ? !!r.effective_from &&
+        !!r.effective_to &&
+        r.period_days === (r.days >= 0 ? r.days + 1 : 0)
+      : r.period_days === 0) &&
     number(r.net_flow) &&
     (r.denominator === null ||
       (typeof r.denominator === "string" &&
@@ -158,6 +167,9 @@ export function validReturns(
     metric(r.xirr, true) &&
     metric(r.twr, true) &&
     metric(r.twr_annualized, true) &&
+    ((r.profit.status === "unavailable" &&
+      r.modified_dietz.status === "unavailable") ||
+      r.period_days === r.days + 1) &&
     Array.isArray(r.curve) &&
     r.curve.length <= 10001 &&
     (!(r.opening?.assets != null && r.effective_from) || r.curve.length > 0) &&
@@ -199,7 +211,7 @@ export function validReturns(
         Number.isInteger(f.weight_days) &&
         f.weight_days >= 0 &&
         f.weight_days <= r.days &&
-        f.period_days === r.days,
+        f.period_days === r.period_days,
     ) &&
     Array.isArray(r.investor_flows) &&
     r.investor_flows.length <= 10002 &&

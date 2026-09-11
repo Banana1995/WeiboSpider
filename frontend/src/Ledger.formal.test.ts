@@ -198,6 +198,9 @@ beforeEach(() => {
       if (url.pathname.endsWith("/accounts"))
         return response({ items: accountList });
       if (url.pathname.endsWith("/instruments")) return response({ items: [] });
+      if (url.pathname.endsWith("/current-holdings")) return response({
+        account_id: url.pathname.split("/").at(-2), audit_id: "", snapshot: null,
+      });
       if (url.pathname.endsWith("/effective-summary")) return response(summary);
       if (url.pathname.endsWith("/analysis-basis")) {
         const id = url.pathname.split("/").at(-2)!;
@@ -257,6 +260,20 @@ it("validates the inclusive 610-day contract with unchanged 122-day flow weight"
       validReturns({ ...r, flows: [flow] }, r.revision, "", basis.to),
     ).toBe(false);
   }
+});
+
+it("shows account holdings immediately above records without fetching quotes or writing", async () => {
+  await ledger();
+  const holdings = wrapper.get('[data-test="account-holdings"]');
+  expect(holdings.element.nextElementSibling).toBe(wrapper.get('[data-test="account-records"]').element);
+  expect(holdings.text()).toContain("尚未设置当前持仓");
+  expect(holdings.text()).toContain("登记证券");
+  expect(calls.filter(path => path.endsWith("/current-holdings"))).toEqual(["/api/platform/ledger/accounts/a/current-holdings"]);
+  expect(calls.some(path => /\/(valuation|instruments\/search)/.test(path))).toBe(false);
+  await wrapper.get('#account-tab-b').trigger("click");
+  await flushPromises();
+  expect(calls.filter(path => path.endsWith("/current-holdings"))).toHaveLength(2);
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 
 it("keeps a same-day inclusive duration of one, but requires zero when the closing endpoint is missing", () => {

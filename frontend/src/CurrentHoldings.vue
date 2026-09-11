@@ -179,7 +179,7 @@ async function save() {
 
 <template>
   <section data-test="current-holdings">
-    <div class="lp-section-title"><h2>当前持仓</h2><button :disabled="disabled || !!pending || read.loading || !!read.error || !read.data" @click="openEdit">编辑持仓</button></div>
+    <div class="lp-section-title"><h2>当前持仓</h2><div class="lp-actions"><slot name="actions" /><button :disabled="disabled || !!pending || read.loading || !!read.error || !read.data" @click="openEdit">编辑持仓</button></div></div>
     <p class="lp-muted">独立维护现金与证券数量。保存持仓不生成交易、资金流水或总资产记录。</p>
     <p v-if="read.loading" role="status">正在读取当前持仓…</p>
     <p v-if="read.error || error" role="alert">{{ read.error || error }}</p>

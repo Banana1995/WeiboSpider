@@ -130,6 +130,11 @@ func (p *TencentQuotes) Fetch(ctx context.Context, instruments []Instrument) map
 }
 
 func (p *TencentQuotes) batch(ctx context.Context, symbols []string) ([]byte, error) {
+	return p.get(ctx, "https://qt.gtimg.cn/?q="+strings.Join(symbols, ","), 1<<20)
+}
+
+// Callers construct fixed upstream URLs; slots cover both requests and body reads.
+func (p *TencentQuotes) get(ctx context.Context, url string, maxBody int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, quoteNetworkTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -141,7 +146,7 @@ func (p *TencentQuotes) batch(ctx context.Context, symbols []string) ([]byte, er
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://qt.gtimg.cn/?q="+strings.Join(symbols, ","), nil)
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -153,12 +158,11 @@ func (p *TencentQuotes) batch(ctx context.Context, symbols []string) ([]byte, er
 	if resp.StatusCode != http.StatusOK {
 		return nil, ErrFXUnavailable
 	}
-	const maxBody = 1 << 20
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > maxBody {
+	if int64(len(body)) > maxBody {
 		return nil, ErrFXUnavailable
 	}
 	return body, ctx.Err()

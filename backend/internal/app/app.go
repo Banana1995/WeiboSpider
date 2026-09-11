@@ -61,7 +61,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		if err != nil {
 			return nil, errors.Join(err, application.Close())
 		}
-		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, Weekly: application.ledgerWorker}.Register(ledgerMux)
+		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Weekly: application.ledgerWorker}.Register(ledgerMux)
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})

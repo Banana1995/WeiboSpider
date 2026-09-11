@@ -50,6 +50,7 @@
 .ledger-page .lp-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ledger-page :is(.lp-income, .lp-records, .lp-management) { background: var(--lp-surface); border: 1px solid var(--lp-rule); border-radius: 6px; min-width: 0; }
 .ledger-page .lp-income { padding: 22px 26px 16px; margin-bottom: 24px; }
+.ledger-page .lp-income + .lp-holdings { background: var(--lp-surface); border: 1px solid var(--lp-rule); border-radius: 6px; max-width: none; margin-bottom: 24px; }
 .ledger-page .lp-section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ledger-page .lp-segment { display: inline-flex; border: 1px solid var(--lp-rule); border-radius: 5px; padding: 3px; gap: 2px; }
 .ledger-page .lp-segment button { font-size: 13px; border: 0; background: transparent; padding: 5px 12px; border-radius: 3px; }
@@ -188,6 +189,12 @@
 .ledger-page .lp-import-preview li > div { display: flex; justify-content: space-between; gap: 15px; flex-wrap: wrap; }
 .ledger-page .lp-import-preview li > div + div { margin-top: 8px; }
 .ledger-page .lp-two-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.ledger-page .lp-security-search { display: flex; align-items: center; gap: 10px; }
+.ledger-page .lp-security-search input { min-width: 0; flex: 1; }
+.ledger-page .lp-security-search button { flex: none; }
+.ledger-page .lp-search-results { display: grid; gap: 8px; }
+.ledger-page .lp-security-fields { display: flex; flex-direction: column; gap: 22px; }
+.ledger-page .lp-search-results button { text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .ledger-page .lp-opening-position { border-top: 1px solid var(--lp-rule); padding-top: 15px; display: grid; gap: 15px; }
 .ledger-page .ledger-panel { margin: 0; padding: 0; border: 0; background: transparent; }
 .ledger-page .ledger-panel > fieldset { display: grid; gap: 16px; margin: 22px 0; }

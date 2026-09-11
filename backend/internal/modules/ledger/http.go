@@ -25,12 +25,13 @@ const maxLedgerBody = 64 << 10
 
 // Handler must be placed behind the app's private/local access boundary.
 type Handler struct {
-	Store  *Store
-	Logger *slog.Logger
-	FX     FXProvider
-	Quotes QuotesProvider
-	Now    func() time.Time
-	Weekly *WeeklyWorker
+	Store            *Store
+	Logger           *slog.Logger
+	FX               FXProvider
+	Quotes           QuotesProvider
+	InstrumentSearch InstrumentSearchProvider
+	Now              func() time.Time
+	Weekly           *WeeklyWorker
 }
 
 func (h Handler) Register(mux *http.ServeMux) {
@@ -60,6 +61,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,
 		"/accounts/{id}/operations":                   h.accountOperations,
 		"/instruments":                                h.instruments,
+		"/instruments/search":                         h.searchInstruments,
 		"/operations":                                 h.operations,
 		"/operations/{id}":                            h.operation,
 		"/operations/{id}/revisions":                  h.revisions,

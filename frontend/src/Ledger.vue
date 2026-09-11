@@ -5,6 +5,7 @@ import AccountRecords from "./AccountRecords.vue";
 import LedgerRecordDialog from "./LedgerRecordDialog.vue";
 import LedgerAccountDialog from "./LedgerAccountDialog.vue";
 import LedgerManagement from "./LedgerManagement.vue";
+import LedgerHoldings from "./LedgerHoldings.vue";
 import { all, LedgerError, type Account, type Instrument } from "./ledger";
 import { opaqueID, validDay, versionString } from "./ledgerView";
 import { createLedgerWorkspace, ledgerWorkspaceKey } from "./useLedgerWorkspace";
@@ -111,7 +112,7 @@ function guardLink(event: MouseEvent) {
   if ((locked.value || modal.value) && event.target instanceof Element && event.target.closest("a[href]")) event.preventDefault();
 }
 watch(selected, () => { operationId.value = ""; });
-onMounted(() => { void loadAccounts(); window.addEventListener("beforeunload", beforeUnload); document.addEventListener("click", guardLink, true); document.addEventListener("auxclick", guardLink, true); });
+onMounted(() => { void loadAccounts(); loadInstruments(); window.addEventListener("beforeunload", beforeUnload); document.addEventListener("click", guardLink, true); document.addEventListener("auxclick", guardLink, true); });
 onBeforeUnmount(() => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", guardLink, true); document.removeEventListener("auxclick", guardLink, true); });
 </script>
 
@@ -140,6 +141,7 @@ onBeforeUnmount(() => { window.removeEventListener("beforeunload", beforeUnload)
       <div v-else-if="account" :id="`account-panel-${account.id}`" role="tabpanel" :aria-labelledby="`account-tab-${account.id}`">
         <template v-if="!manage">
           <LedgerOverview :key="account.id" :account="account" :refresh-key="refreshKey" @locate="locate" />
+          <LedgerHoldings :key="account.id" :account="account" :accounts="accounts.data ?? []" :instruments="instruments.data ?? []" :instruments-error="instruments.error" :instruments-loading="instruments.loading" operation-id="" :refresh-key="refreshKey" @locked="workspace.externalLock.value = $event" @create="openAccount" @instruments="loadInstruments" @changed="refreshKey++" />
           <AccountRecords :key="account.id" ref="records" :account="account" :refresh-key="refreshKey" @edit="openRecord('edit', $event)" @detail="openRecord('detail', $event)" @operation="operation" />
         </template>
         <LedgerManagement v-else :account="account" :accounts="accounts.data ?? []" :instruments="instruments.data ?? []" :instruments-error="instruments.error" :instruments-loading="instruments.loading"

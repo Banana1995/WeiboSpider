@@ -210,6 +210,8 @@ const errors: Record<string, string> = {
   incomplete_valuation: "估值不完整，未保存总资产，请核对持仓和报价来源",
   internal_error: "服务内部错误",
   storage_busy: "存储繁忙，请按原请求重试",
+  instrument_search_unavailable: "证券查询服务暂不可用",
+  instrument_search_timeout: "证券查询超时",
   request_timeout: "请求超时，需按原请求确认结果",
 };
 export class LedgerError extends Error {

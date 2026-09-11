@@ -293,31 +293,28 @@ it("keeps a same-day inclusive duration of one, but requires zero when the closi
   );
 });
 
-it("renders exact reference percentages, solid filled / dashed hollow samples and a real null gap", async () => {
+it("joins numeric samples with one solid path and filled points without changing exact values or provenance", async () => {
+  const original = structuredClone(basis);
   await overview();
   expect(wrapper.get('[data-test="period-days"]').text()).toBe(
     "统计时长 610 天",
   );
   const svg = wrapper.get('svg[aria-label="账户收益曲线"]');
-  expect(svg.findAll(".lp-point-available")).toHaveLength(3);
-  expect(svg.findAll(".lp-point-reference")).toHaveLength(2);
+  expect(svg.findAll(".lp-point-available, .lp-point-reference")).toHaveLength(0);
   expect(svg.findAll("circle")).toHaveLength(5);
   expect(
     svg
-      .get("path.lp-curve:not(.lp-reference-line)")
+      .get("path.lp-curve")
       .attributes("d")!
       .match(/M/g),
   ).toHaveLength(1);
-  expect(
-    svg.get(".lp-reference-line").attributes("d")!.match(/M/g),
-  ).toHaveLength(2);
-  expect(wrapper.get('[data-test="curve-gaps"]').text()).toContain(
-    returnReasons.missing_closing,
-  );
-  expect(wrapper.get('[aria-label="收益状态图例"]').text()).toContain(
-    "不可计算：断点",
-  );
-  const reference = svg.findAll(".lp-point-reference")[0]!;
+  expect(svg.get("path.lp-curve").attributes("d")!.match(/L/g)).toHaveLength(4);
+  expect(svg.findAll("path.lp-curve")).toHaveLength(1);
+  expect(svg.find(".lp-reference-line").exists()).toBe(false);
+  expect(svg.find('.lp-point[aria-label^="2020-04-01"]').exists()).toBe(false);
+  expect(wrapper.find('[data-test="curve-gaps"]').exists()).toBe(false);
+  expect(wrapper.find('[aria-label="收益状态图例"]').exists()).toBe(false);
+  const reference = svg.get('.lp-point[aria-label^="2020-03-01"]');
   expect(reference.attributes("tabindex")).toBe("0");
   await reference.trigger("focus");
   expect(wrapper.get(".lp-chart-readout").text()).toContain("26.00%");
@@ -339,17 +336,33 @@ it("renders exact reference percentages, solid filled / dashed hollow samples an
     "90,071,992,547,409.03",
   );
   expect(calls).toHaveLength(2);
-  expect(styles).toContain("--lp-reference: #a67828");
+  expect(styles).not.toContain(".lp-reference-line");
   expect(styles).toMatch(
-    /\.lp-reference-line\s*\{[^}]*stroke-dasharray: 7 5;[^}]*stroke-width: 2.5;/,
-  );
-  expect(styles).toMatch(
-    /\.lp-point-available\s*\{[^}]*fill: var\(--lp-primary\)/,
-  );
-  expect(styles).toMatch(
-    /\.lp-point-reference\s*\{[^}]*fill: var\(--lp-surface\);[^}]*stroke: var\(--lp-reference\)/,
+    /\.lp-point\s*\{[^}]*fill: var\(--lp-primary\)/,
   );
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
+  expect(basis).toEqual(original);
+});
+
+it.each([0, 1])("does not fabricate values when only %i numeric samples exist", async (count) => {
+  for (const p of basis.returns.curve) p.modified_dietz = metric("unavailable", "missing_flow_boundary");
+  if (count) basis.returns.curve[0]!.modified_dietz = {
+    ...metric(), value: "0.000000000000", percentage: "0.00",
+  };
+  basis.returns.modified_dietz = basis.returns.curve.at(-1)!.modified_dietz;
+  const original = structuredClone(basis);
+  await overview();
+  expect(wrapper.findAll(".lp-point")).toHaveLength(count);
+  if (count) {
+    const path = wrapper.get("path.lp-curve").attributes("d")!;
+    expect(path).toMatch(/^M/);
+    expect(path).not.toContain("L");
+    expect(wrapper.get(".lp-point").attributes("aria-label")).toContain("0.00%");
+  } else {
+    expect(wrapper.find("path.lp-curve").exists()).toBe(false);
+    expect(wrapper.text()).toContain("这个区间还画不出曲线");
+  }
+  expect(basis).toEqual(original);
 });
 
 it("separates manager estimate provenance and earlier boundaries from unchanged personal and profit values", async () => {

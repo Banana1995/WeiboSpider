@@ -4,7 +4,6 @@
   --lp-muted: #65766b;
   --lp-primary: #285b46;
   --lp-danger: #bc514c;
-  --lp-reference: #a67828;
   color: #263b32;
   background: #f6f7f4;
   font-size: 14px;
@@ -77,22 +76,15 @@
 .ledger-page .lp-gridline { stroke: #e7ebe4; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .ledger-page .lp-zero { stroke: #bfcac0; stroke-dasharray: 3 5; vector-effect: non-scaling-stroke; }
 .ledger-page .lp-curve { stroke: var(--lp-primary); stroke-width: 2.3; fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.ledger-page .lp-reference-line { stroke-dasharray: 7 5; stroke-width: 2.5; stroke: var(--lp-reference); }
-.ledger-page .lp-point { fill: var(--lp-surface); stroke: var(--lp-primary); stroke-width: 1.7; vector-effect: non-scaling-stroke; }
-.ledger-page .lp-point-available { fill: var(--lp-primary); }
-.ledger-page .lp-point-reference { fill: var(--lp-surface); stroke: var(--lp-reference); stroke-width: 2; }
+.ledger-page .lp-point { fill: var(--lp-primary); stroke: var(--lp-primary); stroke-width: 1.7; vector-effect: non-scaling-stroke; }
 .ledger-page .lp-point:hover, .ledger-page .lp-point:focus { r: 6; stroke-width: 2.5; }
-.ledger-page .lp-gap-line { stroke: var(--lp-muted); stroke-width: 2; fill: none; }
-.ledger-page .lp-gap-reasons { font-size: 12px; color: #805b1e; padding: 10px 0; }
 .ledger-page .lp-event-scroll { max-height: 116px; overflow-y: auto; padding-top: 4px; }
 .ledger-page .lp-event-lane { position: relative; min-height: 28px; margin: 0; }
 .ledger-page .lp-event { position: absolute; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; padding: 0; width: 24px; height: 24px; border-radius: 50%; font-size: 16px; background: var(--lp-surface); border-color: currentColor; line-height: 1; }
 .ledger-page .lp-axis-dates { display: flex; justify-content: space-between; margin: 6px 2% 12px; font-size: 12px; color: var(--lp-muted); }
 .ledger-page .lp-chart-footer { display: flex; align-items: flex-start; gap: 24px; border-top: 1px solid var(--lp-rule); padding-top: 12px; }
 .ledger-page .lp-chart-footer p { font-size: 12px; color: var(--lp-muted); max-width: 850px; margin: 0; }
-.ledger-page .lp-legends { display: grid; gap: 8px; }
 .ledger-page .lp-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; }
-.ledger-page .lp-legend svg { width: 36px; height: 12px; flex: none; }
 .ledger-page .lp-legend span { display: flex; align-items: center; gap: 6px; }
 .ledger-page .lp-legend i { height: 7px; width: 7px; background: currentColor; border-radius: 50%; }
 .ledger-page .lp-in, .ledger-page .lp-negative { color: var(--lp-danger); }

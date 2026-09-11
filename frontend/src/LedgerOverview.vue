@@ -56,7 +56,7 @@ const samples = computed(() => {
       sourceNote: notes.get(p.record_id) ?? "" };
   });
 });
-const gaps = computed(() => [...new Set(samples.value.filter(p => p.metric.status === "unavailable").map(p => statusText(p.metric)))]);
+const plottedSamples = computed(() => samples.value.filter(p => p.value !== null));
 const extent = computed(() => {
   let min = 0, max = 0;
   for (const p of samples.value) if (p.value !== null) { min = Math.min(min, p.value); max = Math.max(max, p.value); }
@@ -71,16 +71,8 @@ const times = computed(() => {
 });
 const x = (date: string) => 36 + (Date.parse(`${date}T00:00:00Z`) - times.value[0]!) / Math.max(86400000, times.value[1]! - times.value[0]!) * 828;
 const y = (value: number) => 178 - (value - extent.value[0]!) / (extent.value[1]! - extent.value[0]!) * 150;
-const paths = computed(() => {
-  const paths = { available: "", reference: "" };
-  for (let i = 1; i < samples.value.length; i++) {
-    const a = samples.value[i - 1]!, b = samples.value[i]!;
-    if (a.value === null || b.value === null) continue;
-    const state = a.metric.status === "reference" || b.metric.status === "reference" ? "reference" : "available";
-    paths[state] += `M${x(a.date)},${y(a.value)} L${x(b.date)},${y(b.value)} `;
-  }
-  return paths;
-});
+// Join numeric samples for display only; skipped dates receive no synthetic value.
+const curvePath = computed(() => plottedSamples.value.map((p, i) => `${i ? "L" : "M"}${x(p.date)},${y(p.value!)}`).join(" "));
 const events = computed(() => {
   const rows: { id: string; date: string; flow: string; lane: number }[] = [];
   const lanes = new Map<number, number>();
@@ -163,16 +155,16 @@ watch(() => props.refreshKey, () => { today.value = todayShanghai(); loadSummary
     </div>
     <p v-if="rangeError || basis.error" class="lp-error" role="alert">{{ rangeError || basis.error }}</p>
     <div v-else-if="basis.loading" class="lp-empty lp-chart-empty" role="status">正在读取收益记录…</div>
-    <div v-else-if="result && result.days > 0 && samples.some(p => p.value !== null)" class="lp-chart">
+    <div v-else-if="result && result.days > 0 && plottedSamples.length" class="lp-chart">
       <div class="lp-chart-readout" aria-live="polite" tabindex="0" aria-label="收益采样点说明"><template v-if="tooltip">{{ tooltip.date }}
         <strong>{{ metricText(tooltip.metric, chartMode === 'profit') }}</strong> {{ statusText(tooltip.metric) }}<span v-if="tooltip.sourceNote"> · {{ tooltip.sourceNote }}</span></template>
         <span v-else>沿曲线查看收益，点击资金标记定位记录</span></div>
       <div class="lp-plot"><svg viewBox="0 0 900 210" preserveAspectRatio="none" aria-label="账户收益曲线">
-        <title>实际记录日期的收益采样连线，虚线仅供参考，不可用指标处断开</title>
+        <title>收益数值统一连线，跳过无数值日期，不补零或生成中间收益</title>
         <line v-for="n in [0, 0.5, 1]" :key="n" x1="36" x2="864" :y1="28 + 150 * n" :y2="28 + 150 * n" class="lp-gridline" />
         <line x1="36" x2="864" :y1="y(0)" :y2="y(0)" class="lp-zero" />
-        <path :d="paths.available" class="lp-curve" /><path :d="paths.reference" class="lp-curve lp-reference-line" />
-        <template v-for="p in samples" :key="p.date"><circle v-if="p.value !== null" :cx="x(p.date)" :cy="y(p.value)" r="4" tabindex="0" class="lp-point" :class="`lp-point-${p.metric.status}`"
+        <path :d="curvePath" class="lp-curve" />
+        <template v-for="p in plottedSamples" :key="p.date"><circle :cx="x(p.date)" :cy="y(p.value!)" r="4" tabindex="0" class="lp-point"
           :aria-label="`${p.date} ${metricText(p.metric, chartMode === 'profit')} ${statusText(p.metric)} ${p.sourceNote}`"
           @mouseenter="hovered = p.date" @focus="hovered = p.date" @click="hovered = p.date">
           <title>{{ p.date }} {{ metricText(p.metric, chartMode === 'profit') }} {{ statusText(p.metric) }} {{ p.sourceNote }}</title>
@@ -190,16 +182,9 @@ watch(() => props.refreshKey, () => { today.value = todayShanghai(); loadSummary
     </div>
     <div v-else-if="!rangeError && !basis.error" class="lp-empty lp-chart-empty"><h3>这个区间还画不出曲线</h3>
       <p>{{ result?.profit.reason === 'missing_opening' ? '缺少期初总资产，请补充开始日期之前的总资产，或选择成立以来。' : result?.days === 0 ? '需要两个不同日期的有效总资产记录，才能形成收益区间。' : '请调整收益区间或补充总资产记录。缺失金额不会按零计算。' }}</p></div>
-    <p v-if="gaps.length" class="lp-gap-reasons" data-test="curve-gaps">曲线断点：{{ gaps.join('；') }}。缺失值不补零，也不跨过断点连线。</p>
-    <div class="lp-chart-footer"><div class="lp-legends">
-      <div class="lp-legend" aria-label="收益状态图例">
-        <span><svg viewBox="0 0 36 12" aria-hidden="true"><path d="M0 6H36" class="lp-curve" /><circle cx="18" cy="6" r="3" class="lp-point lp-point-available" /></svg>可计算：实线实心</span>
-        <span><svg viewBox="0 0 36 12" aria-hidden="true"><path d="M0 6H36" class="lp-curve lp-reference-line" /><circle cx="18" cy="6" r="3" class="lp-point lp-point-reference" /></svg>仅供参考：虚线空心</span>
-        <span><svg viewBox="0 0 36 12" aria-hidden="true"><path d="M0 6H10 M26 6H36" class="lp-gap-line" /></svg>不可计算：断点</span>
-      </div>
+    <div class="lp-chart-footer">
       <div class="lp-legend" aria-label="资金事件图例"><span><i class="lp-in" />转入</span><span><i class="lp-out" />转出</span></div>
-      </div>
-      <p>最新资产独立于收益区间，不代表实时行情。曲线仅连接已知采样点，不代表每日收盘；转入、转出同日填写的总资产为资金变动后的总额。</p></div>
+      <p>最新资产独立于收益区间，不代表实时行情。曲线连接已有数值，跳过无数值日期，不补零、不代表每日收盘；转入、转出同日填写的总资产为资金变动后的总额。</p></div>
     <p v-if="warnings.length" class="lp-reference">{{ warnings.join(' ') }}</p>
   </section>
 </template>

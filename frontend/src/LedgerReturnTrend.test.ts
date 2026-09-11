@@ -103,7 +103,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("connects only known adjacent samples, with a real unavailable break and reference edges", () => {
+it("joins numeric samples across missing dates without altering statuses or assigning missing values", () => {
   const points = [
     point(0),
     point(1),
@@ -112,12 +112,14 @@ it("connects only known adjacent samples, with a real unavailable break and refe
     point(4),
     point(5),
   ];
+  points[0]!.twr.value = "0.000000000000";
+  points[2]!.twr.value = "-0.100000000000";
+  const original = structuredClone(points);
   const lines = trendLines(points, "twr");
-  expect(lines.available).toHaveLength(6);
-  expect(lines.reference).toHaveLength(3);
-  expect(lines.available[2]![1]).toBeNull();
-  expect(lines.reference[2]![1]).toBeNull();
-  expect(points).toHaveLength(6);
+  expect(lines).toEqual([0, 1, 2, 4, 5].map(i => [Date.parse(`${points[i]!.date}T00:00:00Z`), Number(points[i]!.twr.value)]));
+  expect(points).toEqual(original);
+  expect(trendLines([point(0, "unavailable"), point(1, "unavailable")], "twr")).toEqual([]);
+  expect(trendLines([point(0, "unavailable"), point(1), point(2, "unavailable")], "twr")).toHaveLength(1);
 });
 
 it("uses safe Canvas exact text, same-snapshot red/green events, local selectors and cleanup", async () => {
@@ -146,12 +148,14 @@ it("uses safe Canvas exact text, same-snapshot red/green events, local selectors
   const option = chart.setOption.mock.calls.at(-1)![0];
   expect(option.tooltip.renderMode).toBe("richText");
   expect(option.series[0].lineStyle.type).toBe("solid");
-  expect(option.series[2].lineStyle.type).toBe("dashed");
-  expect(option.series[3].symbol).toBe("emptyCircle");
-  expect(option.series[4].itemStyle.color).toBe("#bc514c");
-  expect(option.series[5].itemStyle.color).toBe("#24745b");
+  expect(option.series).toHaveLength(4);
+  expect(option.series[0].data).toHaveLength(2);
+  expect(option.series[1].symbol).toBe("circle");
+  expect(option.series[1].data).toHaveLength(2);
+  expect(option.series[2].itemStyle.color).toBe("#bc514c");
+  expect(option.series[3].itemStyle.color).toBe("#24745b");
   expect(
-    option.tooltip.formatter({ data: option.series[4].data[0] }),
+    option.tooltip.formatter({ data: option.series[2].data[0] }),
   ).toContain("123.45");
   expect(
     option.tooltip.formatter({ data: option.series[1].data[0] }),
@@ -230,7 +234,7 @@ it("keeps legacy chart and accessible table explanations specific to TWR versus 
   const w = setup(curve, [source]);
   const tooltip = () => {
     const option = chart.setOption.mock.calls.at(-1)![0];
-    return option.tooltip.formatter({ data: option.series[3].data[0] });
+    return option.tooltip.formatter({ data: option.series[1].data[1] });
   };
   expect(tooltip()).toContain("沿用 2021-01-01 总资产原值，未增加资金流");
   expect(tooltip()).not.toContain("TWR 估算资产");

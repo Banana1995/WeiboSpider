@@ -51,34 +51,34 @@ function render() {
   if (!chart) return;
   try {
     const lines = trendLines(props.result.curve, key.value);
-    const series = (["available", "reference"] as const).flatMap((status) => [
+    const series = [
       {
         type: "line",
-        data: lines[status],
+        data: lines,
         symbol: "none",
         connectNulls: false,
         smooth: false,
         lineStyle: {
-          color: status === "reference" ? "#a67828" : "#24745b",
-          type: status === "reference" ? "dashed" : "solid",
+          color: "#24745b",
+          type: "solid",
         },
       },
       {
         type: "scatter",
-        symbol: status === "reference" ? "emptyCircle" : "circle",
+        symbol: "circle",
         symbolSize: 8,
-        itemStyle: { color: status === "reference" ? "#a67828" : "#24745b" },
+        itemStyle: { color: "#24745b" },
         data: props.result.curve
-          .filter((p) => p[key.value].status === status)
+          .filter((p) => p[key.value].value !== null)
           .map((p) => ({
             value: [
               Date.parse(`${p.date}T00:00:00Z`),
               Number(p[key.value].value),
             ],
-            text: `${p.date}${p.baseline ? " 基准锚点" : ""}\n${states[status]}\n${key.value === "profit" ? p.profit.value : returnPercent(p[key.value].value, p[key.value].percentage)}\n${sourceNotes.value.get(p.record_id) ?? ""}`,
+            text: `${p.date}${p.baseline ? " 基准锚点" : ""}\n${states[p[key.value].status]}\n${key.value === "profit" ? p.profit.value : returnPercent(p[key.value].value, p[key.value].percentage)}\n${sourceNotes.value.get(p.record_id) ?? ""}`,
           })),
       },
-    ]);
+    ];
     const events = [false, true].map((out) => ({
       type: "scatter",
       xAxisIndex: 1,
@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
       </select></label
     >
     <p>
-      仅连接已知采样点，不代表每日观察或插值。实线实点可计算，虚线空心点仅供参考；不可用点真实断开，原因见表。基准锚点为零，不代表起始资金为零。事件带转入红色、转出绿色，不是收益纵坐标。
+      曲线以实线实心点连接已有数值，跳过无数值日期，不补零、不生成中间收益；精确值和来源见表。基准锚点为零，不代表起始资金为零。事件带转入红色、转出绿色，不是收益纵坐标。
     </p>
     <p v-if="error" role="status">{{ error }}</p>
     <div

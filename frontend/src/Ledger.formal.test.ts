@@ -352,6 +352,59 @@ it("renders exact reference percentages, solid filled / dashed hollow samples an
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
 });
 
+it("separates manager estimate provenance and earlier boundaries from unchanged personal and profit values", async () => {
+  const estimated = basis.returns.curve[2]!;
+  estimated.twr_estimate = {
+    assets: "90071992547509.03",
+    source_record_id: "sample-1",
+    source_date: "2020-02-01",
+    net_flow: "100.00",
+  };
+  estimated.twr = { ...metric("reference"), value: "0.000000000000", percentage: "0.00" };
+  const explicit = basis.points.at(-1)!;
+  Object.assign(explicit, { status: "reported", source_id: explicit.record_id, source_date: explicit.date });
+  basis.returns.warnings.push("twr_estimated_assets");
+  const original = structuredClone(basis);
+  await overview();
+  const readout = () => wrapper.get(".lp-chart-readout").text();
+  const point = () => wrapper.get('.lp-point[aria-label^="2020-03-01"]');
+  await point().trigger("focus");
+  expect(readout()).toContain("26.00%");
+  expect(readout()).toContain("沿用 2020-02-01 总资产原值，未增加资金流");
+  expect(readout()).not.toContain("90071992547509.03");
+  expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
+
+  await wrapper.findAll("button").find(b => b.text() === "基金经理视角")!.trigger("click");
+  expect(readout()).toContain("0.00%");
+  expect(readout()).toContain("TWR 估算资产 90071992547509.03 CNY");
+  expect(readout()).toContain("基于 2020-02-01 最后明确总资产");
+  expect(readout()).toContain("累计净流入 100.00 CNY");
+  expect(readout()).toContain("来源记录 sample-1");
+  expect(readout()).not.toContain("未增加资金流");
+  expect(point().attributes("aria-label")).toContain("来源记录 sample-1");
+  expect(point().get("title").text()).toContain("累计净流入 100.00");
+  expect(wrapper.get(".lp-reference").text()).toContain("TWR 仅供参考");
+  expect(wrapper.get(".lp-reference").text()).toContain("收益金额及个人视角：");
+  await wrapper.get('.lp-point[aria-label^="2021-09-01"]').trigger("focus");
+  expect(readout()).toContain("TWR 包含较早的估算边界");
+  expect(readout()).not.toContain("沿用 2021-05-02");
+  expect(readout()).not.toContain("TWR 估算资产");
+
+  await point().trigger("focus");
+  await wrapper.findAll("button").find(b => b.text() === "收益金额")!.trigger("click");
+  expect(readout()).toContain("90,071,992,547,409.03");
+  expect(readout()).toContain("沿用 2020-02-01 总资产原值，未增加资金流");
+  expect(readout()).not.toContain("TWR 估算资产");
+  expect(wrapper.get(".lp-assets strong").text()).toBe("90,071,992,547,409.03");
+  await wrapper.findAll("button").find(b => b.text() === "个人视角")!.trigger("click");
+  await wrapper.findAll("button").find(b => b.text() === "收益率")!.trigger("click");
+  expect(readout()).toContain("26.00%");
+  expect(wrapper.get('[data-test="annual-return"]').text()).toContain(returnReasons.possible_multiple_roots);
+  expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
+  expect(basis).toEqual(original);
+  expect(calls).toHaveLength(2);
+});
+
 it.each([
   "possible_multiple_roots",
   "precision_unresolved",

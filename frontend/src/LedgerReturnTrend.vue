@@ -11,6 +11,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import {
   returnPercent,
   returnReasons,
+  returnSourceNotes,
   type LedgerReturns,
 } from "./ledgerReturns";
 import { trendLines, type TrendMetric } from "./ledgerReturnTrend";
@@ -33,6 +34,9 @@ const mode = ref("rate");
 const key = computed<TrendMetric>(() =>
   mode.value === "profit" ? "profit" : props.manager ? "twr" : "modified_dietz",
 );
+const sourceNotes = computed(() => returnSourceNotes(props.result, props.points, key.value, props.currency));
+const rateNotes = computed(() => returnSourceNotes(props.result, props.points, props.manager ? "twr" : "modified_dietz", props.currency));
+const profitNotes = computed(() => returnSourceNotes(props.result, props.points, "profit", props.currency));
 const page = ref(0);
 const element = ref<HTMLDivElement>();
 const error = ref("");
@@ -71,7 +75,7 @@ function render() {
               Date.parse(`${p.date}T00:00:00Z`),
               Number(p[key.value].value),
             ],
-            text: `${p.date}${p.baseline ? " 基准锚点" : ""}\n${states[status]}\n${key.value === "profit" ? p.profit.value : returnPercent(p[key.value].value, p[key.value].percentage)}`,
+            text: `${p.date}${p.baseline ? " 基准锚点" : ""}\n${states[status]}\n${key.value === "profit" ? p.profit.value : returnPercent(p[key.value].value, p[key.value].percentage)}\n${sourceNotes.value.get(p.record_id) ?? ""}`,
           })),
       },
     ]);
@@ -217,6 +221,7 @@ onBeforeUnmount(() => {
                 {{ p.profit.value ?? "不可用" }} ·
                 {{ states[p.profit.status] }}
                 {{ returnReasons[p.profit.reason] }}
+                <span v-if="profitNotes.get(p.record_id)"> · {{ profitNotes.get(p.record_id) }}</span>
               </td>
               <td>
                 {{
@@ -229,6 +234,7 @@ onBeforeUnmount(() => {
                 {{
                   returnReasons[p[manager ? "twr" : "modified_dietz"].reason]
                 }}
+                <span v-if="rateNotes.get(p.record_id)"> · {{ rateNotes.get(p.record_id) }}</span>
               </td>
               <td>{{ p.record_id }}</td>
             </tr>

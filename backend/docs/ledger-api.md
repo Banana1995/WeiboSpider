@@ -399,13 +399,15 @@ metric: { value: string|null, percentage: string|null,
           status: available|reference|unavailable, reason: string }
 flows: [{ date, record_id, version, flow, weight_days, period_days }]
 investor_flows: [{ date, amount }]
-curve: [{ date, record_id, baseline, profit, modified_dietz, twr }]
+curve: [{ date, record_id, baseline, profit, modified_dietz, twr, twr_estimate? }]
+twr_estimate: { assets: string, source_record_id: string,
+                source_date: "YYYY-MM-DD", net_flow: string }
 ```
 
-- `returns.revision` 等于外层 revision，覆盖图、来源明细、收益计算。指纹现包含是否省略 from；省略与显式 0001-01-01 不再有相同指纹。since_revision 仍不参与指纹。外层 `from/to/opening/closing/net_flow/status` 保留 T02 意义，不能拿它们替代收益对象中的边界或净流入。
+- `returns.revision` 等于外层 revision，覆盖图、来源明细、收益计算。指纹包含是否省略 from，以及 TWR 期初估算所需的区间前历史；修改区间外的前置资金流也会改变指纹，即使公开 opening 原额未变。省略与显式 0001-01-01 不再有相同指纹。since_revision 仍不参与指纹。外层 `from/to/opening/closing/net_flow/status` 保留 T02 意义，不能拿它们替代收益对象中的边界或净流入。
 - `requested_from/requested_to` 保留调用者传入的日期，省略为 `""`；外层 to 给出本次解析后的默认截止。`start_mode=baseline` 表示未传 from：以首个已知日终资产为基准，排除该日全部资金流，不推断此前初始财富。首行只有 total_assets、flow=null 是有效基准，不是缺少本金，不生成初始入金。同日选最后明确资产，不被后置资金流行替换；原行金额及顺序不变。
 - `start_mode=custom`：opening 为 from 之前最近资产，计算边界 effective_from 为 from 前一日日终；资金流包含 from 当天。没有此前资产或显式 from=0001-01-01 时 missing_opening，不补零、不反推入金。
-- effective_to 为截止日及之前最后资产/沿用记录日期，不用空白截止日、导出日、后续日志或今天延长年化。所有账户均按统一规则处理缺资产资金流；carried 日期可作为终点，原額不加流量，reference 明示入金后可能显示账面亏损。若输入存在最后 closing 之后的非零资金流则 closing_before_flow，不悄悄排除它们，即使同日净额为零。空区间或同一基准点为 no_interval；明确 from=to 且有前置资产可形成一天区间。
+- effective_to 为截止日及之前最后资产/沿用记录日期，不用空白截止日、导出日、后续日志或今天延长年化。所有账户均按统一规则处理缺资产资金流；carried 日期可作为终点，原額不加流量，资金收益指标以 reference 明示入金后可能显示账面亏损。TWR 单独使用下述临时估算，不改变此原额或资金收益指标。若输入存在最后 closing 之后的非零资金流则 closing_before_flow，不悄悄排除它们，即使同日净额为零。空区间或同一基准点为 no_interval；明确 from=to 且有前置资产可形成一天区间。
 - 日期使用北京时间业务日和公历整数日差，支持 0001..9999，不使用可能溢出的 time.Duration。`days` 保留两端日终之间的实际日差，用于 XIRR ACT/365、TWR 年化、短期提示及 no_interval 判断；无有效区间时可能为零或负。新增 `period_days` 仅作为 Dietz 时间权重分母：已建立有资产的正序端点（包括同日）时为 `days+1`，包含 effective_from/effective_to 两天；端点未建立或日期倒序时为 0。同日 `days=0, period_days=1` 仍 no_interval，不因此生成收益指标。opening/closing 是完整 BasisPoint，带声明日期、source 日期/ID/版本及估值采样元数据，不重新解释原报价日期。
 - profit = close - open - net_flow。仅账户边界的外部资金流为正流入、负流出；持仓买卖/分红不再计投入，组合交易只计独立 amount，单账户转账计对应腿。同行资产是 post-flow，绝不重复加款。
 - Dietz = profit / (open + Σ flow × weight_days / period_days)，流量按日终，weight_days=effective_to-date，分子不加 1，期末日权重仍为零。每条 flows.period_days 等于摘要 period_days，无现金流的区间收益率不变。金额合计与加权分子用 big.Int，分母和收益率用 big.Rat；`denominator` 是本位币单位的精确有理数字符串（例如 `12000` 或 `350/3`），不大于零仅使 Dietz 不可用。用户提供的公开合成比较：2024-01-01 期初 10000，2025-05-02 转入 10000 后总资产 20000，2025-09-01 期末 23000；days=609、period_days=610、weight_days=122、denominator=12000、Dietz=25.00%，不再用 609 得到 24.99%。此数据仅为测试样例，不是私人账户转录。
@@ -434,8 +436,12 @@ Vue 同请求展示三张收益卡及每页 30 条详情。账户、日期或刷
 
 - 仅扩展同一 returns 快照，无额外数据库读取、API、网络、缓存或写入。curve 是一枚明确 baseline 锚点加其后实际 selected 日期，最多 10,001 点；不补齐自然日。锚点有效时三项为零（零本金不是其含义），无正日数区间时摘要仍 no_interval。custom 锚点在 effective_from，保留真实 opening 记录身份及参考状态。
 - 每点 profit 和 modified_dietz 都从共同 opening 计算。以 big.Int 累计净流量 S 和资金流日数矩 M，该点实际日差为 n，Dietz 分子为 `profit*(n+1)`，加权分母整数为 `opening*(n+1)+n*S-M`，对应本位币分母需除以 `(n+1)*100`；不能用 `(opening+S)*(n+1)-M` 给每笔流量多加一天权重。每点 O(1) 次大数运算，整段线性遍历；不逐点调用 calculateReturns 或 XIRR。最终曲线点与摘要独立计算自然一致，不用摘要强制覆盖末点数值；closing_before_flow 单独传播为终点不可用，不污染更早前缀。
-- TWR 日终约定：`factor=(当日 post-flow 总资产-当日净资金流)/上一必需资金边界的 post-flow 资产`。仅在包含非零外部资金事件的日期永久链乘，非零进出即使净额抵消也要求当天边界。普通观察点从上一必需边界计算展示值，但不永久链乘，避免无关旧观察污染后续结果。
-- 必需边界缺资产为 missing_flow_boundary；stale/untracked 阻断该点及后续链，普通无资金日 stale/untracked 仅该点不可用。carried 边界让必需链持续 reference；没有实际新记录的日期不造观察。周沿用不是新观察，人工确认后才按明确资产参与每日选择。
+- TWR 日终约定：`factor=(当日 post-flow 总资产-当日净资金流)/上一必需资金边界的 post-flow 资产`。先按日期聚合全部资金流；同日最后一笔明确资产视为包含当天全部资金流的 post-flow 值，不受资金流记录排在其前后影响，不再加款。仅在包含非零外部资金事件的日期永久链乘，非零进出即使净额抵消也要求当天边界。普通观察点从上一必需边界计算展示值，但不永久链乘，避免无关旧观察污染后续结果。
+- 当天没有明确资产而有可追溯沿用点时，TWR 临时 post-flow 资产为 `最近可信明确资产 + 该来源日之后至本日的累计净资金流`。不是原额不变、不是只加当天流量，也不是把已估算金额再重复加历史流量。可信的明确无资金流观察也重新设定估算来源；周沿用不是新明确来源，人工确认后才可重新设定来源。来源日全部资金流已经包含在明确资产内，不再累加。
+- 临时值只供 TWR/复合年化及其曲线计算，绝不修改 BasisPoint.assets、record.total_assets、原始导入行、opening/closing 或数据库。profit、Modified Dietz、XIRR 和资金明细仍按原先规则计算。自定义区间在裁剪前用同次事务的完整历史计算 TWR 期初，因此包含 from 之前多笔缺资产资金流及穿插周沿用；不能仅由最后一笔 opening 的原额恢复累计流量。
+- 推断点（包括适用的 baseline/custom 期初）在 ReturnPoint 返回可选 `twr_estimate`，明确观察不返回该字段。assets、net_flow 是精确两位十进制金额字符串，可超过单笔 Money/int64 范围；source_record_id/source_date 指向最近可信明确记录及其业务日，net_flow 为该来源日之后的累计净流入，不是本日资金流。它不是新资产观察或持久记录。存在推断点时 warnings 增加 `twr_estimated_assets`；不单因 TWR 估算而添加 `carried_assets_unchanged`，但资金收益路径沿用原额时仍保留该警告。
+- 必需边界无法取得可信来源时为 missing_flow_boundary；stale/untracked 阻断该点及后续必需链，不能用旧来源绕过失效观察来估算。普通无资金日 stale/untracked 不永久链乘，只有后续确实依赖其估算来源时才受影响；后续独立明确观察仍可恢复估算来源。推断的必需边界让链及其后明确终点持续 reference；普通非必需沿用点只使该点参考，不污染此前或不依赖它的后续链。没有实际新记录的日期不造观察。
+- 合成回归示例：2024-01-01 明确资产 10000，2024-09-01 转入 2000 但缺资产，2025-05-03 明确资产 13200，TWR=10.00%、复合年化=7.39%。另在 2024-12-01 转入 1000 时为 1.54%/1.15%，改为转出 1000 时为 20.00%/14.61%。若 2024-09-01 明确 post-flow 资产为 13200，期末为 14520，则为 23.20%/16.89%；这与缺值推断是不同事实，不能混用。
 - 分母零为 zero_twr_base；负因子为 negative_twr_factor；因子零合法表示 -100%，年化同为 -100%。若之后需要除以零资金边界才阻断。TWR 不借用 Dietz 代替缺失边界，摘要资金加权指标仍保留自身规则。
 - TWR 精确 big.Rat 链乘，自动约分后分子/分母各最多 32,768 位，整数部分最多 320 位（给百分比留出 100 位十进制契约空间），超限 twr_product_limit。不将舍入结果送回乘积；遍历检查取消信号，保留 10,000 原始点限制。
 - 复合年化为 `(1+TWR)^(365/days)-1`。零增长、365/days 为正整数时使用精确有理数路径；其他路径把精确增长 N/D 转成合成现金流 `-D,+N`，直接传 big.Int 给既有 XIRR 唯一根求解及双舍入区间认证，数学上完全等价，不转 int64、不使用未经认证的 math.Pow。仍受 [-32,32] 对数搜索、256 轮、192 位向外舍入认证限制；边界/中点无法认证时返回 precision_unresolved 等既有原因，不承诺所有数学可解年化都展示。

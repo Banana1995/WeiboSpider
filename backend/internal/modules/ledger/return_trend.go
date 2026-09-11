@@ -6,12 +6,68 @@ import (
 )
 
 type ReturnPoint struct {
-	Date     string       `json:"date"`
-	RecordID string       `json:"record_id"`
-	Baseline bool         `json:"baseline"`
-	Profit   ReturnMetric `json:"profit"`
-	Dietz    ReturnMetric `json:"modified_dietz"`
-	TWR      ReturnMetric `json:"twr"`
+	Date        string       `json:"date"`
+	RecordID    string       `json:"record_id"`
+	Baseline    bool         `json:"baseline"`
+	Profit      ReturnMetric `json:"profit"`
+	Dietz       ReturnMetric `json:"modified_dietz"`
+	TWR         ReturnMetric `json:"twr"`
+	TWREstimate *TWREstimate `json:"twr_estimate,omitempty"`
+}
+
+type TWREstimate struct {
+	Assets         string `json:"assets"`
+	SourceRecordID string `json:"source_record_id"`
+	SourceDate     string `json:"source_date"`
+	NetFlow        string `json:"net_flow"`
+}
+
+// Project whole days before clipping the interval: an explicit observation is
+// post ALL that day's flows, regardless of its sequence. Carries never reanchor.
+func projectTWREstimates(ctx context.Context, b AnalysisBasis) (map[string]*TWREstimate, error) {
+	points := make([]BasisPoint, 0, len(b.twrHistory)+len(b.Points)+1)
+	points = append(points, b.twrHistory...)
+	if len(points) == 0 && b.Opening != nil {
+		points = append(points, *b.Opening)
+	}
+	points = append(points, b.Points...)
+	estimates := make(map[string]*TWREstimate)
+	var source *BasisPoint
+	net := new(big.Int)
+	for i := 0; i < len(points); {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		date := points[i].Date
+		var selected *BasisPoint
+		for ; i < len(points) && points[i].Date == date; i++ {
+			p := &points[i]
+			if p.Flow != nil {
+				net.Add(net, big.NewInt(int64(*p.Flow)))
+			}
+			if p.Selected {
+				selected = p
+			}
+		}
+		if selected == nil {
+			continue
+		}
+		p := selected
+		explicit := p.Assets != nil && (p.Status == "reported" || p.Status == "observed") &&
+			(p.Record == nil || p.Record.TotalAssets != nil && (p.Record.CarriedFrom == nil || p.Record.ManualAssertion))
+		if explicit {
+			source = p
+			net.SetInt64(0)
+		} else if p.Status == "stale" || p.Status == "untracked" {
+			// Do not bypass an invalid observation by borrowing an older source.
+			source = nil
+		} else if p.Status == "carried" && p.Assets != nil && source != nil {
+			assets := new(big.Int).Add(big.NewInt(int64(*source.Assets)), net)
+			estimates[date] = &TWREstimate{Assets: centsString(assets), SourceRecordID: source.RecordID,
+				SourceDate: source.Date, NetFlow: centsString(net)}
+		}
+	}
+	return estimates, nil
 }
 
 // Bound exact product growth after Rat's cross-cancellation. No rounded product
@@ -46,6 +102,10 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 	if r.Opening == nil || r.Opening.Assets == nil || r.EffectiveFrom == "" {
 		return r, nil
 	}
+	estimates, err := projectTWREstimates(ctx, b)
+	if err != nil {
+		return r, err
+	}
 	openingStatus, openingReason := returnEndpoint(r.Opening)
 	if r.Opening.SourceDate < r.EffectiveFrom && openingReason == "" {
 		openingStatus = "reference"
@@ -54,6 +114,18 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 		Profit: returnValue(new(big.Rat), 2, openingStatus), Dietz: returnValue(new(big.Rat), 12, openingStatus), TWR: returnValue(new(big.Rat), 12, openingStatus)}
 	if openingReason != "" {
 		anchor.Profit, anchor.Dietz, anchor.TWR = returnUnavailable(openingReason), returnUnavailable(openingReason), returnUnavailable(openingReason)
+	}
+	twrOpeningStatus, twrOpeningReason := openingStatus, openingReason
+	twrOpening := big.NewInt(int64(*r.Opening.Assets))
+	anchor.TWREstimate = estimates[r.Opening.Date]
+	if anchor.TWREstimate != nil {
+		value, _ := new(big.Rat).SetString(anchor.TWREstimate.Assets)
+		twrOpening.Set(new(big.Rat).Mul(value, big.NewRat(100, 1)).Num())
+		twrOpeningStatus = "reference"
+		anchor.TWR = returnValue(new(big.Rat), 12, twrOpeningStatus)
+	} else if r.Opening.Status == "carried" && twrOpeningReason == "" {
+		twrOpeningReason = "missing_flow_boundary"
+		anchor.TWR = returnUnavailable(twrOpeningReason)
 	}
 	r.Curve = append(r.Curve, anchor)
 	type day struct {
@@ -85,9 +157,9 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 	}
 	net, moment := new(big.Int), new(big.Int)
 	opening := big.NewInt(int64(*r.Opening.Assets))
-	boundaryAssets := new(big.Int).Set(opening)
+	boundaryAssets := new(big.Int).Set(twrOpening)
 	chain := big.NewRat(1, 1)
-	chainStatus, chainReason := openingStatus, openingReason
+	chainStatus, chainReason := twrOpeningStatus, twrOpeningReason
 	for _, date := range dates {
 		if err := ctx.Err(); err != nil {
 			return r, err
@@ -131,13 +203,24 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 		if twrReason == "" {
 			twrReason = reason
 		}
+		assets := new(big.Int)
+		if d.point != nil && d.point.Assets != nil {
+			assets.SetInt64(int64(*d.point.Assets))
+		}
+		point.TWREstimate = estimates[date]
+		if point.TWREstimate != nil {
+			value, _ := new(big.Rat).SetString(point.TWREstimate.Assets)
+			assets.Set(new(big.Rat).Mul(value, big.NewRat(100, 1)).Num())
+		} else if d.point != nil && d.point.Status == "carried" && twrReason == "" {
+			twrReason = "missing_flow_boundary"
+		}
 		if twrReason == "" && boundaryAssets.Sign() == 0 {
 			twrReason = "zero_twr_base"
 		}
 		growth := new(big.Rat)
 		if twrReason == "" {
-			preFlow := new(big.Int).Sub(big.NewInt(int64(*d.point.Assets)), d.flow)
-			if preFlow.Sign() < 0 {
+			preFlow := new(big.Int).Sub(assets, d.flow)
+			if preFlow.Sign() < 0 || assets.Sign() < 0 || boundaryAssets.Sign() < 0 {
 				twrReason = "negative_twr_factor"
 			} else {
 				growth.Mul(chain, new(big.Rat).SetFrac(preFlow, boundaryAssets))
@@ -147,7 +230,7 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 			}
 		}
 		twrStatus := chainStatus
-		if status == "reference" {
+		if status == "reference" || point.TWREstimate != nil {
 			twrStatus = "reference"
 		}
 		point.TWR = returnUnavailable(twrReason)
@@ -167,7 +250,7 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 			chainReason = twrReason
 			if twrReason == "" {
 				chain.Set(growth)
-				boundaryAssets.SetInt64(int64(*d.point.Assets))
+				boundaryAssets.Set(assets)
 				chainStatus = twrStatus
 			}
 		}
@@ -197,13 +280,10 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 	if r.Days <= 0 {
 		r.TWR, r.TWRAnnualized = returnUnavailable("no_interval"), returnUnavailable("no_interval")
 	}
-	if r.TWR.Status == "reference" {
-		found := false
-		for _, w := range r.Warnings {
-			found = found || w == "carried_assets_unchanged"
-		}
-		if !found {
-			r.Warnings = append(r.Warnings, "carried_assets_unchanged")
+	for _, p := range r.Curve {
+		if p.TWREstimate != nil {
+			r.Warnings = append(r.Warnings, "twr_estimated_assets")
+			break
 		}
 	}
 	return r, nil

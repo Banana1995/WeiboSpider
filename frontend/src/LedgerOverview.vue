@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { LedgerError, query, request, type Account } from "./ledger";
 import type { EffectiveSummary } from "./accountRecords";
-import { returnPercent, returnReasons, type ReturnMetric } from "./ledgerReturns";
+import { returnPercent, returnReasons, returnSourceNotes, returnWarnings, type ReturnMetric } from "./ledgerReturns";
 import { money, todayShanghai, validDay, validSummary, validateBasis, type AnalysisBasis } from "./ledgerView";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
@@ -40,21 +40,20 @@ const statusText = (m?: ReturnMetric) => !m ? "等待数据" : m.status === "ref
 const effectiveRange = computed(() => result.value?.effective_from && result.value?.effective_to && result.value.effective_from <= result.value.effective_to ?
   `${result.value.effective_from} 至 ${result.value.effective_to}` : "尚无可计算区间");
 const warningLabels: Record<string, string> = {
-  carried_assets_unchanged: "部分资产沿用较早原值，未加上转入资金，结果仅供参考；请补充实际总资产。",
+  carried_assets_unchanged: "收益金额及个人视角：部分资产沿用较早原值，未加上转入资金，仅供参考；请补充实际总资产。",
+  twr_estimated_assets: returnWarnings.twr_estimated_assets!,
   sampled_valuation_not_daily_close: "自动估值是保存时的参考报价，不保证为当天收盘价。",
   short_period_extrapolation: "不足一年的年化会放大短期波动，不代表未来收益。",
 };
 const warnings = computed(() => [...new Set([
   ...[result.value?.profit, rate.value, annual.value].filter(m => m?.status === "unavailable").map(m => returnReasons[m!.reason] ?? "当前指标暂不可计算"),
-  ...(result.value?.warnings ?? []).map(w => warningLabels[w] ?? "当前结果仅供参考"),
+  ...(result.value?.warnings ?? []).filter(w => w !== "twr_estimated_assets" || view.value === "manager").map(w => warningLabels[w] ?? "当前结果仅供参考"),
 ])]);
 const samples = computed(() => {
-  const points = new Map((basis.data?.points ?? []).map(p => [p.record_id, p]));
-  if (result.value?.opening) points.set(result.value.opening.record_id, result.value.opening);
+  const notes = result.value ? returnSourceNotes(result.value, basis.data?.points ?? [], metricKey.value, props.account.currency) : new Map<string, string>();
   return (result.value?.curve ?? []).map(p => {
-    const source = points.get(p.record_id);
     return { ...p, metric: p[metricKey.value], value: p[metricKey.value].value === null ? null : Number(p[metricKey.value].value),
-      sourceNote: source?.status === "carried" && source.source_date ? `沿用 ${source.source_date} 总资产原值，未增加资金流` : "" };
+      sourceNote: notes.get(p.record_id) ?? "" };
   });
 });
 const gaps = computed(() => [...new Set(samples.value.filter(p => p.metric.status === "unavailable").map(p => statusText(p.metric)))]);

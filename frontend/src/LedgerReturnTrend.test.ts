@@ -210,3 +210,45 @@ it("strictly rejects invalid curves, dates, metrics and mismatched endpoints", (
     expect(validReturns({ ...r, curve }, "synthetic", "", "")).toBe(false);
   }
 });
+
+it("keeps legacy chart and accessible table explanations specific to TWR versus profit carry", async () => {
+  const curve = [point(0), point(1, "reference"), point(2, "reference")];
+  curve[1]!.twr_estimate = {
+    assets: "9223372036854775808.09",
+    source_record_id: "synthetic-explicit",
+    source_date: curve[0]!.date,
+    net_flow: "-100.00",
+  };
+  const source: BasisPoint = {
+    ...result(curve).closing!,
+    date: curve[1]!.date,
+    record_id: curve[1]!.record_id,
+    status: "carried",
+    source_date: curve[0]!.date,
+    source_id: "synthetic-explicit",
+  };
+  const w = setup(curve, [source]);
+  const tooltip = () => {
+    const option = chart.setOption.mock.calls.at(-1)![0];
+    return option.tooltip.formatter({ data: option.series[3].data[0] });
+  };
+  expect(tooltip()).toContain("沿用 2021-01-01 总资产原值，未增加资金流");
+  expect(tooltip()).not.toContain("TWR 估算资产");
+  await w.setProps({ manager: true });
+  expect(tooltip()).toContain("TWR 估算资产 9223372036854775808.09 CNY");
+  expect(tooltip()).toContain("来源记录 synthetic-explicit");
+  expect(tooltip()).toContain("累计净流入 -100.00 CNY");
+  expect(tooltip()).not.toContain("未增加资金流");
+  const rows = w.findAll("tbody tr");
+  expect(rows[1]!.findAll("td")[1]!.text()).toContain("90071992547409.03");
+  expect(rows[1]!.findAll("td")[1]!.text()).toContain("未增加资金流");
+  expect(rows[1]!.findAll("td")[2]!.text()).toContain("来源记录 synthetic-explicit");
+  expect(rows[2]!.findAll("td")[2]!.text()).toContain("TWR 包含较早的估算边界");
+  await w.get('select[name="return_trend_metric"]').setValue("profit");
+  expect(tooltip()).toContain("90071992547409.03");
+  expect(tooltip()).toContain("未增加资金流");
+  expect(tooltip()).not.toContain("TWR 估算资产");
+  await w.setProps({ manager: false });
+  expect(w.get('[data-test="return-trend-data"]').text()).not.toContain("TWR 估算资产");
+  w.unmount();
+});

@@ -118,7 +118,8 @@ func TestReturnsMissingCarryAndTrust(t *testing.T) {
 	require.Equal(t, "reference", r.Profit.Status)
 	require.Contains(t, r.Warnings, "carried_assets_unchanged")
 	require.Equal(t, "reference", r.TWR.Status)
-	require.Equal(t, "-0.200000000000", *r.TWR.Value)
+	require.Equal(t, "0.000000000000", *r.TWR.Value)
+	require.Contains(t, r.Warnings, "twr_estimated_assets")
 	require.Equal(t, "2020-01-02", r.Closing.SourceDate)
 	basisEntry(t, f, "manual-close", "2020-02-01", "asset", "null", `"120"`)
 	r = basisRead(t, f, "a", "reported", "&from=2020-01-15").Returns

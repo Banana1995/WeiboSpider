@@ -274,3 +274,72 @@ it("rejects malformed metrics, identity, input range and unbounded detail lists"
       ),
     ).toBe(false);
 });
+
+it("accepts optional exact TWR estimates beyond int64 and all four warnings without changing original values", () => {
+  const result = fixture();
+  const original = structuredClone(result);
+  expect(validReturns(result, "synthetic", "", "")).toBe(true);
+  const estimate = {
+    assets: "9223372036854775808.09",
+    source_record_id: "synthetic-opening",
+    source_date: "2021-01-01",
+    net_flow: "-9223372036854775808.09",
+  };
+  result.curve[1]!.twr_estimate = estimate;
+  result.warnings = [
+    "carried_assets_unchanged",
+    "sampled_valuation_not_daily_close",
+    "short_period_extrapolation",
+    "twr_estimated_assets",
+  ];
+  expect(validReturns(result, "synthetic", "", "")).toBe(true);
+  for (const assets of ["0.00", "-1.00", `${"9".repeat(100)}.99`]) {
+    result.curve[1]!.twr_estimate = { ...estimate, assets, source_date: "2022-01-01" };
+    expect(validReturns(result, "synthetic", "", "")).toBe(true);
+  }
+  expect(result.opening).toEqual(original.opening);
+  expect(result.closing).toEqual(original.closing);
+  for (const key of ["profit", "modified_dietz", "xirr", "net_flow", "denominator"] as const)
+    expect(result[key]).toEqual(original[key]);
+  expect(validReturns({ ...result, warnings: [...result.warnings, "twr_estimated_assets"] }, "synthetic", "", "")).toBe(false);
+});
+
+it("rejects present but malformed TWR estimate objects, provenance and bounded money strings", () => {
+  const estimate = {
+    assets: "120.00",
+    source_record_id: "synthetic-opening",
+    source_date: "2021-01-01",
+    net_flow: "20.00",
+  };
+  const malformed: unknown[] = [null, undefined, [], "estimate", {},
+    ...["", "2021-02-29", "2021-02-30", "0000-01-01", "2022-01-02", "2021-1-01", "2021-01-01T00:00:00Z", null, 20210101].map(source_date => ({ ...estimate, source_date })),
+    ...["", "   ", null, 123].map(source_record_id => ({ ...estimate, source_record_id })),
+    ...["", "1", "1.0", "1.001", "1e2", "+1.00", "NaN", " 1.00", `${"9".repeat(101)}.00`, 120, null, undefined].flatMap(value => [
+      { ...estimate, assets: value }, { ...estimate, net_flow: value },
+    ]),
+  ];
+  for (const twr_estimate of malformed) {
+    const result = fixture();
+    result.curve[1] = { ...result.curve[1]!, twr_estimate } as Returns["curve"][number];
+    expect(validReturns(result, "synthetic", "", ""), JSON.stringify(twr_estimate)).toBe(false);
+  }
+});
+
+it("scopes the estimated TWR warning to manager view and labels original endpoint amounts", async () => {
+  const result = fixture();
+  result.warnings = ["carried_assets_unchanged", "twr_estimated_assets"];
+  const w = mount(LedgerReturns, {
+    props: { result, currency: "CNY", points: [] },
+  });
+  const warnings = () => w.findAll('[role="status"]').map(p => p.text()).join(" ");
+  expect(warnings()).not.toContain("TWR");
+  expect(warnings()).toContain("收益金额及个人视角");
+  await w.get('select[name="return_view"]').setValue(true);
+  expect(warnings()).toContain("TWR 仅供参考");
+  expect(warnings()).toContain("最后明确总资产加上此后累计净流入");
+  expect(warnings()).toContain("收益金额及个人视角仅供参考：端点沿用较早资产原额");
+  const details = w.get('[data-test="return-calculation"]');
+  expect(details.text()).toContain("期末资产（收益金额 / Dietz / XIRR 原始口径）：110.00");
+  expect(details.text()).not.toContain("沿用原额只能参考");
+  w.unmount();
+});

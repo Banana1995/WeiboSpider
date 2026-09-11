@@ -85,7 +85,7 @@ const states = {
         </dd>
       </div>
     </dl>
-    <p v-for="warning in result.warnings" :key="warning" role="status">
+    <p v-for="warning in result.warnings.filter(w => w !== 'twr_estimated_assets' || manager)" :key="warning" role="status">
       {{ returnWarnings[warning] }}
     </p>
     <details data-test="return-calculation">
@@ -111,7 +111,7 @@ const states = {
       </p>
       <p>
         TWR 按日终资金流假设，在外部资金事件日链接（当日总资产 - 当日净流入）/
-        上一资金边界资产；同日非零转入转出即使净额为零仍需边界资产。缺少真实边界不可用，沿用原额只能参考，不以
+        上一资金边界资产；同日非零转入转出即使净额为零仍需边界资产。缺少明确边界时，按最后明确总资产加上此后累计净流入估算，仅供参考；没有可用估算时不可用。后续明确资产仍受较早估算边界影响，不以
         Dietz 替代。复合年化 = (1 + TWR)^(365 / 自然日数) - 1。
       </p>
       <p>
@@ -132,7 +132,7 @@ const states = {
         :key="endpoint.label"
         class="ledger-note"
       >
-        {{ endpoint.label }}资产：{{ endpoint.point?.assets ?? "未知" }}
+        {{ endpoint.label }}资产（收益金额 / Dietz / XIRR 原始口径）：{{ endpoint.point?.assets ?? "未知" }}
         {{ currency }}； 声明记录日期 {{ endpoint.point?.date || "未知" }}；
         资产来源日期 {{ endpoint.point?.source_date || "未知" }}； 来源
         {{ endpoint.point?.source_id || "无" }} / 版本

@@ -56,6 +56,7 @@ type AnalysisBasis struct {
 	PreviousBasisAffected bool          `json:"previous_basis_affected"`
 	Status                string        `json:"status"`
 	Returns               Returns       `json:"returns"`
+	twrHistory            []BasisPoint  // Pre-range facts needed only for the temporary TWR opening estimate.
 }
 
 // AnalysisBasis is a fresh, consistent projection, never a historical-price replay.
@@ -243,6 +244,7 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		net := new(big.Int)
 		for _, p := range all {
 			if p.Date < from {
+				out.twrHistory = append(out.twrHistory, p)
 				if p.Selected && p.Status != "log" {
 					copy := p
 					out.Opening = &copy
@@ -305,7 +307,8 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 			DefaultStart bool
 			Points       []BasisPoint
 			Opening      *BasisPoint
-		}{from, to, requestedFrom == "", out.Points, out.Opening})
+			TWRHistory   []BasisPoint
+		}{from, to, requestedFrom == "", out.Points, out.Opening, out.twrHistory})
 		if err != nil {
 			return err
 		}

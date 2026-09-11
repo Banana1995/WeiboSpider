@@ -44,6 +44,12 @@ export interface ReturnPoint {
   profit: ReturnMetric;
   modified_dietz: ReturnMetric;
   twr: ReturnMetric;
+  twr_estimate?: {
+    assets: string;
+    source_record_id: string;
+    source_date: string;
+    net_flow: string;
+  };
 }
 
 export const returnReasons: Record<string, string> = {
@@ -67,12 +73,42 @@ export const returnReasons: Record<string, string> = {
 };
 export const returnWarnings: Record<string, string> = {
   carried_assets_unchanged:
-    "仅供参考：端点或必需资金边界沿用较早资产原额，未增加资金流。入金但未更新总资产时可能显示亏损，不代表已核实的市场损失。",
+    "收益金额及个人视角仅供参考：端点沿用较早资产原额，未增加资金流。入金但未更新总资产时可能显示亏损，不代表已核实的市场损失。",
+  twr_estimated_assets:
+    "TWR 仅供参考：部分边界资产按最后明确总资产加上此后累计净流入估算，假设期间没有市场盈亏；后续明确资产不会消除较早估算边界的影响。不改写原始资产、收益金额、Dietz 或 XIRR。",
   sampled_valuation_not_daily_close:
     "参与计算的持仓估值是已保存的请求时参考估值，不保证当天收盘价；声明日期不是所有报价或汇率的实际日期。完整采样来源见估值历史。",
   short_period_extrapolation:
     "短区间年化外推风险：不足一年仍展示年化，短期结果可能被显著放大，不是未来收益预测。未采用参考产品的半年隐藏门槛。",
 };
+
+export function returnSourceNotes(
+  result: LedgerReturns,
+  points: BasisPoint[],
+  key: "profit" | "modified_dietz" | "twr",
+  currency: string,
+): Map<string, string> {
+  const sources = new Map(points.map(p => [p.record_id, p]));
+  if (result.opening) sources.set(result.opening.record_id, result.opening);
+  const notes = new Map<string, string>();
+  let priorEstimate = false;
+  for (const p of result.curve) {
+    const source = sources.get(p.record_id), estimate = p.twr_estimate;
+    let note = "";
+    if (key === "twr") {
+      if (estimate) {
+        note = `TWR 估算资产 ${estimate.assets} ${currency}：基于 ${estimate.source_date} 最后明确总资产，加上累计净流入 ${estimate.net_flow} ${currency}（转入减转出）；来源记录 ${estimate.source_record_id}。假设期间没有市场盈亏，不改写原始资产。`;
+      } else if (p.twr.status === "reference" && priorEstimate) {
+        note = "TWR 包含较早的估算边界；即使本次为明确总资产，累计收益率仍仅供参考，并非本次资产沿用原额。";
+      }
+    } else if (source?.status === "carried" && source.source_date) {
+      note = `沿用 ${source.source_date} 总资产原值，未增加资金流`;
+    }
+    notes.set(p.record_id, note);
+    priorEstimate ||= !!estimate;
+  }
+  return notes;
+}
 
 // Exact string -> integer rounding. Derived totals may exceed Money/int64.
 export function returnPercent(
@@ -100,6 +136,8 @@ export function validReturns(
 ): boolean {
   const number = (v: unknown) =>
     typeof v === "string" && /^-?\d{1,100}(\.\d{1,12})?$/.test(v);
+  const money = (v: unknown) =>
+    typeof v === "string" && /^-?\d{1,100}\.\d{2}$/.test(v);
   const date = (v: unknown) =>
     typeof v === "string" &&
     (v === "" ||
@@ -187,7 +225,18 @@ export function validReturns(
         typeof p.baseline === "boolean" &&
         metric(p.profit) &&
         metric(p.modified_dietz, true) &&
-        metric(p.twr, true),
+        metric(p.twr, true) &&
+        (!Object.hasOwn(p, "twr_estimate") ||
+          (p.twr_estimate !== null &&
+            typeof p.twr_estimate === "object" &&
+            !Array.isArray(p.twr_estimate) &&
+            money(p.twr_estimate.assets) &&
+            money(p.twr_estimate.net_flow) &&
+            typeof p.twr_estimate.source_record_id === "string" &&
+            p.twr_estimate.source_record_id.trim().length > 0 &&
+            date(p.twr_estimate.source_date) &&
+            p.twr_estimate.source_date !== "" &&
+            p.twr_estimate.source_date <= p.date)),
     ) &&
     (r.curve.length <= 1 ||
       (r.curve.at(-1)!.date === r.effective_to &&
@@ -195,7 +244,7 @@ export function validReturns(
         same(r.curve.at(-1)!.modified_dietz, r.modified_dietz) &&
         same(r.curve.at(-1)!.twr, r.twr))) &&
     Array.isArray(r.warnings) &&
-    r.warnings.length <= 3 &&
+    r.warnings.length <= 4 &&
     r.warnings.every((w) => Object.hasOwn(returnWarnings, w)) &&
     Array.isArray(r.flows) &&
     r.flows.length <= 10000 &&

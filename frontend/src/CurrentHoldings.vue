@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, shallowRef, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
-import { money } from "./ledgerView";
+import { money, todayShanghai, validDay } from "./ledgerView";
 import {
   decimal,
   failure,
@@ -24,6 +24,8 @@ const props = defineProps<{
   instruments: Instrument[];
   disabled: boolean;
   refreshKey: number;
+  editorOnly?: boolean;
+  openingDate?: string;
 }>();
 const emit = defineEmits<{
   locked: [boolean];
@@ -38,13 +40,15 @@ const busy = ref(false);
 const error = ref("");
 const message = ref("");
 const editing = ref(false);
+const baselineDate = ref(todayShanghai());
 const original = ref("");
-const dirty = computed(() => JSON.stringify([cash.value, positions.value]) !== original.value);
+const dirty = computed(() => JSON.stringify([cash.value, positions.value, baselineDate.value]) !== original.value);
 const instrumentName = (id: string) => props.instruments.find(i => i.id === id)?.name ?? "未知证券";
 function openEdit() {
   cash.value = read.data?.snapshot?.cash ?? "0.00";
   positions.value = read.data?.snapshot?.positions.map(p => ({ ...p })) ?? [];
-  original.value = JSON.stringify([cash.value, positions.value]);
+  baselineDate.value = todayShanghai();
+  original.value = JSON.stringify([cash.value, positions.value, baselineDate.value]);
   error.value = "";
   editing.value = true;
 }
@@ -76,7 +80,8 @@ async function load() {
     return;
   cash.value = read.data.snapshot?.cash ?? "0.00";
   positions.value = read.data.snapshot?.positions.map((p) => ({ ...p })) ?? [];
-  original.value = JSON.stringify([cash.value, positions.value]);
+  baselineDate.value = todayShanghai();
+  original.value = JSON.stringify([cash.value, positions.value, baselineDate.value]);
   emit("configured", read.data.snapshot !== null, read.data.audit_id);
 }
 watch(
@@ -98,6 +103,10 @@ async function save() {
     return;
   error.value = "";
   if (!pending.value) {
+    if (!validDay(baselineDate.value) || baselineDate.value > todayShanghai() || (props.openingDate && baselineDate.value < props.openingDate)) {
+      error.value = "请选择开户日期至今天之间的持仓基准日。";
+      return;
+    }
     if (
       !decimal(cash.value, 2) ||
       cash.value.startsWith("-") ||
@@ -120,6 +129,7 @@ async function save() {
       cash: cash.value,
       positions: positions.value.map((p) => ({ ...p })),
     };
+    if (baselineDate.value !== todayShanghai()) input.baseline_date = baselineDate.value;
     pending.value = new PendingWrite(
       `/accounts/${props.accountId}/current-holdings`,
       "PUT",
@@ -179,6 +189,11 @@ async function save() {
 
 <template>
   <section data-test="current-holdings">
+    <template v-if="editorOnly">
+      <button :disabled="disabled || !!pending || read.loading || !!read.error || !read.data" @click="openEdit">调整现金与持仓</button>
+      <button v-if="read.error" :disabled="disabled || !!pending || read.loading" @click="load">重新读取持仓配置</button>
+    </template>
+    <template v-else>
     <div class="lp-section-title"><h2>当前持仓</h2><div class="lp-actions"><slot name="actions" /><button :disabled="disabled || !!pending || read.loading || !!read.error || !read.data" @click="openEdit">编辑持仓</button></div></div>
     <p class="lp-muted">独立维护现金与证券数量。保存持仓不生成交易、资金流水或总资产记录。</p>
     <p v-if="read.loading" role="status">正在读取当前持仓…</p>
@@ -199,6 +214,7 @@ async function save() {
     >
       刷新持仓
     </button>
+    </template>
     <LedgerDialog v-if="editing" title="编辑当前持仓" :dirty="dirty" @close="editing = false" v-slot="{ requestClose }">
     <form class="lp-form" data-test="current-holdings-form" @submit.prevent="save">
       <fieldset
@@ -206,6 +222,8 @@ async function save() {
           disabled || !!pending || read.loading || !!read.error || !read.data
         "
       >
+        <label>持仓基准日<input v-model="baselineDate" name="baseline_date" type="date" :min="openingDate" :max="todayShanghai()" required /></label>
+        <p class="lp-field-hint">尚无买卖明细时，可填写历史期初日期及当时的现金、数量，再按日期顺序补录。不要把现在的持仓当作历史期初重复累计。已有明细后只能按今天调整；改变证券数量会使该证券成本依据变为未知，不删除历史明细。</p>
         <label
           >当前现金（{{ currency }}）<input
             v-model="cash"

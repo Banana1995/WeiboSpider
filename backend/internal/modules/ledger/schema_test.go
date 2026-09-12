@@ -72,7 +72,7 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 1, count)
+		require.Equal(t, 2, count)
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM operations").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)
@@ -95,7 +95,7 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	expected := []string{"accounts", "instruments", "opening_positions", "operations", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "schema_migrations"}
+	expected := []string{"accounts", "instruments", "opening_positions", "operations", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "schema_migrations", "manual_trades"}
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&count))

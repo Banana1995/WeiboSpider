@@ -36,38 +36,40 @@ type Handler struct {
 
 func (h Handler) Register(mux *http.ServeMux) {
 	for path, handle := range map[string]http.HandlerFunc{
-		"/audit":                                      h.audit,
-		"/audit/{auditID}":                            h.audit,
-		"/weekly-status":                              h.weeklyStatus,
-		"/accounts/{id}/weekly-jobs":                  h.weeklyJobs,
-		"/accounts/{id}/weekly-jobs/{jobID}":          h.weeklyJob,
-		"/reported-accounts":                          h.reportedAccounts,
-		"/accounts/{id}/records":                      h.accountRecords,
-		"/accounts/{id}/records/{recordID}":           h.accountRecord,
-		"/accounts/{id}/records/{recordID}/revisions": h.accountRecordRevisions,
-		"/accounts/{id}/effective-summary":            h.effectiveSummary,
-		"/accounts/{id}/analysis-basis":               h.analysisBasis,
-		"/imports/youzhiyouxing/preview":              h.importPreview,
-		"/accounts/{id}/imports/youzhiyouxing":        h.importConfirm,
-		"/accounts/{id}/imported-records":             h.importedRecords,
-		"/accounts/{id}/import-summary":               h.importSummary,
-		"/fx":                                         h.fx,
-		"/accounts":                                   h.accounts,
-		"/accounts/{id}":                              h.account,
-		"/accounts/{id}/positions":                    h.positions,
-		"/accounts/{id}/current-holdings":             h.currentHoldings,
-		"/accounts/{id}/valuation":                    h.valuation,
-		"/accounts/{id}/valuations":                   h.valuations,
-		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,
-		"/accounts/{id}/operations":                   h.accountOperations,
-		"/instruments":                                h.instruments,
-		"/instruments/search":                         h.searchInstruments,
-		"/operations":                                 h.operations,
-		"/operations/{id}":                            h.operation,
-		"/operations/{id}/revisions":                  h.revisions,
-		"/transfers":                                  h.transfers,
-		"":                                            h.notFound,
-		"/":                                           h.notFound,
+		"/audit":                                              h.audit,
+		"/audit/{auditID}":                                    h.audit,
+		"/weekly-status":                                      h.weeklyStatus,
+		"/accounts/{id}/weekly-jobs":                          h.weeklyJobs,
+		"/accounts/{id}/weekly-jobs/{jobID}":                  h.weeklyJob,
+		"/reported-accounts":                                  h.reportedAccounts,
+		"/accounts/{id}/records":                              h.accountRecords,
+		"/accounts/{id}/records/{recordID}":                   h.accountRecord,
+		"/accounts/{id}/records/{recordID}/revisions":         h.accountRecordRevisions,
+		"/accounts/{id}/effective-summary":                    h.effectiveSummary,
+		"/accounts/{id}/analysis-basis":                       h.analysisBasis,
+		"/imports/youzhiyouxing/preview":                      h.importPreview,
+		"/accounts/{id}/imports/youzhiyouxing":                h.importConfirm,
+		"/accounts/{id}/imported-records":                     h.importedRecords,
+		"/accounts/{id}/import-summary":                       h.importSummary,
+		"/fx":                                                 h.fx,
+		"/accounts":                                           h.accounts,
+		"/accounts/{id}":                                      h.account,
+		"/accounts/{id}/positions":                            h.positions,
+		"/accounts/{id}/current-holdings":                     h.currentHoldings,
+		"/accounts/{id}/holdings":                             h.holdings,
+		"/accounts/{id}/holdings/{instrumentID}/transactions": h.holdingTransactions,
+		"/accounts/{id}/valuation":                            h.valuation,
+		"/accounts/{id}/valuations":                           h.valuations,
+		"/accounts/{id}/valuations/{historyID}":               h.valuationHistory,
+		"/accounts/{id}/operations":                           h.accountOperations,
+		"/instruments":                                        h.instruments,
+		"/instruments/search":                                 h.searchInstruments,
+		"/operations":                                         h.operations,
+		"/operations/{id}":                                    h.operation,
+		"/operations/{id}/revisions":                          h.revisions,
+		"/transfers":                                          h.transfers,
+		"":                                                    h.notFound,
+		"/":                                                   h.notFound,
 	} {
 		mux.HandleFunc(ledgerPrefix+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodHead {
@@ -595,6 +597,10 @@ func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = 409, "idempotency_conflict", "idempotency key was used for a different request"
 	case errors.Is(err, ErrVersion):
 		status, code, message = 409, "version_conflict", "expected version does not match the current operation"
+	case errors.Is(err, ErrManualHoldingsRequired):
+		status, code, message = 422, "manual_holdings_required", "configure manual current holdings first; replay accounts must use operations"
+	case errors.Is(err, ErrUnsafeTradeDate):
+		status, code, message = 422, "unsafe_trade_date", "trade date must be on or after the manual baseline and last account trade; same-day trades append in order; after any manual trade, baseline_date must be today"
 	case errors.Is(err, errWeeklyBasis):
 		status, code, message = 409, "basis_changed", "current source changed during valuation; no record saved"
 	case errors.Is(err, ErrVoided):

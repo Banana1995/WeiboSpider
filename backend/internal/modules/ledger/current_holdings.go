@@ -25,6 +25,7 @@ type HoldingsSnapshot struct {
 	SavedAt   string            `json:"saved_at"`
 	Cash      Money             `json:"cash"`
 	Positions []CurrentPosition `json:"positions"`
+	Trades    *ManualTradeBasis `json:"trades,omitempty"`
 }
 
 type CurrentHoldings struct {
@@ -37,6 +38,7 @@ type CurrentHoldingsInput struct {
 	ExpectedVersion string            `json:"expected_version"`
 	Cash            *Money            `json:"cash"`
 	Positions       []CurrentPosition `json:"positions"`
+	BaselineDate    *string           `json:"baseline_date,omitempty"`
 }
 
 func (p HoldingsSnapshot) valid() bool {
@@ -52,7 +54,7 @@ func (p HoldingsSnapshot) valid() bool {
 		}
 		prior = row.InstrumentID
 	}
-	return true
+	return p.Trades == nil || p.Trades.valid(p)
 }
 
 func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHoldings, error) {
@@ -64,6 +66,13 @@ func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHol
         AND a.account_id=c.account_id AND a.entity_id=c.account_id AND a.version=c.version
         WHERE c.account_id=?`, id).Scan(&version, &out.AuditID, &payload, &audited)
 	if errors.Is(err, sql.ErrNoRows) {
+		var hasTrades bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM manual_trades WHERE account_id=?)`, id).Scan(&hasTrades); err != nil {
+			return out, err
+		}
+		if hasTrades {
+			return out, ErrCorrupt
+		}
 		return out, nil
 	}
 	if err != nil {
@@ -72,6 +81,20 @@ func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHol
 	out.Snapshot = &HoldingsSnapshot{}
 	if payload != audited || decodeReceipt(payload, out.Snapshot) != nil || !out.Snapshot.valid() || out.Snapshot.Version != strconv.FormatInt(version, 10) {
 		return out, ErrCorrupt
+	}
+	var latest, count, audits int64
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(version),0),count(*),
+		(SELECT count(*) FROM audit_log WHERE account_id=? AND entity_type='manual_trade')
+		FROM manual_trades WHERE account_id=?`, id, id).Scan(&latest, &count, &audits); err != nil {
+		return out, err
+	}
+	if count != audits || latest != 0 && (out.Snapshot.Trades == nil || out.Snapshot.Trades.LastVersion != strconv.FormatInt(latest, 10)) || latest == 0 && out.Snapshot.Trades != nil && out.Snapshot.Trades.LastVersion != "" {
+		return out, ErrCorrupt
+	}
+	if latest != 0 {
+		if _, err := readManualTrade(ctx, tx, id, latest); err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }
@@ -100,6 +123,13 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 	expected, err := strconv.ParseInt(input.ExpectedVersion, 10, 64)
 	if !validID(id) || !validID(key) || err != nil || expected < 0 || expected == math.MaxInt64 || strconv.FormatInt(expected, 10) != input.ExpectedVersion || input.Cash == nil || *input.Cash < 0 || input.Positions == nil || len(input.Positions) > 200 {
 		return out, ErrOperation
+	}
+	baselineDate := ""
+	if input.BaselineDate != nil {
+		baselineDate = *input.BaselineDate
+		if !validDate(baselineDate) {
+			return out, ErrOperation
+		}
 	}
 	// Freeze caller-owned input before any database work. Receipt identity includes row order.
 	raw, err := json.Marshal(struct {
@@ -136,6 +166,9 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 			if decodeReceipt(payload, &saved) != nil || !reflect.DeepEqual(saved, *out.Snapshot) || saved.Cash != next.Cash || !reflect.DeepEqual(saved.Positions, next.Positions) {
 				return ErrCorrupt
 			}
+			if baselineDate != "" && manualBasis(id, saved).FloorDate != baselineDate {
+				return ErrCorrupt
+			}
 			return nil
 		}
 		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
@@ -161,6 +194,24 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 			return err
 		}
 		next.SavedAt = stamp
+		floor := date
+		if baselineDate != "" {
+			// readCurrentHoldings verifies LastVersion against the immutable journal.
+			if old.Snapshot != nil && old.Snapshot.Trades != nil && old.Snapshot.Trades.LastVersion != "" && baselineDate != date {
+				return ErrUnsafeTradeDate
+			}
+			if baselineDate > date || baselineDate < info.OpeningDate {
+				return ErrOperation
+			}
+			floor = baselineDate
+		}
+		if old.Snapshot != nil && old.Snapshot.Trades != nil {
+			next.Trades = resetManualBasis(id, *old.Snapshot, next, floor)
+		} else if baselineDate != "" {
+			basis := manualBasis(id, next)
+			basis.FloorDate = floor
+			next.Trades = &basis
+		}
 		if !next.valid() {
 			return ErrOperation
 		}

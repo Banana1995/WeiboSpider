@@ -201,6 +201,11 @@ beforeEach(() => {
       if (url.pathname.endsWith("/current-holdings")) return response({
         account_id: url.pathname.split("/").at(-2), audit_id: "", snapshot: null,
       });
+      if (url.pathname.endsWith("/holdings")) return response({
+        account_id: url.pathname.split("/").at(-2), currency: "CNY", source: "manual_snapshot",
+        as_of: todayShanghai(), ledger_at: new Date().toISOString(), revision: "a".repeat(64),
+        manual_version: "0", trade_date_floor: null, configured: false, cash: null, complete: false, total_assets: null, items: [],
+      });
       if (url.pathname.endsWith("/effective-summary")) return response(summary);
       if (url.pathname.endsWith("/analysis-basis")) {
         const id = url.pathname.split("/").at(-2)!;
@@ -262,13 +267,14 @@ it("validates the inclusive 610-day contract with unchanged 122-day flow weight"
   }
 });
 
-it("shows account holdings immediately above records without fetching quotes or writing", async () => {
+it("shows account holdings immediately above records without automatically saving assets", async () => {
   await ledger();
   const holdings = wrapper.get('[data-test="account-holdings"]');
   expect(holdings.element.nextElementSibling).toBe(wrapper.get('[data-test="account-records"]').element);
   expect(holdings.text()).toContain("尚未设置当前持仓");
   expect(holdings.text()).toContain("登记证券");
   expect(calls.filter(path => path.endsWith("/current-holdings"))).toEqual(["/api/platform/ledger/accounts/a/current-holdings"]);
+  expect(calls.filter(path => path.endsWith("/holdings"))).toEqual(["/api/platform/ledger/accounts/a/holdings"]);
   expect(calls.some(path => /\/(valuation|instruments\/search)/.test(path))).toBe(false);
   await wrapper.get('#account-tab-b').trigger("click");
   await flushPromises();

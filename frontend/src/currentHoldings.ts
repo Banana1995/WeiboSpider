@@ -16,6 +16,7 @@ export interface CurrentHoldings {
 }
 export interface CurrentHoldingsInput {
   expected_version: string;
+  baseline_date?: string;
   cash: Decimal;
   positions: CurrentPosition[];
 }

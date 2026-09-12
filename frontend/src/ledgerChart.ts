@@ -1,5 +1,5 @@
 import type { AccountRecord } from "./accountRecords";
-import type { LedgerRecord, ValuationSummary } from "./ledger";
+import type { ValuationSummary } from "./ledger";
 
 export interface BasisPoint {
   date: string;
@@ -14,22 +14,19 @@ export interface BasisPoint {
   source_version: string;
   source_date: string;
   record?: AccountRecord;
-  operation?: LedgerRecord;
   valuation?: ValuationSummary;
 }
 export const pointLabels: Record<string, string> = {
   reported: "明确记录",
-  carried: "沿用此前原值，未增加资金流",
+  carried: "最近明确资产加后续净转入，仅供参考",
   unavailable: "缺少资产依据，不补零",
-  observed: "已追踪估值，未发现后续相关修改",
+  observed: "固定估值记录",
   stale: "旧估值受修改影响，未重算",
   untracked: "旧估值未追踪",
   flow: "外部资金事件",
-  operation: "持仓操作（非外部资金流）",
   log: "投资日志",
 };
-export const pointNote = (p: BasisPoint) =>
-  p.record?.note ?? p.operation?.note ?? "";
+export const pointNote = (p: BasisPoint) => p.record?.note ?? "";
 export function flowLabel(flow: string | null) {
   if (flow === null) return "无资金事件";
   if (/^-?0\.00$/.test(flow)) return "零额记录";

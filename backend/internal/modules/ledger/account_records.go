@@ -29,7 +29,6 @@ type AccountRecord struct {
 	Voided          bool                 `json:"voided"`
 	CreatedAt       string               `json:"created_at"`
 	UpdatedAt       string               `json:"updated_at"`
-	OperationID     string               `json:"operation_id,omitempty"`
 	QuoteAuditID    string               `json:"quote_audit_id,omitempty"`
 	ManualAssertion bool                 `json:"manual_assertion,omitempty"`
 	CarriedFrom     *AccountRecordSource `json:"carried_from,omitempty"`
@@ -80,7 +79,7 @@ func (e AccountEntry) valid() bool {
 
 func validAccountRecordOrigin(origin string) bool {
 	switch origin {
-	case "import", "manual", "currentrefresh", "weekly", "weekly_carry", "operation":
+	case "import", "manual", "currentrefresh", "weekly", "weekly_carry":
 		return true
 	}
 	return false
@@ -100,6 +99,9 @@ func (s AccountRecordSource) valid(accountID, date string) bool {
 }
 
 func (r AccountRecord) validProvenance() bool {
+	if !validAccountRecordOrigin(r.Origin) {
+		return false
+	}
 	if r.CarriedFrom == nil {
 		return r.Origin != "weekly_carry"
 	}
@@ -160,10 +162,10 @@ func (s *Store) CreateReportedAccount(ctx context.Context, key string, input Rep
 		if err != nil {
 			return nil, 0, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO accounts(id,name,currency,opening_date,opening_cash_minor,version,accounting_mode) VALUES(?,?,?,?,0,1,'reported')`, input.ID, input.Name, input.Currency, input.OpeningDate); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO accounts(id,name,currency,opening_date,opening_cash_minor,version) VALUES(?,?,?,?,0,1)`, input.ID, input.Name, input.Currency, input.OpeningDate); err != nil {
 			return nil, 0, constraintError(err)
 		}
-		result := accountJSON{ID: input.ID, Name: input.Name, Currency: input.Currency, OpeningDate: input.OpeningDate, Version: "1", AccountingMode: "reported"}
+		result := accountJSON{ID: input.ID, Name: input.Name, Currency: input.Currency, OpeningDate: input.OpeningDate, Version: "1"}
 		auditID, err := appendAudit(ctx, tx, key, "create", "account", input.ID, input.ID, 1, stamp, "human", nil, result, nil)
 		return result, auditID, err
 	})
@@ -175,30 +177,34 @@ func scanAccountRecord(row interface{ Scan(...any) error }) (AccountRecord, erro
 	var date, stamp, sequence string
 	var kind, note, origin, updated string
 	var flow, assets, version sql.NullInt64
-	var operation, quote sql.NullString
+	var quote sql.NullString
 	var voided, assertion, audited bool
-	if err := row.Scan(&r.AccountID, &r.ID, &date, &payload, &stamp, &sequence, &kind, &flow, &assets, &note, &origin, &voided, &version, &updated, &operation, &quote, &assertion, &audited); err != nil {
+	if err := row.Scan(&r.AccountID, &r.ID, &date, &payload, &stamp, &sequence, &kind, &flow, &assets, &note, &origin, &voided, &version, &updated, &quote, &assertion, &audited); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return r, ErrNotFound
 		}
 		return r, err
 	}
 	id, account := r.ID, r.AccountID
-	if json.Unmarshal([]byte(payload), &r) != nil || r.ID != id || r.AccountID != account || r.Date != date {
+	if decodeReceipt(payload, &r) != nil || r.ID != id || r.AccountID != account || r.Date != date || r.Sequence != sequence {
 		return r, ErrCorrupt
 	}
-	r.Sequence = sequence
-	if !audited || !r.AccountEntry.valid() || !r.validProvenance() || r.Kind != kind || r.Note != note || r.Origin != origin || r.Voided != voided || r.Version != strconv.FormatInt(version.Int64, 10) || r.CreatedAt != stamp || r.UpdatedAt != updated || r.OperationID != operation.String || r.QuoteAuditID != quote.String || r.ManualAssertion != assertion ||
+	if !audited || !r.AccountEntry.valid() || !r.validProvenance() || r.Kind != kind || r.Note != note || r.Origin != origin || r.Voided != voided || r.Version != strconv.FormatInt(version.Int64, 10) || r.CreatedAt != stamp || r.UpdatedAt != updated || r.QuoteAuditID != quote.String || r.ManualAssertion != assertion ||
 		(r.Flow != nil) != flow.Valid || (r.TotalAssets != nil) != assets.Valid || r.Flow != nil && int64(*r.Flow) != flow.Int64 || r.TotalAssets != nil && int64(*r.TotalAssets) != assets.Int64 {
 		return r, ErrCorrupt
 	}
 	return r, nil
 }
 
-const accountRecordSelect = `SELECT account_id,id,business_date,payload,created_at,CAST(sequence AS TEXT) AS stable_sequence,kind,flow_minor,total_assets_minor,note,origin,voided,version,updated_at,operation_id,CAST(quote_audit_id AS TEXT),manual_assertion,
+const accountRecordSelect = `SELECT account_id,id,business_date,payload,created_at,CAST(sequence AS TEXT) AS stable_sequence,kind,flow_minor,total_assets_minor,note,origin,voided,version,updated_at,CAST(quote_audit_id AS TEXT),manual_assertion,
  EXISTS(SELECT 1 FROM audit_log a WHERE a.entity_type='account_record' AND a.account_id=account_records.account_id AND a.entity_id=account_records.id AND a.version=account_records.version AND a.after_json=account_records.payload) FROM account_records`
 
 func (s *Store) WriteAccountRecord(ctx context.Context, key string, c AccountRecordCommand) (json.RawMessage, error) {
+	if c.Entry != nil {
+		entry := *c.Entry
+		entry.Flow, entry.TotalAssets = copyMoney(entry.Flow), copyMoney(entry.TotalAssets)
+		c.Entry = &entry
+	}
 	if !validID(c.AccountID) || !validID(c.ID) || !utf8.ValidString(c.Reason) || len(c.Reason) > 512 {
 		return nil, ErrOperation
 	}
@@ -233,9 +239,6 @@ func (s *Store) WriteAccountRecord(ctx context.Context, key string, c AccountRec
 		} else {
 			if err != nil {
 				return nil, 0, err
-			}
-			if current.OperationID != "" {
-				return nil, 0, ErrManagedRecord
 			}
 			if current.QuoteAuditID != "" && c.Entry != nil && c.Entry.Kind != "asset" {
 				return nil, 0, ErrUnsupported
@@ -300,8 +303,13 @@ type EffectiveSummary struct {
 
 func (s *Store) EffectiveSummary(ctx context.Context, id string) (EffectiveSummary, error) {
 	var summary EffectiveSummary
+	today, _, err := s.cutoff()
+	if err != nil {
+		return summary, err
+	}
+	flows := map[string]*big.Int{}
 	incoming, outgoing := new(big.Int), new(big.Int)
-	err := s.db.WithTx(ctx, func(tx *sql.Tx) error {
+	err = s.db.WithTx(ctx, func(tx *sql.Tx) error {
 		if _, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id)); err != nil {
 			return err
 		}
@@ -335,13 +343,19 @@ func (s *Store) EffectiveSummary(ctx context.Context, id string) (EffectiveSumma
 			}
 			if r.Flow != nil {
 				n := big.NewInt(int64(*r.Flow))
+				if r.Date <= today {
+					if flows[r.Date] == nil {
+						flows[r.Date] = new(big.Int)
+					}
+					flows[r.Date].Add(flows[r.Date], n)
+				}
 				if n.Sign() >= 0 {
 					incoming.Add(incoming, n)
 				} else {
 					outgoing.Sub(outgoing, n)
 				}
 			}
-			if r.TotalAssets != nil && (summary.LatestAssetDate == nil || *summary.LatestAssetDate == r.Date) {
+			if r.Date <= today && r.TotalAssets != nil && (r.CarriedFrom == nil || r.ManualAssertion) && (summary.LatestAssetDate == nil || *summary.LatestAssetDate == r.Date) {
 				summary.LatestAssetDate = &date
 				summary.LatestAssetCount++
 				if summary.LatestAssetCount == 1 {
@@ -351,6 +365,20 @@ func (s *Store) EffectiveSummary(ctx context.Context, id string) (EffectiveSumma
 		}
 		return rows.Err()
 	})
+	if err == nil && summary.LatestAssets != nil {
+		assets := big.NewInt(int64(*summary.LatestAssets))
+		for date, net := range flows {
+			if date > *summary.LatestAssetDate {
+				assets.Add(assets, net)
+			}
+		}
+		var projected Money
+		raw, _ := json.Marshal(centsString(assets))
+		if e := json.Unmarshal(raw, &projected); e != nil {
+			return summary, e
+		}
+		summary.LatestAssets = &projected
+	}
 	format := func(n *big.Int) string {
 		whole, rem := new(big.Int), new(big.Int)
 		whole.QuoRem(n, big.NewInt(100), rem)

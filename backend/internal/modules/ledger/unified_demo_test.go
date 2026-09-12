@@ -24,7 +24,9 @@ func TestUnifiedBrowserDemo(t *testing.T) {
 	s := NewStore(db, clock)
 	i := Instrument{ID: "synthetic-stock", Market: "SZ", Code: "000001", Name: "Synthetic quote only", Currency: CNY}
 	require.NoError(t, s.AddInstrument(t.Context(), i))
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic unified account", Opening{AccountID: "demo", Currency: CNY, Date: "2026-09-03", Cash: 4000, Positions: []OpeningPosition{{InstrumentID: i.ID, Quantity: 1000000}}}))
+	_, err = s.CreateReportedAccount(t.Context(), "demo-account", ReportedAccountInput{ID: "demo", Name: "Synthetic unified account", Currency: CNY, OpeningDate: "2026-09-03"})
+	require.NoError(t, err)
+	putSource(t, s, "demo", "demo-current", "0", 4500, CurrentPosition{i.ID, 1000000})
 	data := syntheticImportZip(t, syntheticImportParts(t, [][7]string{
 		{"记总资产", "2026-09-01", "", "100.00", "Synthetic initialization", "", ""},
 		{"记总资产", "2026-09-02", "", "105.00", "Synthetic historical amount", "", ""},
@@ -42,7 +44,7 @@ func TestUnifiedBrowserDemo(t *testing.T) {
 	c.Entry.Note = "Synthetic corrected note <b>literal</b>"
 	_, err = s.WriteAccountRecord(t.Context(), "demo-correct", c)
 	require.NoError(t, err)
-	_, err = s.Write(t.Context(), Command{Action: CreateOperation, Key: "demo-operation", Reason: "Synthetic deposit", Operation: Operation{ID: "deposit", Kind: Deposit, AccountID: "demo", Date: "2026-09-04", Sequence: 1, Amount: 500}})
+	_, err = s.WriteAccountRecord(t.Context(), "demo-flow", AccountRecordCommand{Action: CreateOperation, AccountID: "demo", ID: "manual-deposit", Entry: &AccountEntry{Kind: "cash_flow", Date: "2026-09-04", Flow: replayMoney(500)}})
 	require.NoError(t, err)
 	quotes := valuationQuotes(func(ctx context.Context, items []Instrument) map[string]QuoteResult {
 		out := map[string]QuoteResult{}
@@ -72,7 +74,7 @@ func TestUnifiedBrowserDemo(t *testing.T) {
 	defer server.Close()
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	t.Log("synthetic ledger API ready at http://127.0.0.1:18673; read-only preview and explicit save; no real quote provider")
+	t.Log("synthetic ledger API ready at http://127.0.0.1:18673; read-only preview and fixed weekly records; no real quote provider")
 	select {
 	case <-t.Context().Done():
 	case err := <-done:

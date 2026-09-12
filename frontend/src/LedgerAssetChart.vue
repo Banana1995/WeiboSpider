@@ -16,7 +16,6 @@ import {
   pointNote,
   type BasisPoint,
 } from "./ledgerChart";
-import { kinds } from "./ledger";
 import { accountRecordOriginLabels } from "./accountRecords";
 
 use([
@@ -87,9 +86,7 @@ function render() {
       data: days.value
         .filter((d) =>
           d.points.some((p) =>
-            index === 3
-              ? !!pointNote(p) || !!p.operation
-              : flowLabel(p.flow) === kind,
+            index === 3 ? !!pointNote(p) : flowLabel(p.flow) === kind,
           ),
         )
         .map((d) => ({
@@ -354,18 +351,6 @@ onBeforeUnmount(() => {
           <p v-if="p.source_id">
             资产/事件来源 {{ p.source_date }} / {{ p.source_id }} / 版本
             {{ p.source_version }}
-          </p>
-          <p v-if="p.operation">
-            {{ kinds[p.operation.operation.kind] }} ·
-            {{ p.operation.operation.account_id }}
-            <span v-if="p.operation.operation.to_account_id"
-              >→ {{ p.operation.operation.to_account_id }}</span
-            >
-            · 操作金额 {{ p.operation.operation.amount }}；证券
-            {{ p.operation.operation.instrument_id ?? "无" }}；数量
-            {{ p.operation.operation.quantity }}；成交价
-            {{ p.operation.operation.price }}；费用
-            {{ p.operation.operation.fee ?? "未录入" }}
           </p>
           <p v-if="p.valuation">
             观察日期 {{ p.valuation.as_of }}；保存于

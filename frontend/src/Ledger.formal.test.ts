@@ -28,7 +28,6 @@ const account: Account = {
   opening_date: "2020-01-01",
   opening_cash: null,
   version: "1",
-  accounting_mode: "reported",
   current_holdings_input: "manual_snapshot",
 };
 const accounts = [
@@ -198,14 +197,28 @@ beforeEach(() => {
       if (url.pathname.endsWith("/accounts"))
         return response({ items: accountList });
       if (url.pathname.endsWith("/instruments")) return response({ items: [] });
-      if (url.pathname.endsWith("/current-holdings")) return response({
-        account_id: url.pathname.split("/").at(-2), audit_id: "", snapshot: null,
-      });
-      if (url.pathname.endsWith("/holdings")) return response({
-        account_id: url.pathname.split("/").at(-2), currency: "CNY", source: "manual_snapshot",
-        as_of: todayShanghai(), ledger_at: new Date().toISOString(), revision: "a".repeat(64),
-        manual_version: "0", trade_date_floor: null, configured: false, cash: null, complete: false, total_assets: null, items: [],
-      });
+      if (url.pathname.endsWith("/current-holdings"))
+        return response({
+          account_id: url.pathname.split("/").at(-2),
+          audit_id: "",
+          snapshot: null,
+        });
+      if (url.pathname.endsWith("/holdings"))
+        return response({
+          account_id: url.pathname.split("/").at(-2),
+          currency: "CNY",
+          source: "manual_snapshot",
+          as_of: todayShanghai(),
+          ledger_at: new Date().toISOString(),
+          revision: "a".repeat(64),
+          manual_version: "0",
+          trade_date_floor: null,
+          configured: false,
+          cash: null,
+          complete: false,
+          total_assets: null,
+          items: [],
+        });
       if (url.pathname.endsWith("/effective-summary")) return response(summary);
       if (url.pathname.endsWith("/analysis-basis")) {
         const id = url.pathname.split("/").at(-2)!;
@@ -270,15 +283,25 @@ it("validates the inclusive 610-day contract with unchanged 122-day flow weight"
 it("shows account holdings immediately above records without automatically saving assets", async () => {
   await ledger();
   const holdings = wrapper.get('[data-test="account-holdings"]');
-  expect(holdings.element.nextElementSibling).toBe(wrapper.get('[data-test="account-records"]').element);
+  expect(holdings.element.nextElementSibling).toBe(
+    wrapper.get('[data-test="account-records"]').element,
+  );
   expect(holdings.text()).toContain("尚未设置当前持仓");
-  expect(holdings.text()).toContain("登记证券");
-  expect(calls.filter(path => path.endsWith("/current-holdings"))).toEqual(["/api/platform/ledger/accounts/a/current-holdings"]);
-  expect(calls.filter(path => path.endsWith("/holdings"))).toEqual(["/api/platform/ledger/accounts/a/holdings"]);
-  expect(calls.some(path => /\/(valuation|instruments\/search)/.test(path))).toBe(false);
-  await wrapper.get('#account-tab-b').trigger("click");
+  expect(holdings.text()).toContain("添加持仓");
+  expect(calls.filter((path) => path.endsWith("/current-holdings"))).toEqual([
+    "/api/platform/ledger/accounts/a/current-holdings",
+  ]);
+  expect(calls.filter((path) => path.endsWith("/holdings"))).toEqual([
+    "/api/platform/ledger/accounts/a/holdings",
+  ]);
+  expect(
+    calls.some((path) => /\/(valuation|instruments\/search)/.test(path)),
+  ).toBe(false);
+  await wrapper.get("#account-tab-b").trigger("click");
   await flushPromises();
-  expect(calls.filter(path => path.endsWith("/current-holdings"))).toHaveLength(2);
+  expect(
+    calls.filter((path) => path.endsWith("/current-holdings")),
+  ).toHaveLength(2);
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 
@@ -323,14 +346,11 @@ it("joins numeric samples with one solid path and filled points without changing
     "统计时长 610 天",
   );
   const svg = wrapper.get('svg[aria-label="账户收益曲线"]');
-  expect(svg.findAll(".lp-point-available, .lp-point-reference")).toHaveLength(0);
+  expect(svg.findAll(".lp-point-available, .lp-point-reference")).toHaveLength(
+    0,
+  );
   expect(svg.findAll("circle")).toHaveLength(5);
-  expect(
-    svg
-      .get("path.lp-curve")
-      .attributes("d")!
-      .match(/M/g),
-  ).toHaveLength(1);
+  expect(svg.get("path.lp-curve").attributes("d")!.match(/M/g)).toHaveLength(1);
   expect(svg.get("path.lp-curve").attributes("d")!.match(/L/g)).toHaveLength(4);
   expect(svg.findAll("path.lp-curve")).toHaveLength(1);
   expect(svg.find(".lp-reference-line").exists()).toBe(false);
@@ -342,13 +362,13 @@ it("joins numeric samples with one solid path and filled points without changing
   await reference.trigger("focus");
   expect(wrapper.get(".lp-chart-readout").text()).toContain("26.00%");
   expect(wrapper.get(".lp-chart-readout").text()).toContain(
-    "沿用 2020-02-01 总资产原值",
+    "基于 2020-02-01 明确总资产加后续净转入推算",
   );
   await reference.trigger("blur", {
     relatedTarget: wrapper.get(".lp-chart-readout").element,
   });
   expect(wrapper.get(".lp-chart-readout").text()).toContain(
-    "沿用 2020-02-01 总资产原值",
+    "基于 2020-02-01 明确总资产加后续净转入推算",
   );
   expect(reference.attributes("aria-label")).not.toContain("sample-");
   await wrapper
@@ -360,33 +380,40 @@ it("joins numeric samples with one solid path and filled points without changing
   );
   expect(calls).toHaveLength(2);
   expect(styles).not.toContain(".lp-reference-line");
-  expect(styles).toMatch(
-    /\.lp-point\s*\{[^}]*fill: var\(--lp-primary\)/,
-  );
+  expect(styles).toMatch(/\.lp-point\s*\{[^}]*fill: var\(--lp-primary\)/);
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
   expect(basis).toEqual(original);
 });
 
-it.each([0, 1])("does not fabricate values when only %i numeric samples exist", async (count) => {
-  for (const p of basis.returns.curve) p.modified_dietz = metric("unavailable", "missing_flow_boundary");
-  if (count) basis.returns.curve[0]!.modified_dietz = {
-    ...metric(), value: "0.000000000000", percentage: "0.00",
-  };
-  basis.returns.modified_dietz = basis.returns.curve.at(-1)!.modified_dietz;
-  const original = structuredClone(basis);
-  await overview();
-  expect(wrapper.findAll(".lp-point")).toHaveLength(count);
-  if (count) {
-    const path = wrapper.get("path.lp-curve").attributes("d")!;
-    expect(path).toMatch(/^M/);
-    expect(path).not.toContain("L");
-    expect(wrapper.get(".lp-point").attributes("aria-label")).toContain("0.00%");
-  } else {
-    expect(wrapper.find("path.lp-curve").exists()).toBe(false);
-    expect(wrapper.text()).toContain("这个区间还画不出曲线");
-  }
-  expect(basis).toEqual(original);
-});
+it.each([0, 1])(
+  "does not fabricate values when only %i numeric samples exist",
+  async (count) => {
+    for (const p of basis.returns.curve)
+      p.modified_dietz = metric("unavailable", "missing_flow_boundary");
+    if (count)
+      basis.returns.curve[0]!.modified_dietz = {
+        ...metric(),
+        value: "0.000000000000",
+        percentage: "0.00",
+      };
+    basis.returns.modified_dietz = basis.returns.curve.at(-1)!.modified_dietz;
+    const original = structuredClone(basis);
+    await overview();
+    expect(wrapper.findAll(".lp-point")).toHaveLength(count);
+    if (count) {
+      const path = wrapper.get("path.lp-curve").attributes("d")!;
+      expect(path).toMatch(/^M/);
+      expect(path).not.toContain("L");
+      expect(wrapper.get(".lp-point").attributes("aria-label")).toContain(
+        "0.00%",
+      );
+    } else {
+      expect(wrapper.find("path.lp-curve").exists()).toBe(false);
+      expect(wrapper.text()).toContain("这个区间还画不出曲线");
+    }
+    expect(basis).toEqual(original);
+  },
+);
 
 it("separates manager estimate provenance and earlier boundaries from unchanged personal and profit values", async () => {
   const estimated = basis.returns.curve[2]!;
@@ -396,9 +423,17 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
     source_date: "2020-02-01",
     net_flow: "100.00",
   };
-  estimated.twr = { ...metric("reference"), value: "0.000000000000", percentage: "0.00" };
+  estimated.twr = {
+    ...metric("reference"),
+    value: "0.000000000000",
+    percentage: "0.00",
+  };
   const explicit = basis.points.at(-1)!;
-  Object.assign(explicit, { status: "reported", source_id: explicit.record_id, source_date: explicit.date });
+  Object.assign(explicit, {
+    status: "reported",
+    source_id: explicit.record_id,
+    source_date: explicit.date,
+  });
   basis.returns.warnings.push("twr_estimated_assets");
   const original = structuredClone(basis);
   await overview();
@@ -406,11 +441,14 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   const point = () => wrapper.get('.lp-point[aria-label^="2020-03-01"]');
   await point().trigger("focus");
   expect(readout()).toContain("26.00%");
-  expect(readout()).toContain("沿用 2020-02-01 总资产原值，未增加资金流");
+  expect(readout()).toContain("基于 2020-02-01 明确总资产加后续净转入推算");
   expect(readout()).not.toContain("90071992547509.03");
   expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
 
-  await wrapper.findAll("button").find(b => b.text() === "基金经理视角")!.trigger("click");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "基金经理视角")!
+    .trigger("click");
   expect(readout()).toContain("0.00%");
   expect(readout()).toContain("TWR 估算资产 90071992547509.03 CNY");
   expect(readout()).toContain("基于 2020-02-01 最后明确总资产");
@@ -420,22 +458,35 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   expect(point().attributes("aria-label")).toContain("来源记录 sample-1");
   expect(point().get("title").text()).toContain("累计净流入 100.00");
   expect(wrapper.get(".lp-reference").text()).toContain("TWR 仅供参考");
-  expect(wrapper.get(".lp-reference").text()).toContain("收益金额及个人视角：");
+  expect(wrapper.get(".lp-reference").text()).toContain(
+    "最近明确总资产加后续净转入推算",
+  );
   await wrapper.get('.lp-point[aria-label^="2021-09-01"]').trigger("focus");
   expect(readout()).toContain("TWR 包含较早的估算边界");
   expect(readout()).not.toContain("沿用 2021-05-02");
   expect(readout()).not.toContain("TWR 估算资产");
 
   await point().trigger("focus");
-  await wrapper.findAll("button").find(b => b.text() === "收益金额")!.trigger("click");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "收益金额")!
+    .trigger("click");
   expect(readout()).toContain("90,071,992,547,409.03");
-  expect(readout()).toContain("沿用 2020-02-01 总资产原值，未增加资金流");
+  expect(readout()).toContain("基于 2020-02-01 明确总资产加后续净转入推算");
   expect(readout()).not.toContain("TWR 估算资产");
   expect(wrapper.get(".lp-assets strong").text()).toBe("90,071,992,547,409.03");
-  await wrapper.findAll("button").find(b => b.text() === "个人视角")!.trigger("click");
-  await wrapper.findAll("button").find(b => b.text() === "收益率")!.trigger("click");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "个人视角")!
+    .trigger("click");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "收益率")!
+    .trigger("click");
   expect(readout()).toContain("26.00%");
-  expect(wrapper.get('[data-test="annual-return"]').text()).toContain(returnReasons.possible_multiple_roots);
+  expect(wrapper.get('[data-test="annual-return"]').text()).toContain(
+    returnReasons.possible_multiple_roots,
+  );
   expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
   expect(basis).toEqual(original);
   expect(calls).toHaveLength(2);

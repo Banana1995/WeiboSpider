@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -8,67 +9,86 @@ import (
 )
 
 func TestStoreRejectsInconsistentPersistence(t *testing.T) {
-	for _, scenario := range []string{"missing_revision", "changed_column", "changed_payload", "receipt_link", "receipt_payload", "old_revision_shape", "missing_old_revision"} {
+	for _, scenario := range []string{"missing_revision", "changed_column", "changed_payload", "missing_current_field", "changed_sequence", "receipt_link", "receipt_payload", "old_revision_shape", "missing_old_revision"} {
 		t.Run(scenario, func(t *testing.T) {
-			db, err := Open(t.Context(), t.TempDir())
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, db.Close()) })
-			s := NewStore(db, func() time.Time { return time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC) })
-			require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic", Opening{AccountID: "a", Currency: CNY, Date: "2026-01-01"}))
-			create := Command{Action: CreateOperation, Key: "create", Reason: "Synthetic initial record", Operation: Operation{
-				ID: "op", Kind: Deposit, AccountID: "a", Date: "2026-01-02", Sequence: 1, Amount: 100}}
-			_, err = s.Write(t.Context(), create)
-			require.NoError(t, err)
-			sql := ""
-			check := "state"
+			f := reportedFixture(t)
+			manualSourceAccount(t, f.store, "b")
+			payload := `{"id":"manual-a","entry":{"kind":"cash_flow","date":"2020-01-01","flow":"1.00","total_assets":null,"note":"original"}}`
+			f.request(t, "POST", "/accounts/a/records", "create", payload, 201)
+			check := "read"
+			statement := ""
 			switch scenario {
 			case "missing_revision":
-				// Remove the dependent receipt before its referenced audit event.
-				sql = `DELETE FROM idempotency_receipts; DELETE FROM audit_log WHERE entity_type='operation'`
+				statement = `DELETE FROM idempotency_receipts WHERE key='create'; DELETE FROM audit_log WHERE entity_type='account_record'`
 			case "changed_column":
-				sql = `UPDATE operations SET amount_minor=200`
+				statement = `UPDATE account_records SET flow_minor=200`
 			case "changed_payload":
-				sql = `UPDATE audit_log SET after_json='{}' WHERE entity_type='operation'`
+				statement = `UPDATE audit_log SET after_json='{}' WHERE entity_type='account_record'`
+			case "missing_current_field":
+				statement = `UPDATE account_records SET payload=json_remove(payload,'$.voided'); UPDATE audit_log SET after_json=json_remove(after_json,'$.voided') WHERE entity_type='account_record'`
+			case "changed_sequence":
+				statement = `UPDATE account_records SET payload=json_set(payload,'$.sequence','999'); UPDATE audit_log SET after_json=json_set(after_json,'$.sequence','999') WHERE entity_type='account_record'`
 			case "receipt_link":
-				sql = `UPDATE idempotency_receipts SET audit_id=(SELECT id FROM audit_log WHERE entity_type='account')`
+				statement = `UPDATE idempotency_receipts SET audit_id=(SELECT min(id) FROM audit_log WHERE entity_type='account') WHERE key='create'`
 				check = "receipt"
 			case "receipt_payload":
-				sql = `UPDATE idempotency_receipts SET response_json='{}'`
+				statement = `UPDATE idempotency_receipts SET response_json='{}' WHERE key='create'`
 				check = "receipt"
-			case "old_revision_shape", "missing_old_revision":
-				change := create
-				change.Action, change.Key, change.ExpectedVersion, change.Operation.Amount = ReplaceOperation, "change", 1, 200
-				_, err = s.Write(t.Context(), change)
-				require.NoError(t, err)
+			default:
+				f.request(t, "PUT", "/accounts/a/records/manual-a", "edit", `{"expected_version":"1","reason":"correct","entry":{"kind":"cash_flow","date":"2020-01-01","flow":"2.00"}}`, 200)
 				check = "revisions"
 				if scenario == "old_revision_shape" {
-					// A missing zero-valued field must not pass permissive Unmarshal.
-					sql = `UPDATE audit_log SET after_json=json_remove(after_json,'$.operation.Voided') WHERE entity_type='operation' AND version=1`
+					statement = `UPDATE audit_log SET after_json=json_remove(after_json,'$.voided') WHERE entity_type='account_record' AND version=1`
 				} else {
-					sql = `DELETE FROM idempotency_receipts WHERE key='create'; DELETE FROM audit_log WHERE entity_type='operation' AND version=1`
+					statement = `DELETE FROM idempotency_receipts WHERE key='create'; DELETE FROM audit_log WHERE entity_type='account_record' AND version=1`
 				}
 			}
-			allowAuditCorruption(t, db)
-			_, err = db.ExecContext(t.Context(), sql)
+			allowAuditCorruption(t, f.store.db)
+			_, err := f.store.db.ExecContext(t.Context(), statement)
 			require.NoError(t, err)
+			before := f.snapshot(t)
 			switch check {
-			case "state":
-				book, err := s.State(t.Context())
-				require.ErrorIs(t, err, ErrCorrupt)
-				require.Nil(t, book)
-				create.Key, create.Operation.ID, create.Operation.Sequence = "another", "another", 2
-				record, err := s.Write(t.Context(), create)
-				require.ErrorIs(t, err, ErrCorrupt)
-				require.Equal(t, Record{}, record)
 			case "receipt":
-				record, err := s.Write(t.Context(), create)
-				require.ErrorIs(t, err, ErrCorrupt)
-				require.Equal(t, Record{}, record)
+				f.request(t, "POST", "/accounts/a/records", "create", payload, 500)
 			case "revisions":
-				revisions, err := s.Revisions(t.Context(), "op")
-				require.ErrorIs(t, err, ErrCorrupt)
-				require.Nil(t, revisions)
+				f.request(t, "GET", "/accounts/a/records/manual-a/revisions", "", "", 500)
+			default:
+				f.request(t, "GET", "/accounts/a/records", "", "", 500)
+				f.request(t, "GET", "/accounts/a/analysis-basis", "", "", 500)
 			}
+			require.Equal(t, before, f.snapshot(t))
+			f.request(t, "GET", "/accounts/b/analysis-basis", "", "", 200)
 		})
 	}
+}
+
+func TestRecordWriterFreezesCallerInputBeforeItsAuditTransaction(t *testing.T) {
+	f := reportedFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	writer := NewStore(f.store.db, func() time.Time { close(entered); <-release; return f.store.now() })
+	amount := Money(123)
+	command := AccountRecordCommand{Action: CreateOperation, AccountID: "a", ID: "manual-frozen", Entry: &AccountEntry{Kind: "cash_flow", Date: "2020-01-01", Flow: &amount, Note: "Original"}}
+	type result struct {
+		data json.RawMessage
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		data, err := writer.WriteAccountRecord(t.Context(), "frozen-input", command)
+		done <- result{data, err}
+	}()
+	<-entered
+	amount = 999
+	command.Entry.Note = "Changed by caller"
+	close(release)
+	saved := <-done
+	require.NoError(t, saved.err)
+	var record AccountRecord
+	require.NoError(t, json.Unmarshal(saved.data, &record))
+	require.Equal(t, Money(123), *record.Flow)
+	require.Equal(t, "Original", record.Note)
+	command.Entry = &AccountEntry{Kind: "cash_flow", Date: "2020-01-01", Flow: replayMoney(123), Note: "Original"}
+	retry, err := f.store.WriteAccountRecord(t.Context(), "frozen-input", command)
+	require.NoError(t, err)
+	require.Equal(t, saved.data, retry)
 }

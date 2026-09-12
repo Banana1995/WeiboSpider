@@ -11,11 +11,11 @@ import (
 func TestAccountRecordsHTTPWorkflow(t *testing.T) {
 	f := newHTTPFixture(t)
 	account := `{"id":"reported","name":"Synthetic","currency":"CNY","opening_date":"2020-01-01"}`
-	created := f.request(t, "POST", "/reported-accounts", "create", account, 201).Body.String()
-	require.Equal(t, created, f.request(t, "POST", "/reported-accounts", "create", account, 201).Body.String())
+	created := f.request(t, "POST", "/accounts", "create", account, 201).Body.String()
+	require.Equal(t, created, f.request(t, "POST", "/accounts", "create", account, 201).Body.String())
 	require.Nil(t, httpObject(t, created)["opening_cash"])
-	f.request(t, "POST", "/reported-accounts", "other", account, 409)
-	f.request(t, "POST", "/reported-accounts", "create", `{"id":"other","name":"Synthetic","currency":"CNY","opening_date":"2020-01-01"}`, 409)
+	f.request(t, "POST", "/accounts", "other", account, 409)
+	f.request(t, "POST", "/accounts", "create", `{"id":"other","name":"Synthetic","currency":"CNY","opening_date":"2020-01-01"}`, 409)
 	empty := httpObject(t, f.request(t, "GET", "/accounts/reported/effective-summary", "", "", 200).Body.String())
 	require.Nil(t, empty["latest_assets"])
 	require.Nil(t, empty["from"])
@@ -27,8 +27,9 @@ func TestAccountRecordsHTTPWorkflow(t *testing.T) {
 	f.request(t, "PUT", "/accounts/reported/records/manual-a", "stale", replace, 409)
 	require.Equal(t, first, f.request(t, "POST", "/accounts/reported/records", "entry", payload, 201).Body.String())
 	summary := httpObject(t, f.request(t, "GET", "/accounts/reported/effective-summary", "", "", 200).Body.String())
-	require.Equal(t, "0.00", summary["latest_assets"])
-	require.Equal(t, "2099-01-02", summary["latest_asset_date"])
+	require.Nil(t, summary["latest_assets"])
+	require.Nil(t, summary["latest_asset_date"])
+	require.Equal(t, "0.00", f.get(t, "/accounts/reported/records/manual-a")["total_assets"])
 	require.Equal(t, "0.00", summary["total_out"])
 	f.request(t, "DELETE", "/accounts/reported/records/manual-a", "void", `{"expected_version":"2","reason":"Synthetic void"}`, 200)
 	f.request(t, "PUT", "/accounts/reported/records/manual-a", "voided", `{"expected_version":"3","reason":"Synthetic","entry":{"kind":"log","date":"2020-01-01","note":"Synthetic"}}`, 409)
@@ -112,12 +113,16 @@ func TestAccountRecordsStrictValidationAndExactSummary(t *testing.T) {
 	}
 	summary := httpObject(t, f.request(t, "GET", "/accounts/a/effective-summary", "", "", 200).Body.String())
 	require.Equal(t, "276701161105643274.21", summary["total_in"])
-	require.Equal(t, "0.00", summary["latest_assets"])
-	require.Equal(t, float64(3), summary["latest_asset_count"])
+	require.Nil(t, summary["latest_assets"])
+	require.Equal(t, float64(0), summary["latest_asset_count"])
+	basisEntry(t, f, "manual-today", "2026-09-06", "asset", "null", `"0"`)
+	nowSummary := f.get(t, "/accounts/a/effective-summary")
+	require.Equal(t, "0.00", nowSummary["latest_assets"])
+	require.Equal(t, float64(1), nowSummary["latest_asset_count"])
 	page1 := httpObject(t, f.request(t, "GET", "/accounts/a/records?limit=2", "", "", 200).Body.String())
 	page2 := httpObject(t, f.request(t, "GET", "/accounts/a/records?limit=2&cursor="+page1["next_cursor"].(string), "", "", 200).Body.String())
 	require.Len(t, httpItems(t, page1), 2)
-	require.Len(t, httpItems(t, page2), 1)
+	require.Len(t, httpItems(t, page2), 2)
 }
 
 func TestAccountRecordsRollbackConcurrencyAndDurableReceipts(t *testing.T) {

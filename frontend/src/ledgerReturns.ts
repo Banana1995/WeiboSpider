@@ -73,9 +73,9 @@ export const returnReasons: Record<string, string> = {
 };
 export const returnWarnings: Record<string, string> = {
   carried_assets_unchanged:
-    "收益金额及个人视角仅供参考：端点沿用较早资产原额，未增加资金流。入金但未更新总资产时可能显示亏损，不代表已核实的市场损失。",
+    "端点资产按最近明确总资产加后续净转入推算，假设期间无市场盈亏，仅供参考。",
   twr_estimated_assets:
-    "TWR 仅供参考：部分边界资产按最后明确总资产加上此后累计净流入估算，假设期间没有市场盈亏；后续明确资产不会消除较早估算边界的影响。不改写原始资产、收益金额、Dietz 或 XIRR。",
+    "TWR 仅供参考：部分边界资产按最后明确总资产加后续净流入估算；后续明确资产不会消除较早估算边界的影响。所有指标使用同一资产投影，不改写原始记录。",
   sampled_valuation_not_daily_close:
     "参与计算的持仓估值是已保存的请求时参考估值，不保证当天收盘价；声明日期不是所有报价或汇率的实际日期。完整采样来源见估值历史。",
   short_period_extrapolation:
@@ -88,21 +88,23 @@ export function returnSourceNotes(
   key: "profit" | "modified_dietz" | "twr",
   currency: string,
 ): Map<string, string> {
-  const sources = new Map(points.map(p => [p.record_id, p]));
+  const sources = new Map(points.map((p) => [p.record_id, p]));
   if (result.opening) sources.set(result.opening.record_id, result.opening);
   const notes = new Map<string, string>();
   let priorEstimate = false;
   for (const p of result.curve) {
-    const source = sources.get(p.record_id), estimate = p.twr_estimate;
+    const source = sources.get(p.record_id),
+      estimate = p.twr_estimate;
     let note = "";
     if (key === "twr") {
       if (estimate) {
         note = `TWR 估算资产 ${estimate.assets} ${currency}：基于 ${estimate.source_date} 最后明确总资产，加上累计净流入 ${estimate.net_flow} ${currency}（转入减转出）；来源记录 ${estimate.source_record_id}。假设期间没有市场盈亏，不改写原始资产。`;
       } else if (p.twr.status === "reference" && priorEstimate) {
-        note = "TWR 包含较早的估算边界；即使本次为明确总资产，累计收益率仍仅供参考，并非本次资产沿用原额。";
+        note =
+          "TWR 包含较早的估算边界；即使本次为明确总资产，累计收益率仍仅供参考，并非本次资产沿用原额。";
       }
     } else if (source?.status === "carried" && source.source_date) {
-      note = `沿用 ${source.source_date} 总资产原值，未增加资金流`;
+      note = `基于 ${source.source_date} 明确总资产加后续净转入推算，原始记录保持不变`;
     }
     notes.set(p.record_id, note);
     priorEstimate ||= !!estimate;

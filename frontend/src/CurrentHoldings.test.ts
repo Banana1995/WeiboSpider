@@ -1,252 +1,225 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import Panel from "./CurrentHoldings.vue";
 import {
   validateCurrentHoldings,
   type CurrentHoldings,
 } from "./currentHoldings";
+import {
+  createLedgerWorkspace,
+  ledgerWorkspaceKey,
+} from "./useLedgerWorkspace";
+import type { Instrument } from "./ledger";
 
+const stock: Instrument = {
+  id: "existing",
+  market: "SH",
+  code: "600000",
+  name: "Synthetic",
+  currency: "CNY",
+};
 const empty: CurrentHoldings = {
   account_id: "a",
   audit_id: "",
   snapshot: null,
 };
-const saved: CurrentHoldings = {
-  account_id: "a",
-  audit_id: "3",
-  snapshot: {
-    version: "1",
-    saved_at: "2026-09-08T00:00:00Z",
-    cash: "0.00",
-    positions: [],
-  },
-};
-const response = (v: unknown, status = 200) =>
-  new Response(JSON.stringify(v), { status });
+let current: CurrentHoldings;
 let wrapper: VueWrapper;
-afterEach(() => {
-  wrapper?.unmount();
-  vi.unstubAllGlobals();
-});
-async function start() {
-  wrapper = mount(Panel, {
-    props: {
-      accountId: "a",
-      currency: "CNY",
-      instruments: [
-        {
-          id: "i",
-          name: "Synthetic",
-          market: "SH",
-          code: "600000",
-          currency: "CNY",
-        },
-      ],
-      disabled: false,
-      refreshKey: 0,
-    },
-  });
-  await flushPromises();
-}
-async function submit() {
-  await wrapper.get("form").trigger("submit");
-  await flushPromises();
-}
-it("distinguishes absence from configured zero and rejects invalid read contracts", () => {
-  expect(validateCurrentHoldings(empty, "a").snapshot).toBeNull();
-  expect(validateCurrentHoldings(saved, "a").snapshot?.cash).toBe("0.00");
-  for (const v of [
-    { ...empty, account_id: "b" },
-    { ...empty, audit_id: "1" },
-    { ...saved, snapshot: { ...saved.snapshot, cash: 0 } },
-    {
-      ...saved,
-      snapshot: {
-        ...saved.snapshot,
-        positions: [{ instrument_id: "i", quantity: "0" }],
-      },
-    },
-    {
-      ...saved,
-      snapshot: {
-        ...saved.snapshot,
-        positions: [
-          { instrument_id: "i", quantity: "1" },
-          { instrument_id: "i", quantity: "2" },
+let fetcher: ReturnType<typeof vi.fn>;
+const response = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), { status });
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+  current = structuredClone(empty);
+  fetcher = vi.fn(async (url: string, init: RequestInit = {}) => {
+    if (url.includes("/instruments/search"))
+      return response({
+        items: [
+          {
+            name: stock.name,
+            market: stock.market,
+            code: stock.code,
+            currency: stock.currency,
+          },
         ],
-      },
-    },
-  ])
-    expect(() => validateCurrentHoldings(v as CurrentHoldings, "a")).toThrow();
-});
-it("loads only GET, adds/removes exact quantities, saves complete snapshots without quotes", async () => {
-  let current = empty;
-  const fetcher = vi.fn(async (url: string, init: RequestInit = {}) => {
-    expect(url).toMatch(/\/current-holdings$/);
+      });
     if (init.method === "PUT") {
       const input = JSON.parse(init.body as string);
       current = {
-        ...saved,
+        account_id: "a",
+        audit_id: "3",
         snapshot: {
-          ...saved.snapshot!,
           version: String(BigInt(input.expected_version) + 1n),
+          saved_at: "2026-09-08T00:00:00Z",
           cash: input.cash,
-          positions: input.positions,
+          positions: input.positions.toSorted(
+            (a: { instrument_id: string }, b: { instrument_id: string }) =>
+              a.instrument_id.localeCompare(b.instrument_id),
+          ),
         },
       };
     }
     return response(current);
   });
   vi.stubGlobal("fetch", fetcher);
+});
+afterEach(() => {
+  wrapper?.unmount();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+async function start() {
+  wrapper = mount(Panel, {
+    props: {
+      accountId: "a",
+      currency: "CNY",
+      instruments: [stock],
+      disabled: false,
+      refreshKey: 0,
+    },
+    global: {
+      provide: {
+        [ledgerWorkspaceKey as symbol]: createLedgerWorkspace(() => {}),
+      },
+    },
+  });
+  await flushPromises();
+}
+async function button(text: string) {
+  const found = wrapper.findAll("button").find((b) => b.text() === text);
+  expect(found, text).toBeTruthy();
+  await found!.trigger("click");
+  await flushPromises();
+}
+async function selectStock() {
+  await wrapper.get('[name="security_search"]').setValue("600000");
+  await button("查询证券");
+  await wrapper.get('[data-test="instrument-form"]').trigger("submit");
+  await flushPromises();
+}
+async function save() {
+  await wrapper.get('[data-test="current-holdings-form"]').trigger("submit");
+  await flushPromises();
+}
+it("adds a queried identity and quantity atomically without standalone registration", async () => {
   await start();
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(wrapper.emitted("configured")?.at(-1)).toEqual([false, ""]);
-  await wrapper.get('[data-test="current-add"]').trigger("click");
-  await wrapper.get('[name="current_instrument_0"]').setValue("i");
+  await button("添加持仓");
+  await selectStock();
   await wrapper
     .get('[name="current_quantity_0"]')
     .setValue("9007199254.740993");
   await wrapper.get('[name="current_cash"]').setValue("90071992547409.01");
-  await submit();
+  await save();
+  const writes = fetcher.mock.calls.filter(([, i]) => i?.method === "PUT");
+  expect(writes).toHaveLength(1);
+  const input = JSON.parse(writes[0]![1]!.body as string);
+  expect(input.positions[0]).toEqual({
+    instrument_id: input.securities[0].id,
+    quantity: "9007199254.740993",
+  });
+  expect(input.securities[0]).toMatchObject({
+    market: "SH",
+    code: "600000",
+    name: "Synthetic",
+    currency: "CNY",
+  });
+  expect(input).not.toHaveProperty("baseline_date");
+  expect(fetcher.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
+  expect(wrapper.emitted("saved")).toHaveLength(1);
+  expect(wrapper.text()).toContain("历史总资产、资金流和收益不变");
+});
+it("rejects duplicate market/code on add and edit even with different IDs", async () => {
+  current = {
+    account_id: "a",
+    audit_id: "1",
+    snapshot: {
+      version: "1",
+      saved_at: "2026-09-08T00:00:00Z",
+      cash: "0.00",
+      positions: [{ instrument_id: stock.id, quantity: "1.000000" }],
+    },
+  };
+  await start();
+  await button("添加持仓");
+  await selectStock();
+  expect(wrapper.text()).toContain("本账户已持有该市场和代码");
+  expect(wrapper.findAll('[name^="current_quantity_"]')).toHaveLength(1);
+  expect(fetcher.mock.calls.some(([, i]) => i?.method === "PUT")).toBe(false);
+});
+it("edits identity and quantity and deletes holdings without creating asset or flow rows", async () => {
+  current = {
+    account_id: "a",
+    audit_id: "1",
+    snapshot: {
+      version: "1",
+      saved_at: "2026-09-08T00:00:00Z",
+      cash: "10.00",
+      positions: [{ instrument_id: stock.id, quantity: "1.000000" }],
+    },
+  };
+  await start();
+  await button("编辑现金与持仓");
+  await button("修改证券");
+  await wrapper.get('[name="security_name"]').setValue("Changed");
+  await wrapper.get('[name="security_code"]').setValue("600001");
+  await wrapper.get('[data-test="instrument-form"]').trigger("submit");
+  await flushPromises();
+  await wrapper.get('[name="current_quantity_0"]').setValue("2.5");
+  await save();
+  expect(current.snapshot?.positions[0]?.instrument_id).not.toBe(stock.id);
+  await button("编辑现金与持仓");
+  await button("移除此证券");
+  await save();
+  expect(current.snapshot?.positions).toEqual([]);
+  expect(current.snapshot?.cash).toBe("10.00");
   expect(
-    JSON.parse(
-      fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1]!
-        .body as string,
-    ),
-  ).toEqual({
-    expected_version: "0",
-    cash: "90071992547409.01",
-    positions: [{ instrument_id: "i", quantity: "9007199254.740993" }],
-  });
-  expect(wrapper.emitted("configured")?.at(-1)).toEqual([true, "3"]);
-  const source = wrapper.get('[data-test="current-holdings-source"]');
-  expect((source.element as HTMLDetailsElement).open).toBe(false);
-  expect(source.get("summary").text()).toBe("查看保存版本与审计信息");
-  (source.element as HTMLDetailsElement).open = true;
-  await source.trigger("toggle");
-  expect(source.text()).toContain("版本 1 · 审计 #3");
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text() === "移除此证券")!
-    .trigger("click");
-  await wrapper.get('[name="current_cash"]').setValue("0.00");
-  await submit();
-  expect(current.snapshot).toMatchObject({
-    version: "2",
-    cash: "0.00",
-    positions: [],
-  });
-  expect(wrapper.emitted("saved")).toHaveLength(2);
+    fetcher.mock.calls.every(([url]) => url.endsWith("/current-holdings")),
+  ).toBe(true);
 });
-it("rejects duplicate securities before PUT", async () => {
-  const fetcher = vi.fn(async () => response(empty));
-  vi.stubGlobal("fetch", fetcher);
+it("retries uncertain writes with the same body and idempotency key", async () => {
   await start();
-  for (let n = 0; n < 2; n++) {
-    await wrapper.get('[data-test="current-add"]').trigger("click");
-    await wrapper.get(`[name="current_instrument_${n}"]`).setValue("i");
-    await wrapper.get(`[name="current_quantity_${n}"]`).setValue("1");
-  }
-  await submit();
-  expect(wrapper.get('[role="alert"]').text()).toContain("证券不得重复");
-  expect(fetcher).toHaveBeenCalledTimes(1);
-});
-it("locks the original request and key through uncertain retry, then reads latest state", async () => {
-  let attempts = 0;
-  const fetcher = vi.fn(async (_url: string, init: RequestInit = {}) => {
-    if (init.method === "PUT") {
-      if (++attempts === 1) throw new TypeError("synthetic lost response");
-      return response(saved);
-    }
-    return response(
-      attempts
-        ? {
-            ...saved,
-            snapshot: { ...saved.snapshot!, version: "2", cash: "9.00" },
-          }
-        : empty,
-    );
-  });
-  vi.stubGlobal("fetch", fetcher);
-  await start();
-  await submit();
+  await button("编辑现金与持仓");
+  fetcher.mockRejectedValueOnce(new TypeError("response lost"));
+  await save();
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
-  expect(wrapper.get("fieldset").attributes("disabled")).toBeDefined();
-  await wrapper.setProps({ disabled: true, refreshKey: 1 });
-  await flushPromises();
-  expect(fetcher).toHaveBeenCalledTimes(2);
-  await wrapper.get('[data-test="current-retry"]').trigger("click");
-  await flushPromises();
-  const writes = fetcher.mock.calls.filter(
-    ([, init]) => init?.method === "PUT",
-  );
-  expect(writes[0]![1]!.body).toBe(writes[1]![1]!.body);
-  expect(new Headers(writes[0]![1]!.headers).get("Idempotency-Key")).toBe(
-    new Headers(writes[1]![1]!.headers).get("Idempotency-Key"),
-  );
+  await button("按原请求重试确认持仓");
+  const writes = fetcher.mock.calls.filter(([, i]) => i?.method === "PUT");
+  expect(writes).toHaveLength(2);
+  expect(writes[0]![1]?.body).toBe(writes[1]![1]?.body);
+  expect(writes[0]![1]?.headers).toEqual(writes[1]![1]?.headers);
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
+});
+it("retains draft after version conflict and requires explicit reload", async () => {
+  await start();
+  await button("编辑现金与持仓");
+  await wrapper.get('[name="current_cash"]').setValue("15");
+  fetcher.mockResolvedValueOnce(response({ code: "version_conflict" }, 409));
+  await save();
+  expect(wrapper.text()).toContain("version_conflict");
   expect(
     (wrapper.get('[name="current_cash"]').element as HTMLInputElement).value,
-  ).toBe("9.00");
-});
-it("shows CAS conflict, retains draft and unlocks for explicit reload", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url: string, init: RequestInit = {}) =>
-      init.method === "PUT"
-        ? response({ code: "version_conflict" }, 409)
-        : response(empty),
-    ),
-  );
-  await start();
-  await wrapper.get('[name="current_cash"]').setValue("7.00");
-  await submit();
-  expect(wrapper.get('[role="alert"]').text()).toContain("记录已被修改");
-  expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
-  expect(
-    (wrapper.get('[name="current_cash"]').element as HTMLInputElement).value,
-  ).toBe("7.00");
-});
-it("keeps a malformed success receipt uncertain instead of allowing another write", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url: string, init: RequestInit = {}) =>
-      response(
-        init.method === "PUT" ? { ...saved, account_id: "wrong" } : empty,
-      ),
-    ),
-  );
-  await start();
-  await submit();
+  ).toBe("15");
   expect(wrapper.emitted("saved")).toBeUndefined();
-  expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
-  expect(wrapper.find('[data-test="current-retry"]').exists()).toBe(true);
 });
-it("aborts old-account reads and ignores late results", async () => {
-  let finish!: (r: Response) => void;
-  let signal: AbortSignal | null | undefined;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((url: string, init: RequestInit = {}) =>
-      url.includes("/a/")
-        ? new Promise<Response>((resolve) => {
-            finish = resolve;
-            signal = init.signal;
-          })
-        : Promise.resolve(response({ ...empty, account_id: "b" })),
-    ),
-  );
-  await start();
-  await wrapper.setProps({ accountId: "b" });
-  await flushPromises();
-  expect(signal?.aborted).toBe(true);
-  finish(
-    response({ ...saved, snapshot: { ...saved.snapshot!, cash: "999.00" } }),
-  );
-  await flushPromises();
-  expect(
-    (wrapper.get('[name="current_cash"]').element as HTMLInputElement).value,
-  ).toBe("0.00");
-  expect(wrapper.text()).not.toContain("999.00");
+it("distinguishes missing input from explicit zero and rejects malformed quantities", () => {
+  expect(validateCurrentHoldings(empty, "a").snapshot).toBeNull();
+  const value: CurrentHoldings = {
+    account_id: "a",
+    audit_id: "1",
+    snapshot: {
+      version: "1",
+      saved_at: "2026-09-08T00:00:00Z",
+      cash: "0.00",
+      positions: [],
+    },
+  };
+  expect(validateCurrentHoldings(value, "a").snapshot?.cash).toBe("0.00");
+  value.snapshot!.positions.push({ instrument_id: "i", quantity: "-1" });
+  expect(() => validateCurrentHoldings(value, "a")).toThrow();
 });

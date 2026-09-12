@@ -1,14 +1,5 @@
 export type Decimal = string;
 export type Currency = "CNY" | "HKD" | "USD";
-export type Kind =
-  | "deposit"
-  | "withdrawal"
-  | "buy"
-  | "sell"
-  | "deposit_buy"
-  | "sell_withdraw"
-  | "dividend"
-  | "transfer";
 export interface FX {
   rate: Decimal;
   date: string;
@@ -48,7 +39,7 @@ export interface ValuationItem {
   error_code?: string;
 }
 export interface Valuation {
-  source: "transaction_replay" | "manual_snapshot";
+  source: "manual_snapshot";
   current_holdings?: import("./currentHoldings").CurrentHoldings;
   ledger_revision: string;
   history_id?: string;
@@ -85,89 +76,24 @@ export interface ValuationHistory {
   valuation: Omit<Valuation, "history_id">;
   instruments: Instrument[];
 }
-export interface OpeningPosition {
-  instrument_id: string;
-  quantity: Decimal;
-  cost: Decimal | null;
-  diluted_basis: Decimal | null;
-}
 export interface AccountInput {
   id: string;
   name: string;
   currency: Currency;
   opening_date: string;
-  opening_cash: Decimal;
-  positions: OpeningPosition[];
 }
-export interface Account extends Omit<
-  AccountInput,
-  "positions" | "opening_cash"
-> {
-  current_holdings_input: "manual_snapshot" | "transaction_replay";
-  accounting_mode: "holdings" | "reported";
+export interface Account extends AccountInput {
+  current_holdings_input: "manual_snapshot";
   opening_cash: Decimal | null;
   version: string;
 }
 export interface AccountDetail extends Account {
   cash: Decimal | null;
 }
-export interface Position {
-  instrument_id: string;
-  cycle_id: string;
-  quantity: Decimal;
-  remaining_cost: Decimal | null;
-  moving_average: Decimal | null;
-  diluted_basis: Decimal | null;
-  diluted_cost: Decimal | null;
-  realized_profit: Decimal | null;
-  dividends: Decimal;
-}
-export interface Operation {
-  id: string;
-  date: string;
-  sequence: string;
-  kind: Kind;
-  account_id: string;
-  to_account_id?: string;
-  instrument_id?: string;
-  amount?: Decimal;
-  quantity?: Decimal;
-  price?: Decimal;
-  fee?: Decimal | null;
-  fx?: FX | null;
-  cycle_id?: string;
-}
-export interface LedgerRecord {
-  operation: Operation & { voided: boolean };
-  note: string;
-  version: string;
-  created_at: string;
-  updated_at: string;
-}
-export interface Revision {
-  record: LedgerRecord;
-  reason: string;
-}
 export interface Page<T> {
   items: T[];
   next_cursor?: string;
 }
-export interface Mutation {
-  operation: Operation;
-  note: string;
-  reason: string;
-  expected_version?: string;
-}
-export const kinds: Record<Kind, string> = {
-  deposit: "转入现金",
-  withdrawal: "转出现金",
-  buy: "买入",
-  sell: "卖出",
-  deposit_buy: "转入并买入",
-  sell_withdraw: "卖出并转出",
-  dividend: "分红",
-  transfer: "账户间转账",
-};
 const errors: Record<string, string> = {
   invalid_import: "导入文件格式或内容不合法，请检查指定行列",
   preview_mismatch: "文件与预览不一致，请重新预览",
@@ -176,15 +102,13 @@ const errors: Record<string, string> = {
   initialization_requires_empty_account:
     "导入仅用于初始化，账户已有业务记录，不能追加导入或清空重置",
   upload_too_large: "文件超过 8 MiB 限制",
-  fx_unavailable: "腾讯汇率暂不可用，请重试或明确手工录入",
-  fx_timeout: "腾讯汇率查询超时，请重试或明确手工录入",
+  fx_unavailable: "腾讯汇率暂不可用，请稍后重试",
+  fx_timeout: "腾讯汇率查询超时，请稍后重试",
   unsupported_currency: "汇率仅支持 CNY、HKD、USD",
   invalid_body: "请求字段格式不正确",
   invalid_query: "查询条件或资源 ID 不合法",
   invalid_idempotency_key: "幂等键不合法",
-  invalid_version: "版本必须为正整数字符串",
-  invalid_version_or_id: "版本或操作 ID 不匹配",
-  invalid_operation: "业务字段、日期或全局日内序号不合法",
+  invalid_operation: "账本字段或日期不合法",
   invalid_precision: "数值精度或范围不合法",
   unauthorized: "服务未授权，请检查受控代理配置",
   invalid_host: "Host 访问检查未通过",
@@ -197,37 +121,30 @@ const errors: Record<string, string> = {
   request_canceled: "请求已取消，需使用原请求确认结果",
   idempotency_conflict: "幂等键与原始请求冲突，请保留原请求核查",
   version_conflict: "记录已被修改，请重新读取详情后更正",
-  basis_changed: "报价期间当前持仓已变化，未保存；请重新预览或保存估值",
+  basis_changed: "报价期间当前持仓已变化，本次未保存",
   operation_voided: "记录已作废，不能更正",
-  conflict: "ID 或日期序号冲突",
+  conflict: "ID 或证券身份冲突",
   body_too_large: "请求内容过大",
   content_type: "请求内容类型不正确",
-  insufficient_cash: "历史重放后现金不足",
-  insufficient_position: "历史重放后持仓不足",
-  unsupported_operation: "不支持此操作（包括跨币种转账）",
-  source_managed_record: "请修正或作废关联的持仓操作；转账两腿必须一起更新",
+  unsupported_operation: "尚无当前估值来源，或不支持此操作",
   data_integrity: "存储一致性检查失败",
   incomplete_valuation: "估值不完整，未保存总资产，请核对持仓和报价来源",
   internal_error: "服务内部错误",
   storage_busy: "存储繁忙，请按原请求重试",
   instrument_search_unavailable: "证券查询服务暂不可用",
   instrument_search_timeout: "证券查询超时",
-  manual_holdings_required: "请先配置当前持仓；交易账户请使用持仓交易管理",
-  unsafe_trade_date: "日期早于持仓基准或最后一笔交易，请按日期顺序录入；已有交易后不能回拨期初日期",
   request_timeout: "请求超时，需按原请求确认结果",
 };
 export class LedgerError extends Error {
   constructor(
     public code: string,
     public status = 0,
-    public operation_id?: string,
-    public date?: string,
     public detail_code?: string,
     public row?: number,
     public column?: string,
   ) {
     super(
-      `${errors[code] ?? "无法确认服务响应"} [${code}]${operation_id ? `；操作 ${operation_id}` : ""}${date ? `；日期 ${date}` : ""}${row ? `；第 ${row} 行` : ""}${column ? `；列 ${column}` : ""}`,
+      `${errors[code] ?? "无法确认服务响应"} [${code}]${row ? `；第 ${row} 行` : ""}${column ? `；列 ${column}` : ""}`,
     );
   }
   get uncertain() {
@@ -282,8 +199,6 @@ export async function request<T>(
       throw new LedgerError(
         data.code ?? "invalid_response",
         response.status,
-        data.operation_id,
-        data.date,
         data.detail_code,
         data.row,
         data.column,
@@ -307,14 +222,20 @@ export async function all<T>(path: string, signal: AbortSignal): Promise<T[]> {
   do {
     if (signal.aborted) throw new LedgerError("request_canceled");
     if (cursors.has(cursor) || cursors.size >= 100)
-      throw new Error("记录较多或分页发生变化，无法完整读取。请重新加载，不展示部分合计。");
+      throw new Error(
+        "记录较多或分页发生变化，无法完整读取。请重新加载，不展示部分合计。",
+      );
     cursors.add(cursor);
     const page = await request<Page<T>>(
       path + query({ limit: "100", cursor }),
       { signal },
     );
-    if (!page || !Array.isArray(page.items) || page.items.length > 100 ||
-      (page.next_cursor !== undefined && typeof page.next_cursor !== "string"))
+    if (
+      !page ||
+      !Array.isArray(page.items) ||
+      page.items.length > 100 ||
+      (page.next_cursor !== undefined && typeof page.next_cursor !== "string")
+    )
       throw new LedgerError("invalid_response");
     items.push(...page.items);
     cursor = page.next_cursor ?? "";
@@ -332,52 +253,19 @@ export class PendingWrite<T> {
     readonly path: string,
     readonly method: "POST" | "PUT" | "DELETE",
     payload: unknown,
-    readonly account?: AccountInput,
   ) {
     this.body = JSON.stringify(payload);
     this.key = newID();
-    if (account) this.account = JSON.parse(this.body) as AccountInput;
   }
   async run(): Promise<T> {
     if (this.running) throw new Error("请求正在确认中");
     this.running = true;
     try {
-      if (this.account && this.uncertain) {
-        try {
-          const current = await request<AccountDetail>(
-            `/accounts/${this.account.id}`,
-          );
-          const a = this.account;
-          const normalize = (s: string) => {
-            const [whole, fraction = ""] = s.split(".");
-            return BigInt(whole! + fraction.padEnd(2, "0"));
-          };
-          if (
-            current.id !== a.id ||
-            current.name !== a.name ||
-            current.currency !== a.currency ||
-            current.opening_date !== a.opening_date ||
-            current.opening_cash === null ||
-            normalize(current.opening_cash) !== normalize(a.opening_cash)
-          )
-            throw new LedgerError("conflict", 409);
-          return current as T;
-        } catch (e) {
-          if (!(
-            e instanceof LedgerError &&
-            e.code === "not_found" &&
-            e.status === 404
-          ))
-            throw e;
-        }
-      }
       return await request<T>(this.path, {
         method: this.method,
         headers: {
           "Content-Type": "application/json",
-          ...(!this.account && this.path !== "/instruments"
-            ? { "Idempotency-Key": this.key }
-            : {}),
+          "Idempotency-Key": this.key,
         },
         body: this.body,
       });

@@ -5,7 +5,7 @@ import LedgerValuation from "./LedgerValuation.vue";
 import type { Valuation } from "./ledger";
 
 const value: Valuation = {
-  source: "transaction_replay",
+  source: "manual_snapshot",
   ledger_revision: "a".repeat(64),
   history_id: "42",
   account_id: "account",
@@ -140,7 +140,7 @@ it("only confirms a complete snapshot saved when its history ID is returned", ()
   expect(saved.text()).toContain("此快照已保存为历史记录 #42");
   saved.unmount();
   const missing = render({ ...value, history_id: undefined });
-  expect(missing.text()).toContain("只读预览，尚未保存，不改变账本");
+  expect(missing.text()).toContain("只读参考估值，不改变账本");
   expect(missing.text()).not.toContain("此快照已保存为历史记录");
   missing.unmount();
 });

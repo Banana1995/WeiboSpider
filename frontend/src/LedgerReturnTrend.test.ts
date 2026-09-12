@@ -116,10 +116,22 @@ it("joins numeric samples across missing dates without altering statuses or assi
   points[2]!.twr.value = "-0.100000000000";
   const original = structuredClone(points);
   const lines = trendLines(points, "twr");
-  expect(lines).toEqual([0, 1, 2, 4, 5].map(i => [Date.parse(`${points[i]!.date}T00:00:00Z`), Number(points[i]!.twr.value)]));
+  expect(lines).toEqual(
+    [0, 1, 2, 4, 5].map((i) => [
+      Date.parse(`${points[i]!.date}T00:00:00Z`),
+      Number(points[i]!.twr.value),
+    ]),
+  );
   expect(points).toEqual(original);
-  expect(trendLines([point(0, "unavailable"), point(1, "unavailable")], "twr")).toEqual([]);
-  expect(trendLines([point(0, "unavailable"), point(1), point(2, "unavailable")], "twr")).toHaveLength(1);
+  expect(
+    trendLines([point(0, "unavailable"), point(1, "unavailable")], "twr"),
+  ).toEqual([]);
+  expect(
+    trendLines(
+      [point(0, "unavailable"), point(1), point(2, "unavailable")],
+      "twr",
+    ),
+  ).toHaveLength(1);
 });
 
 it("uses safe Canvas exact text, same-snapshot red/green events, local selectors and cleanup", async () => {
@@ -236,7 +248,7 @@ it("keeps legacy chart and accessible table explanations specific to TWR versus 
     const option = chart.setOption.mock.calls.at(-1)![0];
     return option.tooltip.formatter({ data: option.series[1].data[1] });
   };
-  expect(tooltip()).toContain("沿用 2021-01-01 总资产原值，未增加资金流");
+  expect(tooltip()).toContain("基于 2021-01-01 明确总资产加后续净转入推算");
   expect(tooltip()).not.toContain("TWR 估算资产");
   await w.setProps({ manager: true });
   expect(tooltip()).toContain("TWR 估算资产 9223372036854775808.09 CNY");
@@ -245,14 +257,18 @@ it("keeps legacy chart and accessible table explanations specific to TWR versus 
   expect(tooltip()).not.toContain("未增加资金流");
   const rows = w.findAll("tbody tr");
   expect(rows[1]!.findAll("td")[1]!.text()).toContain("90071992547409.03");
-  expect(rows[1]!.findAll("td")[1]!.text()).toContain("未增加资金流");
-  expect(rows[1]!.findAll("td")[2]!.text()).toContain("来源记录 synthetic-explicit");
+  expect(rows[1]!.findAll("td")[1]!.text()).toContain("加后续净转入推算");
+  expect(rows[1]!.findAll("td")[2]!.text()).toContain(
+    "来源记录 synthetic-explicit",
+  );
   expect(rows[2]!.findAll("td")[2]!.text()).toContain("TWR 包含较早的估算边界");
   await w.get('select[name="return_trend_metric"]').setValue("profit");
   expect(tooltip()).toContain("90071992547409.03");
-  expect(tooltip()).toContain("未增加资金流");
+  expect(tooltip()).toContain("加后续净转入推算");
   expect(tooltip()).not.toContain("TWR 估算资产");
   await w.setProps({ manager: false });
-  expect(w.get('[data-test="return-trend-data"]').text()).not.toContain("TWR 估算资产");
+  expect(w.get('[data-test="return-trend-data"]').text()).not.toContain(
+    "TWR 估算资产",
+  );
   w.unmount();
 });

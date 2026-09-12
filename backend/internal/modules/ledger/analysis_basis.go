@@ -28,7 +28,6 @@ type BasisPoint struct {
 	Selected      bool              `json:"selected"`
 	Record        *AccountRecord    `json:"record,omitempty"`
 	Valuation     *ValuationSummary `json:"valuation,omitempty"`
-	Operation     *recordJSON       `json:"operation,omitempty"`
 }
 
 type BasisChange struct {
@@ -86,7 +85,7 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		out.Currency = info.Currency
 		var revision int64
 		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit_log
-			WHERE account_id=? AND entity_type IN ('account_record','current_holdings')`, id).Scan(&revision); err != nil {
+			WHERE account_id=? AND entity_type='account_record'`, id).Scan(&revision); err != nil {
 			return err
 		}
 		if since > revision {
@@ -95,7 +94,7 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		out.ChangeRevision = strconv.FormatInt(revision, 10)
 		rows, err := tx.QueryContext(ctx, `SELECT CAST(id AS TEXT),entity_id,CAST(version AS TEXT),
 			json_extract(metadata_json,'$.from_date'),coalesce(json_extract(metadata_json,'$.reason'),action),entity_type
-			FROM audit_log WHERE account_id=? AND entity_type IN ('account_record','current_holdings') AND id>?
+			FROM audit_log WHERE account_id=? AND entity_type='account_record' AND id>?
 			ORDER BY id LIMIT 10001`, id, since)
 		if err != nil {
 			return err
@@ -117,20 +116,6 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 			return err
 		}
 		rows.Close()
-		// Current-input edits affect only observations actually sampled before the
-		// edit on/after its business date, never imported historical amounts.
-		var sourceAffected bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log c
-			JOIN account_records r ON r.account_id=c.account_id
-			JOIN audit_log v ON v.id=r.quote_audit_id AND v.entity_type='valuation'
-			WHERE c.account_id=? AND c.entity_type='current_holdings' AND c.id>?
-			AND r.voided=0 AND r.manual_assertion=0 AND r.business_date<=?
-			AND json_extract(c.metadata_json,'$.from_date')<=r.business_date
-			AND json_extract(v.after_json,'$.valuation.source')='manual_snapshot'
-			AND CAST(json_extract(v.after_json,'$.valuation.current_holdings.audit_id') AS INTEGER)<c.id)`, id, since, to).Scan(&sourceAffected); err != nil {
-			return err
-		}
-		out.PreviousBasisAffected = out.PreviousBasisAffected || sourceAffected
 		if len(out.Changes) > 10000 {
 			return ErrQuery
 		}
@@ -179,48 +164,15 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 				return ErrQuery
 			}
 		}
-		// Audit is consulted only for provenance trust, never for business amounts.
+		// Saved amounts are fixed facts. Mutable holdings and transaction history
+		// are not dependencies of income or historical valuation validity.
 		for i := range all {
 			p := &all[i]
 			r := p.Record
-			if r.OperationID != "" {
-				op, err := selectRecord(ctx, tx, r.OperationID)
-				if err != nil {
-					return err
-				}
-				detail := publicRecord(op)
-				p.Operation = &detail
-			}
 			if r.QuoteAuditID == "" || r.ManualAssertion || r.TotalAssets == nil || r.CarriedFrom != nil {
 				continue
 			}
-			var captured sql.NullInt64
-			var source string
-			if err := tx.QueryRowContext(ctx, `SELECT json_extract(metadata_json,'$.change_revision'),json_extract(after_json,'$.valuation.source') FROM audit_log WHERE id=? AND account_id=? AND entity_type='valuation'`, r.QuoteAuditID, id).Scan(&captured, &source); err != nil {
-				return ErrCorrupt
-			}
-			p.Status = "untracked"
-			if captured.Valid {
-				var stale bool
-				if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log
-					WHERE account_id=? AND id>?
-					AND ((?='manual_snapshot' AND entity_type='current_holdings') OR (?='transaction_replay' AND entity_type='account_record' AND json_extract(after_json,'$.origin')='operation'))
-					AND json_extract(metadata_json,'$.from_date')<=?)`, id, captured.Int64, source, source, r.Date).Scan(&stale); err != nil {
-					return err
-				}
-				p.Status = "observed"
-				if stale {
-					p.Status = "stale"
-				}
-			}
-		}
-		trust := make(map[string]string, len(all))
-		for i := range all {
-			p := &all[i]
-			if status := trust[p.SourceID]; p.Status == "carried" && (status == "stale" || status == "untracked") {
-				p.Status = status
-			}
-			trust[p.RecordID] = p.Status
+			p.Status = "observed"
 		}
 		// Prefer the last explicit asset on a day, not a later flow-only carry.
 		// Weekly carries are not new observations unless manually asserted.
@@ -240,6 +192,40 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		}
 		for _, i := range lastByDate {
 			all[i].Selected = true
+		}
+		// Use the same whole-day projection for display, endpoints and every
+		// return metric. Never fill the raw account record's null total_assets.
+		estimates, err := projectTWREstimates(ctx, AnalysisBasis{Points: all})
+		if err != nil {
+			return err
+		}
+		versions := make(map[string]string, len(all))
+		for _, p := range all {
+			versions[p.RecordID] = p.Version
+		}
+		for i := range all {
+			if estimate := estimates[all[i].Date]; estimate != nil && all[i].Status == "carried" {
+				var amount Money
+				raw, _ := json.Marshal(estimate.Assets)
+				if err := json.Unmarshal(raw, &amount); err != nil {
+					return err
+				}
+				all[i].Assets = &amount
+				all[i].SourceID, all[i].SourceDate = estimate.SourceRecordID, estimate.SourceDate
+				all[i].SourceVersion = versions[estimate.SourceRecordID]
+			} else if all[i].Status == "carried" {
+				if index, ok := explicitByDate[all[i].Date]; ok {
+					source := all[index]
+					all[i].Assets = copyMoney(source.Assets)
+					all[i].SourceID, all[i].SourceDate, all[i].SourceVersion = source.RecordID, source.Date, source.Version
+				} else {
+					// A frozen carry is evidence of its old source, not a new
+					// observation that can resurrect a now-voided asset anchor.
+					all[i].Assets = nil
+					all[i].Status = "unavailable"
+					all[i].SourceID, all[i].SourceDate, all[i].SourceVersion = "", "", ""
+				}
+			}
 		}
 		net := new(big.Int)
 		for _, p := range all {
@@ -274,21 +260,6 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 				copy := p
 				out.Closing = &copy
 			}
-		}
-		for _, p := range out.Points {
-			if p.Status == "stale" {
-				out.Status = "pending_recalculation"
-				break
-			}
-			if p.Status == "untracked" {
-				out.Status = "untracked_history"
-			}
-		}
-		if out.Opening != nil && out.Opening.Status == "stale" {
-			out.Status = "pending_recalculation"
-		}
-		if out.Status == "current" && out.Opening != nil && out.Opening.Status == "untracked" {
-			out.Status = "untracked_history"
 		}
 		if out.Status == "current" && (out.Closing == nil || out.Closing.Assets == nil) {
 			out.Status = "unavailable"

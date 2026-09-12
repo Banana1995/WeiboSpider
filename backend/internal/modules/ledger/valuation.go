@@ -2,13 +2,10 @@ package ledger
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
@@ -50,7 +47,7 @@ type Valuation struct {
 // in one SQLite snapshot. Network I/O must only start after this returns.
 // ledger_at identifies this read, not a promise of freshness after concurrent writes.
 func (s *Store) valuationInputs(ctx context.Context, id string) (Valuation, []Instrument, error) {
-	result := Valuation{AccountID: id, Source: "transaction_replay", Complete: true, Items: make([]ValuationItem, 0)}
+	result := Valuation{AccountID: id, Source: "manual_snapshot", Complete: true, Items: make([]ValuationItem, 0)}
 	if !validID(id) {
 		return result, nil, ErrQuery
 	}
@@ -64,99 +61,40 @@ func (s *Store) valuationInputs(ctx context.Context, id string) (Valuation, []In
 		if err != nil {
 			return err
 		}
-		if info.AccountingMode == "reported" {
-			current, err := readCurrentHoldings(ctx, tx, id)
-			if err != nil {
-				return err
-			}
-			if current.Snapshot == nil {
-				return ErrUnsupported
-			}
-			result.Source, result.CurrentHoldings = "manual_snapshot", &current
-			result.accountName, result.Currency, result.Cash = info.Name, info.Currency, current.Snapshot.Cash
-			basis, err := json.Marshal(current)
-			if err != nil {
-				return err
-			}
-			result.LedgerRevision = receiptDigest(string(basis))
-			revision, err := positiveInteger(current.AuditID)
-			if err != nil {
-				return ErrCorrupt
-			}
-			result.changeRevision = &revision
-			for _, p := range current.Snapshot.Positions {
-				var i Instrument
-				if err := tx.QueryRowContext(ctx, `SELECT id,market,code,name,currency FROM instruments WHERE id=?`, p.InstrumentID).Scan(&i.ID, &i.Market, &i.Code, &i.Name, &i.Currency); err != nil {
-					return ErrCorrupt
-				}
-				result.Items = append(result.Items, ValuationItem{InstrumentID: p.InstrumentID, Quantity: p.Quantity, Status: "unavailable"})
-				held = append(held, i)
-			}
-			return nil
-		}
-		openings, instruments, records, err := loadLedger(ctx, tx)
+		current, err := readCurrentHoldings(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		book, err := replayRecords(openings, instruments, records, result.AsOf)
+		if current.Snapshot == nil {
+			return ErrUnsupported
+		}
+		result.Source, result.CurrentHoldings = "manual_snapshot", &current
+		result.accountName, result.Currency, result.Cash = info.Name, info.Currency, current.Snapshot.Cash
+		basis, err := json.Marshal(current)
 		if err != nil {
 			return err
 		}
-		// Canonical ordered global inputs, including voids/revisions. Unrelated
-		// ledger edits also change this opaque basis token. It does not certify
-		// that an observation is valid for returns on a subsequently corrected book.
-		basis, err := json.Marshal(struct {
-			Openings    []Opening
-			Instruments []Instrument
-			Records     []Record
-		}{openings, instruments, records})
+		result.LedgerRevision = receiptDigest(string(basis))
+		revision, err := positiveInteger(current.AuditID)
 		if err != nil {
-			return err
-		}
-		digest := sha256.Sum256(basis)
-		result.LedgerRevision = hex.EncodeToString(digest[:])
-		var revision int64
-		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit_log
-			WHERE account_id=? AND entity_type='account_record'
-			AND json_extract(after_json,'$.origin')='operation'`, id).Scan(&revision); err != nil {
-			return err
-		}
-		result.changeRevision = &revision
-		result.accountName = info.Name
-		state := book.Accounts[id]
-		if state == nil || state.Currency != info.Currency {
 			return ErrCorrupt
 		}
-		result.Currency, result.Cash = info.Currency, state.Cash
-		byID := make(map[string]Instrument, len(instruments))
-		for _, i := range instruments {
-			byID[i.ID] = i
-		}
-		ids := make([]string, 0, len(state.Positions))
-		for id := range state.Positions {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		for _, id := range ids {
-			cycle := state.Cycles[state.Positions[id]]
-			i, exists := byID[id]
-			if !exists || cycle == nil || cycle.Quantity < 0 {
+		result.changeRevision = &revision
+		for _, p := range current.Snapshot.Positions {
+			var i Instrument
+			if err := tx.QueryRowContext(ctx, `SELECT id,market,code,name,currency FROM instruments WHERE id=?`, p.InstrumentID).Scan(&i.ID, &i.Market, &i.Code, &i.Name, &i.Currency); err != nil {
 				return ErrCorrupt
 			}
-			result.Items = append(result.Items, ValuationItem{InstrumentID: id, Quantity: cycle.Quantity, Status: "unavailable"})
+			result.Items = append(result.Items, ValuationItem{InstrumentID: p.InstrumentID, Quantity: p.Quantity, Status: "unavailable"})
 			held = append(held, i)
 		}
-		return ctx.Err()
+		return nil
 	})
 	return result, held, err
 }
 
 func (h Handler) valuation(w http.ResponseWriter, r *http.Request) {
-	if !method(w, r, http.MethodGet, http.MethodHead, http.MethodPost) {
-		return
-	}
-	if r.Method == http.MethodPost {
-		h.saveValuation(w, r)
+	if !method(w, r, http.MethodGet, http.MethodHead) {
 		return
 	}
 	// Current only, including rejection of empty query delimiters and parameters.

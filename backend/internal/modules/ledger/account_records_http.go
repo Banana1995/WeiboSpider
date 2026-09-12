@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,6 +26,7 @@ func (h Handler) reportedAccounts(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	w.Header().Set("Location", ledgerPrefix+"/accounts/"+input.ID)
 	httpapi.Write(w, 201, result)
 }
 func (h Handler) writeAccountRecord(w http.ResponseWriter, r *http.Request, action WriteAction) {
@@ -201,6 +201,17 @@ func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return err
 		}
+		currentVersion, err := positiveInteger(current.Version)
+		if err != nil {
+			return ErrCorrupt
+		}
+		var count, maximum int64
+		if err := tx.QueryRowContext(r.Context(), `SELECT count(*),coalesce(max(version),0) FROM audit_log WHERE entity_type='account_record' AND account_id=? AND entity_id=?`, current.AccountID, current.ID).Scan(&count, &maximum); err != nil {
+			return err
+		}
+		if count != currentVersion || maximum != currentVersion {
+			return ErrCorrupt
+		}
 		rows, err := tx.QueryContext(r.Context(), `SELECT version,after_json,metadata_json,recorded_at
 			FROM audit_log WHERE entity_type='account_record' AND account_id=? AND entity_id=? AND version>?
 			ORDER BY version LIMIT ?`, current.AccountID, current.ID, after, limit)
@@ -208,6 +219,7 @@ func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) 
 			return err
 		}
 		defer rows.Close()
+		previous := after
 		for rows.Next() {
 			var revision AccountRecordRevision
 			var payload, metadata, stamp string
@@ -219,13 +231,17 @@ func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) 
 				Reason   string `json:"reason"`
 				FromDate string `json:"from_date"`
 			}
-			if json.Unmarshal([]byte(payload), &revision.Record) != nil || decodeReceipt(metadata, &detail) != nil ||
+			if decodeReceipt(payload, &revision.Record) != nil || decodeReceipt(metadata, &detail) != nil ||
+				version != previous+1 || version > currentVersion ||
+				!revision.Record.AccountEntry.valid() || !revision.Record.validProvenance() ||
+				revision.Record.Sequence != current.Sequence || revision.Record.CreatedAt != current.CreatedAt ||
 				revision.Record.AccountID != current.AccountID || revision.Record.ID != current.ID ||
 				revision.Record.Version != strconv.FormatInt(version, 10) || revision.Record.UpdatedAt != stamp ||
 				!validDate(detail.FromDate) {
 				return ErrCorrupt
 			}
 			revision.Reason = detail.Reason
+			previous = version
 			result.Items = append(result.Items, revision)
 		}
 		if err := rows.Err(); err != nil {
@@ -236,7 +252,6 @@ func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) 
 			if len(result.Items) > 0 {
 				last, _ = positiveInteger(result.Items[len(result.Items)-1].Record.Version)
 			}
-			currentVersion, _ := positiveInteger(current.Version)
 			if last < currentVersion {
 				return ErrCorrupt
 			}

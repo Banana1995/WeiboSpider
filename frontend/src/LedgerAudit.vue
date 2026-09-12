@@ -32,8 +32,6 @@ const entityLabels: Record<string, string> = {
   account_record: "账户记录",
   current_holdings: "当前持仓",
   instrument: "证券",
-  opening_position: "期初持仓",
-  operation: "持仓操作",
   valuation: "总资产估值",
   weekly_job: "周六任务",
 };

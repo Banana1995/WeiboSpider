@@ -207,7 +207,7 @@ it("reads only on demand, explains exact carry and missing opening, and refreshe
   expect((source.element as HTMLDetailsElement).open).toBe(false);
   (source.element as HTMLDetailsElement).open = true;
   await source.trigger("toggle");
-  expect(source.text()).toContain("沿用此前原值，未增加资金流");
+  expect(source.text()).toContain("最近明确资产加后续净转入，仅供参考");
   expect(source.text()).toContain("manual-a / 来源版本 1");
   fetch.mockResolvedValue(
     response({

@@ -76,7 +76,11 @@ func TestServeWaitsForLedgerCancellationBeforeStorageClose(t *testing.T) {
 	now, _ := time.Parse(time.RFC3339, "2026-09-12T08:00:00+08:00")
 	s := ledger.NewStore(a.ledgerDB, func() time.Time { return now })
 	require.NoError(t, s.AddInstrument(t.Context(), ledger.Instrument{ID: "i", Market: "SH", Code: "600000", Name: "Synthetic", Currency: ledger.CNY}))
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic", ledger.Opening{AccountID: "a", Currency: ledger.CNY, Date: "2026-01-01", Positions: []ledger.OpeningPosition{{InstrumentID: "i", Quantity: 1_000_000}}}))
+	_, err = s.CreateReportedAccount(t.Context(), "create-a", ledger.ReportedAccountInput{ID: "a", Name: "Synthetic", Currency: ledger.CNY, OpeningDate: "2026-01-01"})
+	require.NoError(t, err)
+	cash := ledger.Money(0)
+	_, err = s.PutCurrentHoldings(t.Context(), "a", "current-a", ledger.CurrentHoldingsInput{ExpectedVersion: "0", Cash: &cash, Positions: []ledger.CurrentPosition{{InstrumentID: "i", Quantity: 1_000_000}}})
+	require.NoError(t, err)
 	q := cancelWeeklyQuotes{make(chan struct{}), make(chan struct{})}
 	a.ledgerWorker, err = ledger.NewWeeklyWorker(s, q, nil, ledger.WeeklyConfig{Enabled: true, Time: "08:00"}, nil)
 	require.NoError(t, err)

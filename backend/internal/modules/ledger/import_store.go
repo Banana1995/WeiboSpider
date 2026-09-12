@@ -56,21 +56,6 @@ type storedImport struct {
 	Metadata    importManifestMetadata
 }
 
-func requireHoldings(ctx context.Context, tx *sql.Tx, id string) error {
-	var mode string
-	err := tx.QueryRowContext(ctx, `SELECT accounting_mode FROM accounts WHERE id=?`, id).Scan(&mode)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if mode != "holdings" {
-		return ErrUnsupported
-	}
-	return nil
-}
-
 func readImport(ctx context.Context, tx *sql.Tx, accountID string) (storedImport, error) {
 	var result storedImport
 	var manifest, metadata string
@@ -153,8 +138,7 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 			return importConflict("currency_mismatch")
 		}
 		var occupied bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_records WHERE account_id=?
-			UNION ALL SELECT 1 FROM operations WHERE account_id=? OR to_account_id=?)`, id, id, id).Scan(&occupied); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_records WHERE account_id=?)`, id).Scan(&occupied); err != nil {
 			return err
 		}
 		if occupied {
@@ -166,11 +150,11 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 		}
 		if !exists {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO accounts
-				(id,name,currency,opening_date,opening_cash_minor,version,accounting_mode)
-				VALUES(?,?,?,?,0,1,'reported')`, id, p.Metadata.Name, p.Metadata.Currency, p.Summary.From); err != nil {
+				(id,name,currency,opening_date,opening_cash_minor,version)
+				VALUES(?,?,?,?,0,1)`, id, p.Metadata.Name, p.Metadata.Currency, p.Summary.From); err != nil {
 				return constraintError(err)
 			}
-			account := accountJSON{ID: id, Name: p.Metadata.Name, Currency: p.Metadata.Currency, OpeningDate: p.Summary.From, Version: "1", AccountingMode: "reported"}
+			account := accountJSON{ID: id, Name: p.Metadata.Name, Currency: p.Metadata.Currency, OpeningDate: p.Summary.From, Version: "1"}
 			if _, err := appendAudit(ctx, tx, key, "create", "account", id, id, 1, stamp, "human", nil, account, nil); err != nil {
 				return err
 			}

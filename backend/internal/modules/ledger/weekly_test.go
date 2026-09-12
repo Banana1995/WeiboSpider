@@ -29,10 +29,10 @@ func (c *weeklyClock) now() time.Time { return c.value.Load().(time.Time) }
 func weeklyFixture(t *testing.T, stock bool) (*WeeklyWorker, *weeklyClock) {
 	t.Helper()
 	var instruments []Instrument
-	var positions []OpeningPosition
+	var positions []CurrentPosition
 	if stock {
 		instruments = []Instrument{{ID: "i", Market: "HK", Code: "00700", Name: "Synthetic", Currency: HKD}}
-		positions = []OpeningPosition{{InstrumentID: "i", Quantity: 1_234_567}}
+		positions = []CurrentPosition{{InstrumentID: "i", Quantity: 1_234_567}}
 	}
 	s := valuationFixture(t, positions, instruments)
 	clock := &weeklyClock{}
@@ -65,6 +65,13 @@ func weeklyJobFor(t *testing.T, w *WeeklyWorker, account string) WeeklyJob {
 	require.NoError(t, err)
 	require.NotEmpty(t, page.Items)
 	return page.Items[0]
+}
+
+func cashAccount(t *testing.T, s *Store, id string, currency Currency, cash Money) {
+	t.Helper()
+	_, err := s.CreateReportedAccount(t.Context(), "create-"+id, ReportedAccountInput{ID: id, Name: "Synthetic " + id, Currency: currency, OpeningDate: "2026-01-01"})
+	require.NoError(t, err)
+	putSource(t, s, id, "source-"+id, "0", cash)
 }
 
 func weeklyCount(t *testing.T, w *WeeklyWorker, want int) {
@@ -134,24 +141,29 @@ func TestWeeklyCompleteExactFrozenAndManualAppend(t *testing.T) {
 	require.NoError(t, err)
 	after, _ := json.Marshal(h2)
 	require.Equal(t, before, after)
-	// Existing synchronous GET remains append-only, including the scheduled day.
+	// Reads never save; manual asset entries coexist with the fixed weekly row.
 	mux := http.NewServeMux()
 	Handler{Store: w.store, Quotes: w.quotes, FX: w.fx, Now: w.store.now}.Register(mux)
-	historyRequest(t, mux, "POST", "a/valuation", 200)
-	historyRequest(t, mux, "POST", "a/valuation", 200)
-	historyCount(t, w.store, 3)
+	historyRequest(t, mux, "GET", "a/valuation", 200)
+	historyRequest(t, mux, "POST", "a/valuation", 405)
+	for n := 1; n <= 2; n++ {
+		amount := Money(11390 + n*100)
+		_, err := w.store.WriteAccountRecord(t.Context(), fmt.Sprint("manual-", n), AccountRecordCommand{Action: CreateOperation, AccountID: "a", ID: fmt.Sprint("manual-", n), Entry: &AccountEntry{Kind: "asset", Date: "2026-09-12", TotalAssets: &amount}})
+		require.NoError(t, err)
+	}
+	historyCount(t, w.store, 1)
 	weeklyCount(t, w, 1)
 	var basis int
 	require.NoError(t, w.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM audit_log WHERE entity_type='valuation'`).Scan(&basis))
-	require.Equal(t, 3, basis)
+	require.Equal(t, 1, basis)
 	var flows int
-	require.NoError(t, w.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM operations`).Scan(&flows))
+	require.NoError(t, w.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records WHERE flow_minor IS NOT NULL`).Scan(&flows))
 	require.Zero(t, flows)
 }
 
 func TestWeeklyCashZeroReportedCarryAndNoSource(t *testing.T) {
 	w, _ := weeklyFixture(t, false)
-	require.NoError(t, w.store.InitializeAccount(t.Context(), "Zero", Opening{AccountID: "zero", Currency: USD, Date: "2026-01-01"}))
+	cashAccount(t, w.store, "zero", USD, 0)
 	_, err := w.store.CreateReportedAccount(t.Context(), "reported", ReportedAccountInput{ID: "reported", Name: "Synthetic", Currency: CNY, OpeningDate: "2020-01-01"})
 	require.NoError(t, err)
 	_, err = w.store.CreateReportedAccount(t.Context(), "empty", ReportedAccountInput{ID: "empty", Name: "Empty", Currency: CNY, OpeningDate: "2020-01-01"})
@@ -247,7 +259,7 @@ func TestWeeklyIncompleteRetriesCapAndOtherAccounts(t *testing.T) {
 	w, clock := weeklyFixture(t, true)
 	var calls int
 	w.quotes = valuationQuotes(func(context.Context, []Instrument) map[string]QuoteResult { calls++; return nil })
-	require.NoError(t, w.store.InitializeAccount(t.Context(), "Other", Opening{AccountID: "z", Currency: CNY, Date: "2026-01-01", Cash: 100}))
+	cashAccount(t, w.store, "z", CNY, 100)
 	require.NoError(t, w.Tick(t.Context()))
 	j := weeklyJobFor(t, w, "a")
 	require.Equal(t, "failed", j.Status)
@@ -282,10 +294,10 @@ func TestWeeklyIncompleteRetriesCapAndOtherAccounts(t *testing.T) {
 }
 
 func TestWeeklyBasisChangedDuringIOAndUnrelatedAllowed(t *testing.T) {
-	for _, kind := range []string{"same_account", "transfer_in", "other_account", "reported_track", "new_instrument"} {
+	for _, kind := range []string{"same_account", "quantity_edit", "other_account", "reported_track", "new_instrument"} {
 		t.Run(kind, func(t *testing.T) {
 			w, clock := weeklyFixture(t, true)
-			require.NoError(t, w.store.InitializeAccount(t.Context(), "Other", Opening{AccountID: "b", Currency: CNY, Date: "2026-01-01", Cash: 10000}))
+			cashAccount(t, w.store, "b", CNY, 10000)
 			provider := w.quotes
 			w.quotes = valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
 				// A nested domain write would deadlock if network held the DB connection.
@@ -297,23 +309,23 @@ func TestWeeklyBasisChangedDuringIOAndUnrelatedAllowed(t *testing.T) {
 				case "new_instrument":
 					err = w.store.AddInstrument(ctx, Instrument{ID: "unused", Market: "SH", Code: "600001", Name: "Other", Currency: CNY})
 				default:
-					op := Operation{ID: "mutation", AccountID: "a", Date: "2026-09-12", Sequence: 1, Kind: Deposit, Amount: 100}
+					account := "a"
+					positions := []CurrentPosition{{"i", 1_234_567}}
 					if kind == "other_account" {
-						op.AccountID = "b"
+						account = "b"
+						positions = []CurrentPosition{}
 					}
-					if kind == "transfer_in" {
-						op.AccountID = "b"
-						op.ToAccountID = "a"
-						op.Kind = Transfer
+					if kind == "quantity_edit" {
+						positions[0].Quantity = 2_000_000
 					}
-					_, err = w.store.Write(ctx, Command{Action: CreateOperation, Key: "mutation", Operation: op, Reason: "synthetic"})
+					_, err = w.store.PutCurrentHoldings(ctx, account, "mutation", CurrentHoldingsInput{ExpectedVersion: "1", Cash: replayMoney(10100), Positions: positions})
 				}
 				require.NoError(t, err)
 				return provider.Fetch(ctx, is)
 			})
 			require.NoError(t, w.Tick(t.Context()))
 			j := weeklyJobFor(t, w, "a")
-			if kind == "same_account" || kind == "transfer_in" {
+			if kind == "same_account" || kind == "quantity_edit" {
 				require.Equal(t, "failed", j.Status)
 				require.Equal(t, "basis_changed", j.ErrorCode)
 				require.Nil(t, j.HistoryID)
@@ -371,8 +383,7 @@ func TestWeeklyProviderTimeoutAndInvalidData(t *testing.T) {
 			w, clock := weeklyFixture(t, true)
 			provider := w.quotes
 			if kind == "overflow" {
-				_, err := w.store.db.ExecContext(t.Context(), `DROP TRIGGER opening_positions_no_update; UPDATE opening_positions SET quantity_micros=9223372036854775807`)
-				require.NoError(t, err)
+				putSource(t, w.store, "a", "large-quantity", "1", 10000, CurrentPosition{"i", 9223372036854775807})
 			}
 			w.quotes = valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
 				if kind == "timeout" {
@@ -437,7 +448,7 @@ func TestWeeklyCrossMidnightAndOldSlotsNeverBackfill(t *testing.T) {
 	// Old running/pending/retry slots can be retired on Sunday, never repriced.
 	for n, status := range []string{"pending", "running", "failed"} {
 		id := fmt.Sprintf("old%d", n)
-		require.NoError(t, w.store.InitializeAccount(t.Context(), "Old", Opening{AccountID: id, Currency: CNY, Date: "2026-01-01"}))
+		cashAccount(t, w.store, id, CNY, 0)
 		var lease any
 		if status == "running" {
 			lease = "2026-09-13T00:01:00.000000000Z"
@@ -497,7 +508,7 @@ func TestWeeklyAtomicCompletionRollbackAndFence(t *testing.T) {
 			historyCount(t, w.store, 1)
 			_, err = w.store.db.ExecContext(t.Context(), `UPDATE weekly_jobs SET status='failed',history_id=NULL WHERE id=?`, j.ID)
 			require.Error(t, err)
-			require.NoError(t, w.store.InitializeAccount(t.Context(), "Other", Opening{AccountID: "b", Currency: CNY, Date: "2026-01-01"}))
+			cashAccount(t, w.store, "b", CNY, 0)
 			for _, statement := range []string{
 				`INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,created_at) VALUES('a','2026-09-19','none','pending','now')`,
 				`INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,created_at) VALUES('a','not-a-date','holdings_current','pending','now')`,
@@ -522,7 +533,7 @@ func TestWeeklyRestartRecoversRunningAndPreservesSuccess(t *testing.T) {
 	clock := &weeklyClock{}
 	clock.set("2026-09-12T08:00:00+08:00")
 	s := NewStore(db, clock.now)
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic", Opening{AccountID: "a", Currency: CNY, Date: "2026-01-01", Cash: 123}))
+	cashAccount(t, s, "a", CNY, 123)
 	_, err = db.ExecContext(t.Context(), `INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,attempts,created_at,started_at,lease_until) VALUES('a','2026-09-12','holdings_current','running',1,?,?,?)`, clock.now().Format(weeklyStamp), clock.now().Format(weeklyStamp), clock.now().Add(time.Minute).Format(weeklyStamp))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -551,7 +562,7 @@ func TestWeeklyRestartRecoversRunningAndPreservesSuccess(t *testing.T) {
 
 func TestWeeklyFailedCleanupLeaseRecoveryDoesNotBlockOtherAccounts(t *testing.T) {
 	w, clock := weeklyFixture(t, false)
-	require.NoError(t, w.store.InitializeAccount(t.Context(), "Other", Opening{AccountID: "b", Currency: CNY, Date: "2026-01-01"}))
+	cashAccount(t, w.store, "b", CNY, 0)
 	_, err := w.store.db.ExecContext(t.Context(), `CREATE TRIGGER weekly_fault BEFORE UPDATE ON weekly_jobs WHEN OLD.account_id='a' AND OLD.status='running' BEGIN SELECT RAISE(ABORT,'synthetic private detail'); END`)
 	require.NoError(t, err)
 	require.Error(t, w.Tick(t.Context()))
@@ -612,8 +623,7 @@ func TestWeeklyCompletionLateClockRollsBackBeforeCommit(t *testing.T) {
 func TestWeeklyPartialPositionsNeverSaveCashOnly(t *testing.T) {
 	w, _ := weeklyFixture(t, true)
 	require.NoError(t, w.store.AddInstrument(t.Context(), Instrument{ID: "second", Market: "SH", Code: "600000", Name: "Synthetic", Currency: CNY}))
-	_, err := w.store.db.ExecContext(t.Context(), `INSERT INTO opening_positions(account_id,instrument_id,quantity_micros) VALUES('a','second',1000000)`)
-	require.NoError(t, err)
+	putSource(t, w.store, "a", "second-position", "1", 10000, CurrentPosition{"i", 1_234_567}, CurrentPosition{"second", 1_000_000})
 	provider := w.quotes
 	w.quotes = valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
 		rows := provider.Fetch(ctx, is)
@@ -630,14 +640,14 @@ func TestWeeklyPartialPositionsNeverSaveCashOnly(t *testing.T) {
 func TestWeeklyBoundedEnrollmentAndLateAccounts(t *testing.T) {
 	w, _ := weeklyFixture(t, false)
 	for n := range weeklyBatch + 2 {
-		require.NoError(t, w.store.InitializeAccount(t.Context(), "Synthetic", Opening{AccountID: fmt.Sprintf("b%03d", n), Currency: CNY, Date: "2026-01-01"}))
+		cashAccount(t, w.store, fmt.Sprintf("b%03d", n), CNY, 0)
 	}
 	require.NoError(t, w.Tick(t.Context()))
 	weeklyCount(t, w, weeklyBatch)
 	historyCount(t, w.store, weeklyBatch)
 	require.NoError(t, w.Tick(t.Context()))
 	weeklyCount(t, w, weeklyBatch+3)
-	require.NoError(t, w.store.InitializeAccount(t.Context(), "Late", Opening{AccountID: "late", Currency: CNY, Date: "2026-01-01"}))
+	cashAccount(t, w.store, "late", CNY, 0)
 	require.NoError(t, w.Tick(t.Context()))
 	require.Equal(t, "succeeded", weeklyJobFor(t, w, "late").Status)
 	historyCount(t, w.store, weeklyBatch+4)
@@ -700,7 +710,7 @@ func TestWeeklyReadAPIsStrictIsolatedAndNeverTrigger(t *testing.T) {
 		call(method, "/accounts/missing/weekly-jobs", 404)
 		call(method, "/accounts/a/weekly-jobs/999", 404)
 	}
-	require.NoError(t, w.store.InitializeAccount(t.Context(), "Other", Opening{AccountID: "b", Currency: CNY, Date: "2026-01-01"}))
+	cashAccount(t, w.store, "b", CNY, 0)
 	call("GET", "/accounts/b/weekly-jobs/1", 404)
 	for _, suffix := range []string{"?", "?status=all", "?status=", "?status=bogus", "?limit=0", "?limit=101", "?limit=1&limit=2", "?cursor=0", "?cursor=01", "?cursor=-1", "?account_id=b", "?unknown=1", "?cursor=9223372036854775808", "/0", "/-1", "/01", "/x", "/1?limit=1"} {
 		call("GET", "/accounts/a/weekly-jobs"+suffix, 400)

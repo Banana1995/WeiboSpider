@@ -22,7 +22,7 @@ type valuationFX func(context.Context, FXRequest) (FXQuote, error)
 
 func (f valuationFX) Fetch(c context.Context, r FXRequest) (FXQuote, error) { return f(c, r) }
 
-func valuationFixture(t *testing.T, positions []OpeningPosition, instruments []Instrument) *Store {
+func valuationFixture(t *testing.T, positions []CurrentPosition, instruments []Instrument) *Store {
 	t.Helper()
 	db, err := Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
@@ -31,7 +31,13 @@ func valuationFixture(t *testing.T, positions []OpeningPosition, instruments []I
 	for _, i := range instruments {
 		require.NoError(t, s.AddInstrument(t.Context(), i))
 	}
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic", Opening{AccountID: "a", Currency: CNY, Date: "2026-01-01", Cash: 10000, Positions: positions}))
+	_, err = s.CreateReportedAccount(t.Context(), "create-a", ReportedAccountInput{ID: "a", Name: "Synthetic", Currency: CNY, OpeningDate: "2026-01-01"})
+	require.NoError(t, err)
+	current := make([]CurrentPosition, 0, len(positions))
+	for _, p := range positions {
+		current = append(current, CurrentPosition{p.InstrumentID, p.Quantity})
+	}
+	putSource(t, s, "a", "current-a", "0", 10000, current...)
 	return s
 }
 
@@ -46,8 +52,7 @@ func validValuationQuotes(_ context.Context, instruments []Instrument) map[strin
 
 func TestValuationExactForeignAndUnknownCost(t *testing.T) {
 	instruments := []Instrument{{ID: "a", Market: "SH", Code: "600000", Name: "A", Currency: CNY}, {ID: "b", Market: "HK", Code: "00700", Name: "B", Currency: HKD}, {ID: "c", Market: "SZ", Code: "200001", Name: "C", Currency: HKD}}
-	negative := Money(-500)
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "a", Quantity: 1_234_567, DilutedBasis: &negative}, {InstrumentID: "b", Quantity: 1_234_567}, {InstrumentID: "c", Quantity: 1_234_567}}, instruments)
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "a", Quantity: 1_234_567}, {InstrumentID: "b", Quantity: 1_234_567}, {InstrumentID: "c", Quantity: 1_234_567}}, instruments)
 	result, held, err := s.valuationInputs(t.Context(), "a")
 	require.NoError(t, err)
 	fxCalls := 0
@@ -137,7 +142,7 @@ func TestValuationEndpointCashClosedAndErrors(t *testing.T) {
 	for _, tc := range []struct {
 		method, path string
 		status       int
-	}{{"GET", "a/valuation", 200}, {"HEAD", "a/valuation", 200}, {"GET", "missing/valuation", 404}, {"GET", "a/valuation?date=2026-01-01", 400}, {"GET", "a/valuation?", 400}, {"POST", "a/valuation", 400}} {
+	}{{"GET", "a/valuation", 200}, {"HEAD", "a/valuation", 200}, {"GET", "missing/valuation", 404}, {"GET", "a/valuation?date=2026-01-01", 400}, {"GET", "a/valuation?", 400}, {"POST", "a/valuation", 405}} {
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, httptest.NewRequest(tc.method, ledgerPrefix+"/accounts/"+tc.path, nil))
 		require.Equal(t, tc.status, w.Code)
@@ -169,7 +174,7 @@ func TestValuationEndpointCashClosedAndErrors(t *testing.T) {
 
 func TestValuationSnapshotAndNetworkOutsideTransaction(t *testing.T) {
 	i := Instrument{ID: "i", Market: "SH", Code: "600000", Name: "Synthetic", Currency: CNY}
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	written := make(chan error, 1)
@@ -177,8 +182,7 @@ func TestValuationSnapshotAndNetworkOutsideTransaction(t *testing.T) {
 	s.now = func() time.Time {
 		waiting := s.db.Stats().WaitCount
 		go func() {
-			_, err := writer.Write(ctx, Command{Action: CreateOperation, Key: "concurrent-deposit", Reason: "Synthetic",
-				Operation: Operation{ID: "deposit", AccountID: "a", Date: "2026-01-02", Sequence: 1, Kind: Deposit, Amount: 10_000}})
+			_, err := writer.PutCurrentHoldings(ctx, "a", "concurrent-cash", CurrentHoldingsInput{ExpectedVersion: "1", Cash: replayMoney(20000), Positions: []CurrentPosition{{"i", 1_000_000}}})
 			written <- err
 		}()
 		require.Eventually(t, func() bool { return s.db.Stats().WaitCount > waiting }, time.Second, time.Millisecond)
@@ -189,8 +193,7 @@ func TestValuationSnapshotAndNetworkOutsideTransaction(t *testing.T) {
 	require.NoError(t, <-written)
 	require.Equal(t, Money(10000), v.Cash)
 	h := Handler{Now: func() time.Time { return stockNow }, Quotes: valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
-		_, err := writer.Write(ctx, Command{Action: CreateOperation, Key: "concurrent-buy", Reason: "Synthetic",
-			Operation: Operation{ID: "buy", AccountID: "a", InstrumentID: "i", Date: "2026-01-02", Sequence: 2, Kind: Buy, Quantity: 1_000_000, Price: 1_000_000}})
+		_, err := writer.PutCurrentHoldings(ctx, "a", "concurrent-quantity", CurrentHoldingsInput{ExpectedVersion: "2", Cash: replayMoney(19000), Positions: []CurrentPosition{{"i", 2_000_000}}})
 		require.NoError(t, err)
 		return validValuationQuotes(ctx, is)
 	})}
@@ -204,7 +207,7 @@ func TestValuationPartialEndpointAndPrecisionFailures(t *testing.T) {
 		{ID: "a", Market: "SH", Code: "600000", Name: "Synthetic A", Currency: CNY},
 		{ID: "b", Market: "SZ", Code: "000001", Name: "Synthetic B", Currency: CNY},
 	}
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "a", Quantity: 1_000_000}, {InstrumentID: "b", Quantity: 1_000_000}}, instruments)
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "a", Quantity: 1_000_000}, {InstrumentID: "b", Quantity: 1_000_000}}, instruments)
 	for _, scenario := range []string{"missing", "timeout", "bad_symbol", "bad_date", "currency", "sum_overflow", "conversion_overflow"} {
 		t.Run(scenario, func(t *testing.T) {
 			h := Handler{Store: s, Now: func() time.Time { return stockNow }, Quotes: valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {

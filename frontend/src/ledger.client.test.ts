@@ -50,7 +50,7 @@ it("preserves decimal precision and omits empty query values", () => {
   ).toBe("?from=2026-01-01&cursor=2026-01-02%3A9&status=voided");
 });
 
-it("preserves immutable write bytes, IDs, FX and key across network and server timeout failures", async () => {
+it("preserves immutable write bytes, identity, quantities and key across network and server timeout failures", async () => {
   const fetcher = vi
     .fn()
     .mockRejectedValueOnce(new TypeError("lost response"))
@@ -58,21 +58,28 @@ it("preserves immutable write bytes, IDs, FX and key across network and server t
     .mockResolvedValueOnce(json({ version: "1" }, 201));
   vi.stubGlobal("fetch", fetcher);
   const payload = {
-    operation: {
-      id: "op",
-      amount: "9007199254740991.01",
-      fx: {
-        rate: "7.00000001",
-        date: "2026-01-02",
-        source: "confirmed",
-        fetched_at: "2026-01-02T12:00:00Z",
+    expected_version: "1",
+    cash: "9007199254740991.01",
+    positions: [{ instrument_id: "security", quantity: "1.000001" }],
+    securities: [
+      {
+        id: "security",
+        market: "SH",
+        code: "600000",
+        name: "Confirmed",
+        currency: "CNY",
       },
-    },
-    reason: "首次录入",
+    ],
   };
-  const write = new PendingWrite("/operations", "POST", payload);
+  const write = new PendingWrite(
+    "/accounts/a/current-holdings",
+    "PUT",
+    payload,
+  );
   await expect(write.run()).rejects.toThrow("network_error");
-  payload.operation.amount = "2.00";
+  payload.cash = "2.00";
+  payload.securities[0]!.name = "Changed";
+  payload.positions[0]!.quantity = "9";
   await expect(write.run()).rejects.toThrow("request_timeout");
   expect(write.uncertain).toBe(true);
   await expect(write.run()).resolves.toEqual({ version: "1" });
@@ -81,9 +88,9 @@ it("preserves immutable write bytes, IDs, FX and key across network and server t
   expect(
     new Set(calls.map((call) => call.headers["Idempotency-Key"])).size,
   ).toBe(1);
-  expect(JSON.parse(calls[2].body).operation.amount).toBe(
-    "9007199254740991.01",
-  );
+  expect(JSON.parse(calls[2].body).cash).toBe("9007199254740991.01");
+  expect(JSON.parse(calls[2].body).securities[0].name).toBe("Confirmed");
+  expect(JSON.parse(calls[2].body).positions[0].quantity).toBe("1.000001");
 });
 
 it("aborts a timed out transport then retries with the same key", async () => {
@@ -100,8 +107,10 @@ it("aborts a timed out transport then retries with the same key", async () => {
     )
     .mockResolvedValueOnce(json({ version: "1" }));
   vi.stubGlobal("fetch", fetcher);
-  const write = new PendingWrite("/operations", "POST", {
-    operation: { id: "stable" },
+  const write = new PendingWrite("/accounts/stable/current-holdings", "PUT", {
+    expected_version: "0",
+    cash: "0.00",
+    positions: [],
   });
   const result = expect(write.run()).rejects.toThrow("request_timeout");
   await vi.advanceTimersByTimeAsync(15000);
@@ -117,82 +126,87 @@ const account: AccountInput = {
   name: "合成账户",
   currency: "CNY",
   opening_date: "2026-01-01",
-  opening_cash: "1000",
-  positions: [
-    { instrument_id: "stock", quantity: "1", cost: null, diluted_basis: "0" },
-  ],
 };
 
-it("reconciles an ambiguous account by fixed ID before any retry POST", async () => {
+it("retries ambiguous account creation with its original idempotency key, never inferring success from a GET", async () => {
   const fetcher = vi
     .fn()
     .mockRejectedValueOnce(new Error("lost response"))
     .mockResolvedValueOnce(
       json({
         ...account,
-        opening_cash: "1000.00",
+        opening_cash: null,
         version: "1",
-        cash: "999.00",
       }),
     );
   vi.stubGlobal("fetch", fetcher);
-  const write = new PendingWrite("/accounts", "POST", account, account);
+  const write = new PendingWrite("/accounts", "POST", account);
   await expect(write.run()).rejects.toThrow();
   await expect(write.run()).resolves.toMatchObject({ id: account.id });
   expect(fetcher.mock.calls.map((c) => [c[0], c[1].method ?? "GET"])).toEqual([
     ["/api/platform/ledger/accounts", "POST"],
-    ["/api/platform/ledger/accounts/stable-account", "GET"],
+    ["/api/platform/ledger/accounts", "POST"],
   ]);
+  expect(fetcher.mock.calls[0]![1].headers).toEqual(
+    fetcher.mock.calls[1]![1].headers,
+  );
+  expect(
+    new Headers(fetcher.mock.calls[0]![1].headers).get("Idempotency-Key"),
+  ).toBeTruthy();
 });
 
-it("only retries account POST after GET confirms absence and never regenerates IDs", async () => {
+it("freezes account identity and body across retries even when the caller changes its draft", async () => {
   const fetcher = vi
     .fn()
     .mockRejectedValueOnce(new Error("network"))
-    .mockResolvedValueOnce(json({ code: "not_found" }, 404))
     .mockResolvedValueOnce(json(account, 201));
   vi.stubGlobal("fetch", fetcher);
-  const write = new PendingWrite("/accounts", "POST", account, account);
+  const draft = { ...account };
+  const write = new PendingWrite("/accounts", "POST", draft);
   await expect(write.run()).rejects.toThrow();
+  draft.id = "changed";
+  draft.name = "changed";
   await write.run();
-  expect(fetcher.mock.calls[0]![1].body).toBe(fetcher.mock.calls[2]![1].body);
-  expect(fetcher.mock.calls[1]![0]).toContain(account.id);
+  expect(fetcher.mock.calls[0]![1].body).toBe(fetcher.mock.calls[1]![1].body);
+  expect(JSON.parse(fetcher.mock.calls[1]![1].body)).toEqual(account);
 });
 
-it("keeps an ambiguous account locked on reconciliation conflict or failure", async () => {
+it("keeps an ambiguous account locked after conflicting or failed receipt retries", async () => {
   const fetcher = vi
     .fn()
     .mockRejectedValueOnce(new Error("network"))
-    .mockResolvedValueOnce(json({ ...account, name: "另一个账户" }))
+    .mockResolvedValueOnce(json({ code: "idempotency_conflict" }, 409))
     .mockResolvedValueOnce(json({ code: "internal_error" }, 500));
   vi.stubGlobal("fetch", fetcher);
-  const write = new PendingWrite("/accounts", "POST", account, account);
+  const write = new PendingWrite("/accounts", "POST", account);
   await expect(write.run()).rejects.toThrow();
   await expect(write.run()).rejects.toThrow("conflict");
   expect(write.uncertain).toBe(true);
   await expect(write.run()).rejects.toThrow("internal_error");
   expect(fetcher.mock.calls.filter((c) => c[1].method === "POST")).toHaveLength(
-    1,
+    3,
   );
+  expect(fetcher.mock.calls.every((c) => c[1].body === write.body)).toBe(true);
 });
 
-it("surfaces Chinese errors with backend codes and historical operation/date", async () => {
+it("surfaces current backend codes without exposing arbitrary error-body or retired operation metadata", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue(
       json(
         {
-          code: "insufficient_cash",
-          operation_id: "later-op",
+          code: "version_conflict",
+          message: "private error body",
+          operation_id: "private retired operation",
           date: "2026-01-05",
         },
-        422,
+        409,
       ),
     ),
   );
-  await expect(request("/operations")).rejects.toThrow(
-    "历史重放后现金不足 [insufficient_cash]；操作 later-op；日期 2026-01-05",
-  );
+  await expect(request("/accounts/a/current-holdings")).rejects.toMatchObject({
+    message: "记录已被修改，请重新读取详情后更正 [version_conflict]",
+  });
   expect(new LedgerError("version_conflict", 409).uncertain).toBe(false);
 });
 

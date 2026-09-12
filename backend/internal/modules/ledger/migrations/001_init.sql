@@ -1,5 +1,5 @@
--- Fresh-install ledger schema. Current business state lives in operations and
--- account_records; every historical version and source artifact lives in audit_log.
+-- Fresh-install schema: current_holdings contains mutable current inputs;
+-- account_records contains independent fixed assets and external flows.
 CREATE TABLE accounts (
     id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
@@ -12,8 +12,7 @@ CREATE TABLE accounts (
         AND substr(opening_date, 9, 2) BETWEEN '01' AND '31'
     ),
     opening_cash_minor INTEGER NOT NULL CHECK (opening_cash_minor >= 0),
-    version INTEGER NOT NULL CHECK (version >= 1),
-    accounting_mode TEXT NOT NULL CHECK (accounting_mode IN ('holdings', 'reported'))
+    version INTEGER NOT NULL CHECK (version >= 1)
 ) STRICT;
 
 CREATE TABLE instruments (
@@ -21,86 +20,8 @@ CREATE TABLE instruments (
     market TEXT NOT NULL CHECK (length(trim(market)) > 0),
     code TEXT NOT NULL CHECK (length(trim(code)) > 0),
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    currency TEXT NOT NULL CHECK (currency IN ('CNY', 'HKD', 'USD')),
-    UNIQUE (market, code)
+    currency TEXT NOT NULL CHECK (currency IN ('CNY', 'HKD', 'USD'))
 ) STRICT;
-
-CREATE TABLE opening_positions (
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    instrument_id TEXT NOT NULL REFERENCES instruments(id),
-    quantity_micros INTEGER NOT NULL CHECK (quantity_micros > 0),
-    cost_minor INTEGER CHECK (cost_minor >= 0),
-    diluted_basis_minor INTEGER,
-    PRIMARY KEY (account_id, instrument_id)
-) STRICT;
-
--- Balances and positions are replayed. This table contains only each operation's
--- latest committed state; prior versions are immutable audit_log rows.
-CREATE TABLE operations (
-    id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
-    kind TEXT NOT NULL CHECK (kind IN (
-        'deposit', 'withdrawal', 'buy', 'sell', 'deposit_buy',
-        'sell_withdraw', 'dividend', 'transfer'
-    )),
-    business_date TEXT NOT NULL CHECK (
-        length(business_date) = 10
-        AND business_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-        AND substr(business_date, 1, 4) >= '0001'
-        AND substr(business_date, 6, 2) BETWEEN '01' AND '12'
-        AND substr(business_date, 9, 2) BETWEEN '01' AND '31'
-    ),
-    sequence INTEGER NOT NULL CHECK (sequence > 0),
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    to_account_id TEXT REFERENCES accounts(id) CHECK (to_account_id <> account_id),
-    instrument_id TEXT REFERENCES instruments(id),
-    amount_minor INTEGER NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
-    quantity_micros INTEGER NOT NULL DEFAULT 0 CHECK (quantity_micros >= 0),
-    price_micros INTEGER NOT NULL DEFAULT 0 CHECK (price_micros >= 0),
-    fee_minor INTEGER CHECK (fee_minor >= 0),
-    fx_rate_1e8 INTEGER CHECK (fx_rate_1e8 > 0),
-    fx_date TEXT CHECK (
-        length(fx_date) = 10
-        AND fx_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-        AND substr(fx_date, 1, 4) >= '0001'
-        AND substr(fx_date, 6, 2) BETWEEN '01' AND '12'
-        AND substr(fx_date, 9, 2) BETWEEN '01' AND '31'
-        AND fx_date <= business_date
-    ),
-    fx_source TEXT CHECK (length(trim(fx_source)) > 0),
-    fx_fetched_at TEXT CHECK (length(trim(fx_fetched_at)) > 0),
-    cycle_id TEXT CHECK (length(trim(cycle_id)) > 0),
-    note TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL CHECK (status IN ('active', 'voided')),
-    version INTEGER NOT NULL CHECK (version >= 1),
-    created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
-    updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
-    UNIQUE (business_date, sequence),
-    CHECK (
-        (fx_rate_1e8 IS NULL AND fx_date IS NULL AND fx_source IS NULL AND fx_fetched_at IS NULL)
-        OR (fx_rate_1e8 IS NOT NULL AND fx_date IS NOT NULL AND fx_source IS NOT NULL AND fx_fetched_at IS NOT NULL)
-    ),
-    CHECK (
-        (kind IN ('deposit', 'withdrawal') AND amount_minor > 0
-            AND to_account_id IS NULL AND instrument_id IS NULL AND cycle_id IS NULL
-            AND quantity_micros = 0 AND price_micros = 0 AND fee_minor IS NULL
-            AND fx_rate_1e8 IS NULL)
-        OR (kind = 'transfer' AND amount_minor > 0 AND to_account_id IS NOT NULL
-            AND instrument_id IS NULL AND cycle_id IS NULL
-            AND quantity_micros = 0 AND price_micros = 0 AND fee_minor IS NULL
-            AND fx_rate_1e8 IS NULL)
-        OR (kind IN ('buy', 'sell', 'deposit_buy', 'sell_withdraw')
-            AND to_account_id IS NULL AND instrument_id IS NOT NULL AND cycle_id IS NULL
-            AND quantity_micros > 0 AND price_micros > 0
-            AND (kind IN ('buy', 'sell') AND amount_minor = 0
-                OR kind IN ('deposit_buy', 'sell_withdraw') AND amount_minor > 0))
-        OR (kind = 'dividend' AND amount_minor > 0
-            AND to_account_id IS NULL AND instrument_id IS NOT NULL AND cycle_id IS NOT NULL
-            AND quantity_micros = 0 AND price_micros = 0 AND fee_minor IS NULL)
-    )
-) STRICT;
-CREATE INDEX operation_account_date_sequence ON operations(account_id, business_date, sequence);
-CREATE INDEX operation_to_account_date_sequence ON operations(to_account_id, business_date, sequence)
-    WHERE to_account_id IS NOT NULL;
 
 CREATE TABLE audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,8 +44,7 @@ CREATE INDEX audit_correlation ON audit_log(correlation_id, id);
 CREATE UNIQUE INDEX audit_single_account_import ON audit_log(account_id)
     WHERE entity_type = 'import';
 
--- The one physical business timeline. Imported, manually entered, operation-derived
--- and saved valuation rows all use this table and retain only their latest state.
+-- The one business timeline for imported/manual amounts and fixed valuations.
 CREATE TABLE account_records (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -134,8 +54,7 @@ CREATE TABLE account_records (
     flow_minor INTEGER,
     total_assets_minor INTEGER CHECK (total_assets_minor >= 0),
     note TEXT NOT NULL,
-    origin TEXT NOT NULL CHECK (origin IN ('import', 'manual', 'currentrefresh', 'weekly', 'weekly_carry', 'operation')),
-    operation_id TEXT REFERENCES operations(id),
+    origin TEXT NOT NULL CHECK (origin IN ('import', 'manual', 'currentrefresh', 'weekly', 'weekly_carry')),
     quote_audit_id INTEGER REFERENCES audit_log(id),
     manual_assertion INTEGER NOT NULL DEFAULT 0 CHECK (manual_assertion IN (0, 1)),
     voided INTEGER NOT NULL CHECK (voided IN (0, 1)),
@@ -151,8 +70,6 @@ CREATE TABLE account_records (
         AND json_extract(payload, '$.version') = CAST(version AS TEXT)
     ),
     UNIQUE (account_id, id),
-    UNIQUE (account_id, operation_id),
-    CHECK ((origin = 'operation') = (operation_id IS NOT NULL)),
     CHECK ((origin IN ('currentrefresh', 'weekly', 'weekly_carry')) = (quote_audit_id IS NOT NULL)),
     CHECK (
         (kind = 'asset' AND total_assets_minor IS NOT NULL AND flow_minor IS NULL)
@@ -161,14 +78,13 @@ CREATE TABLE account_records (
     )
 ) STRICT;
 CREATE INDEX account_records_timeline ON account_records(account_id, business_date, sequence);
-CREATE INDEX account_records_operation ON account_records(operation_id) WHERE operation_id IS NOT NULL;
 CREATE INDEX account_records_valuation ON account_records(account_id, sequence DESC)
     WHERE origin IN ('currentrefresh', 'weekly');
 
 -- One global key namespace for every idempotent ledger write.
 CREATE TABLE idempotency_receipts (
     key TEXT PRIMARY KEY CHECK (length(trim(key)) > 0),
-    kind TEXT NOT NULL CHECK (kind IN ('operation', 'account_record', 'reported_account', 'import', 'valuation', 'current_holdings')),
+    kind TEXT NOT NULL CHECK (kind IN ('account_record', 'reported_account', 'import', 'current_holdings')),
     request_hash TEXT NOT NULL CHECK (
         length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'
     ),
@@ -213,12 +129,15 @@ BEGIN
         OR NOT EXISTS(SELECT 1 FROM instruments WHERE id=json_extract(p.value,'$.instrument_id'))
     ) OR (SELECT count(*) FROM json_each(NEW.after_json,'$.positions')) !=
         (SELECT count(DISTINCT json_extract(value,'$.instrument_id')) FROM json_each(NEW.after_json,'$.positions'))
+    OR (SELECT count(*) FROM json_each(NEW.after_json,'$.positions')) !=
+        (SELECT count(DISTINCT i.market || '/' || i.code) FROM json_each(NEW.after_json,'$.positions') p
+         JOIN instruments i ON i.id=json_extract(p.value,'$.instrument_id'))
     THEN RAISE(ABORT,'invalid current positions') END;
 END;
 CREATE TRIGGER current_holdings_insert BEFORE INSERT ON current_holdings
 BEGIN
     SELECT CASE WHEN NEW.version != 1 OR NOT EXISTS (
-        SELECT 1 FROM accounts WHERE id=NEW.account_id AND accounting_mode='reported'
+        SELECT 1 FROM accounts WHERE id=NEW.account_id
     ) THEN RAISE(ABORT, 'invalid manual source') END;
     SELECT CASE WHEN NOT EXISTS (
         SELECT 1 FROM audit_log WHERE id=NEW.audit_id AND entity_type='current_holdings'
@@ -287,15 +206,6 @@ CREATE TRIGGER instruments_no_update BEFORE UPDATE ON instruments
 BEGIN SELECT RAISE(ABORT, 'immutable instrument'); END;
 CREATE TRIGGER instruments_no_delete BEFORE DELETE ON instruments
 BEGIN SELECT RAISE(ABORT, 'retain instrument'); END;
-CREATE TRIGGER opening_positions_no_update BEFORE UPDATE ON opening_positions
-BEGIN SELECT RAISE(ABORT, 'immutable opening position'); END;
-CREATE TRIGGER opening_positions_no_delete BEFORE DELETE ON opening_positions
-BEGIN SELECT RAISE(ABORT, 'retain opening position'); END;
-CREATE TRIGGER operations_no_delete BEFORE DELETE ON operations
-BEGIN SELECT RAISE(ABORT, 'void operations instead'); END;
-CREATE TRIGGER operations_identity BEFORE UPDATE ON operations
-WHEN NEW.id != OLD.id OR NEW.created_at != OLD.created_at
-BEGIN SELECT RAISE(ABORT, 'immutable operation identity'); END;
 CREATE TRIGGER account_records_no_delete BEFORE DELETE ON account_records
 BEGIN SELECT RAISE(ABORT, 'void records instead'); END;
 CREATE TRIGGER account_records_identity BEFORE UPDATE ON account_records

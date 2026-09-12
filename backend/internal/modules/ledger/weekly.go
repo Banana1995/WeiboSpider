@@ -143,7 +143,7 @@ func (w *WeeklyWorker) Tick(ctx context.Context) error {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,created_at)
-			SELECT a.id,?,CASE WHEN a.accounting_mode='holdings' OR EXISTS(SELECT 1 FROM current_holdings c WHERE c.account_id=a.id) THEN 'holdings_current' ELSE 'account_record_carry' END,'pending',?
+			SELECT a.id,?,CASE WHEN EXISTS(SELECT 1 FROM current_holdings c WHERE c.account_id=a.id) THEN 'holdings_current' ELSE 'account_record_carry' END,'pending',?
 			FROM accounts a WHERE NOT EXISTS(SELECT 1 FROM weekly_jobs j WHERE j.account_id=a.id AND j.scheduled_business_date=?)
 			ORDER BY a.id LIMIT ?`, date, stamp, date, weeklyBatch)
 		return err
@@ -304,7 +304,7 @@ func (w *WeeklyWorker) completeCarry(ctx context.Context, job WeeklyJob) error {
 			return errWeeklyFence
 		}
 		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, job.AccountID))
-		if err != nil || info.AccountingMode != "reported" {
+		if err != nil {
 			return ErrCorrupt
 		}
 		var configured bool
@@ -314,7 +314,7 @@ func (w *WeeklyWorker) completeCarry(ctx context.Context, job WeeklyJob) error {
 		if configured {
 			return errWeeklyBasis
 		}
-		source, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND kind='asset' AND voided=0 AND business_date<=?
+		source, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND total_assets_minor IS NOT NULL AND voided=0 AND business_date<=?
 			AND (origin!='weekly_carry' OR manual_assertion=1)
 			ORDER BY business_date DESC,CAST(stable_sequence AS INTEGER) DESC LIMIT 1`, job.AccountID, job.ScheduledBusinessDate))
 		if errors.Is(err, ErrNotFound) {
@@ -385,16 +385,8 @@ func (w *WeeklyWorker) complete(ctx context.Context, job WeeklyJob, v Valuation,
 		if v.AccountID != job.AccountID || v.AsOf != job.ScheduledBusinessDate || v.changeRevision == nil {
 			return ErrCorrupt
 		}
-		var changed int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM audit_log
-			WHERE account_id=? AND entity_type='account_record' AND id>?
-			AND json_extract(after_json,'$.origin')='operation'
-			AND json_extract(metadata_json,'$.from_date')<=?`, v.AccountID, *v.changeRevision, v.AsOf).Scan(&changed); err != nil {
-			return err
-		}
-		if changed != 0 {
-			return errWeeklyBasis
-		}
+		// recordValuation checks the captured current-input version atomically.
+		// Historical account-record changes are not valuation input changes.
 		if err := weeklyTimestamps(v, w.store.now()); err != nil {
 			return err
 		}

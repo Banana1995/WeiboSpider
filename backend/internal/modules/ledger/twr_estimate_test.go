@@ -56,8 +56,10 @@ func TestTWREstimateConfirmedExamples(t *testing.T) {
 			require.Contains(t, r.Warnings, "twr_estimated_assets")
 			require.NotContains(t, r.Warnings, "carried_assets_unchanged")
 			require.Equal(t, &TWREstimate{tt.assets, "manual-base", "2024-01-01", tt.net}, r.Curve[len(r.Curve)-2].TWREstimate)
+			projected := Money(1000000)
 			for i := 1; i < len(b.Points)-1; i++ {
-				require.Equal(t, Money(1000000), *b.Points[i].Assets)
+				projected += *b.Points[i].Flow
+				require.Equal(t, projected, *b.Points[i].Assets)
 				require.Nil(t, b.Points[i].Record.TotalAssets)
 				require.Equal(t, "0.000000000000", *r.Curve[i].TWR.Value)
 			}
@@ -157,7 +159,8 @@ func TestTWREstimateCustomOpeningWeeklyHistory(t *testing.T) {
 	r := b.Returns
 	require.Equal(t, "2024-12-31", r.Curve[0].Date)
 	require.Equal(t, "2024-12-14", b.Opening.Date)
-	require.Equal(t, Money(1000000), *b.Opening.Assets)
+	require.Equal(t, Money(1300000), *b.Opening.Assets)
+	require.Equal(t, Money(1000000), *b.Opening.Record.TotalAssets)
 	require.Equal(t, &TWREstimate{"13000.00", "manual-base", "2024-01-01", "3000.00"}, r.Curve[0].TWREstimate)
 	require.Equal(t, r.Curve[0].TWREstimate, r.Curve[1].TWREstimate)
 	require.Equal(t, &TWREstimate{"13500.00", "manual-base", "2024-01-01", "3500.00"}, r.Curve[2].TWREstimate)
@@ -173,15 +176,18 @@ func TestTWREstimateCustomOpeningWeeklyHistory(t *testing.T) {
 	after, err := json.Marshal(b)
 	require.NoError(t, err)
 	require.Equal(t, input, after)
-	// A pre-range flow edit changes TWR's dependency fingerprint even though the
-	// public opening and all in-range facts (including frozen weekly carries) do not.
+	// A pre-range flow edit changes the derived endpoints for every metric,
+	// without rewriting the raw records or frozen weekly carries.
 	_, err = w.store.WriteAccountRecord(t.Context(), "edit-pre-range", AccountRecordCommand{Action: ReplaceOperation, AccountID: "reported", ID: "manual-flow", ExpectedVersion: "1", Reason: "Synthetic correction",
 		Entry: &AccountEntry{Kind: "cash_flow", Date: "2024-09-01", Flow: moneyPtr(250000)}})
 	require.NoError(t, err)
 	changed, err := w.store.AnalysisBasis(t.Context(), "reported", "2025-01-01", "2025-05-03", 0)
 	require.NoError(t, err)
-	require.Equal(t, b.Opening, changed.Opening)
-	require.Equal(t, b.Points, changed.Points)
+	require.Equal(t, b.Opening.Record, changed.Opening.Record)
+	require.Equal(t, Money(1350000), *changed.Opening.Assets)
+	for i := range b.Points {
+		require.Equal(t, b.Points[i].Record, changed.Points[i].Record)
+	}
 	require.NotEqual(t, b.Revision, changed.Revision)
 	require.Equal(t, "13500.00", changed.Returns.Curve[0].TWREstimate.Assets)
 	require.Equal(t, "6.07", *changed.Returns.TWR.Percentage)

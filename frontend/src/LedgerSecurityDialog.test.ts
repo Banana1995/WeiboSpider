@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
-import LedgerInstrumentDialog from "./LedgerInstrumentDialog.vue";
+import LedgerSecurityDialog from "./LedgerSecurityDialog.vue";
 import {
   createLedgerWorkspace,
   ledgerWorkspaceKey,
@@ -40,10 +40,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-function start(instruments: Instrument[] = []) {
+function start(initial?: Instrument) {
   workspace = createLedgerWorkspace(() => {});
-  wrapper = mount(LedgerInstrumentDialog, {
-    props: { instruments },
+  wrapper = mount(LedgerSecurityDialog, {
+    props: { initial },
     global: { provide: { [ledgerWorkspaceKey as symbol]: workspace } },
   });
 }
@@ -54,7 +54,7 @@ async function lookup(code = "600519") {
   await field("search").trigger("keydown", { key: "Enter" });
   await flushPromises();
 }
-it("fills exact identity by code without a write, then registers on explicit submit", async () => {
+it("queries identity and selects a holding draft without registering a security", async () => {
   start();
   await lookup("SH600519");
   expect(fetcher).toHaveBeenCalledTimes(1);
@@ -67,13 +67,11 @@ it("fills exact identity by code without a write, then registers on explicit sub
     value("code"),
     value("currency"),
   ]).toEqual(["贵州茅台", "SH", "600519", "CNY"]);
-  expect(wrapper.text()).toContain("已按腾讯查询结果回填");
+  expect(wrapper.text()).toContain("已按查询结果回填");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
-  const options = fetcher.mock.calls[1]![1] as RequestInit;
-  expect(options.method).toBe("POST");
-  expect(JSON.parse(options.body as string)).toMatchObject(stock);
-  expect(wrapper.emitted("registered")).toHaveLength(1);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(wrapper.emitted("selected")?.[0]?.[0]).toMatchObject(stock);
 });
 it.each([
   { name: "腾讯控股", market: "HK", code: "00700", currency: "HKD" },
@@ -88,9 +86,7 @@ it.each([
   expect(value("code")).toBe(item.code);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
-  expect(
-    JSON.parse((fetcher.mock.calls[1]![1] as RequestInit).body as string),
-  ).toMatchObject(item);
+  expect(wrapper.emitted("selected")?.[0]?.[0]).toMatchObject(item);
 });
 it("requires selection for multiple exact markets instead of choosing the first", async () => {
   const second = { ...stock, market: "SZ", name: "合成另一市场证券" };
@@ -140,7 +136,7 @@ it.each([
     await field("code").setValue("600519");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
-    expect(wrapper.emitted("registered")).toHaveLength(1);
+    expect(wrapper.emitted("selected")).toHaveLength(1);
   },
 );
 it("rejects incomplete codes before network access", async () => {
@@ -175,24 +171,16 @@ it("ignores a superseded response even when the transport ignores cancellation",
   expect(value("name")).toBe("");
   expect(value("code")).toBe("");
 });
-it("prevents duplicate registration and preserves the original idempotent write on retry", async () => {
-  start([{ ...stock, id: "existing" } as Instrument]);
-  await lookup();
+it("edits security identity without changing the original identity", async () => {
+  start({ ...stock, id: "existing" } as Instrument);
+  await field("name").setValue("更正名称");
   await wrapper.get("form").trigger("submit");
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(wrapper.text()).toContain("该证券已登记");
-  await wrapper.setProps({ instruments: [] });
-  fetcher.mockRejectedValueOnce(new Error("lost response"));
-  await wrapper.get("form").trigger("submit");
-  await flushPromises();
-  expect(workspace.locked.value).toBe(true);
-  expect(
-    (field("search").element as HTMLInputElement).matches(":disabled"),
-  ).toBe(true);
-  const first = fetcher.mock.calls[1]![1] as RequestInit;
-  await workspace.retry();
-  const retry = fetcher.mock.calls[2]![1] as RequestInit;
-  expect(retry.body).toBe(first.body);
-  expect(retry.headers).toEqual(first.headers);
-  expect(wrapper.emitted("registered")).toHaveLength(1);
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(wrapper.emitted("selected")?.[0]?.[0]).toMatchObject({
+    name: "更正名称",
+    code: stock.code,
+  });
+  expect((wrapper.emitted("selected")?.[0]?.[0] as Instrument).id).not.toBe(
+    "existing",
+  );
 });

@@ -55,7 +55,7 @@ const labels: Record<string, string> = {
   pending_recalculation: "存在受持仓修改影响的旧估值，需要核实或修正",
   untracked_history: "历史估值未追踪版本，不能确认有效性",
   reported: "明确记录",
-  carried: "沿用此前原值，未增加资金流",
+  carried: "最近明确资产加后续净转入，仅供参考",
   observed: "已追踪估值，未发现后续相关修改",
   stale: "旧估值受修改影响，未重算",
   untracked: "旧估值未追踪",
@@ -108,12 +108,7 @@ function load() {
           (p.valuation &&
             (p.valuation.account_id !== id ||
               p.valuation.id !== p.record_id ||
-              p.valuation.as_of !== p.date)) ||
-          (p.operation &&
-            ((p.operation.operation.account_id !== id &&
-              p.operation.operation.to_account_id !== id) ||
-              p.operation.operation.id !== p.record?.operation_id ||
-              p.operation.operation.date !== p.date)),
+              p.valuation.as_of !== p.date)),
       ) ||
       !Array.isArray(result.changes) ||
       typeof result.net_flow !== "string" ||

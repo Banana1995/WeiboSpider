@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
@@ -25,7 +26,6 @@ type HoldingsSnapshot struct {
 	SavedAt   string            `json:"saved_at"`
 	Cash      Money             `json:"cash"`
 	Positions []CurrentPosition `json:"positions"`
-	Trades    *ManualTradeBasis `json:"trades,omitempty"`
 }
 
 type CurrentHoldings struct {
@@ -35,10 +35,10 @@ type CurrentHoldings struct {
 }
 
 type CurrentHoldingsInput struct {
+	Securities      []instrumentJSON  `json:"securities,omitempty"`
 	ExpectedVersion string            `json:"expected_version"`
 	Cash            *Money            `json:"cash"`
 	Positions       []CurrentPosition `json:"positions"`
-	BaselineDate    *string           `json:"baseline_date,omitempty"`
 }
 
 func (p HoldingsSnapshot) valid() bool {
@@ -54,7 +54,7 @@ func (p HoldingsSnapshot) valid() bool {
 		}
 		prior = row.InstrumentID
 	}
-	return p.Trades == nil || p.Trades.valid(p)
+	return true
 }
 
 func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHoldings, error) {
@@ -66,13 +66,6 @@ func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHol
         AND a.account_id=c.account_id AND a.entity_id=c.account_id AND a.version=c.version
         WHERE c.account_id=?`, id).Scan(&version, &out.AuditID, &payload, &audited)
 	if errors.Is(err, sql.ErrNoRows) {
-		var hasTrades bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM manual_trades WHERE account_id=?)`, id).Scan(&hasTrades); err != nil {
-			return out, err
-		}
-		if hasTrades {
-			return out, ErrCorrupt
-		}
 		return out, nil
 	}
 	if err != nil {
@@ -81,20 +74,6 @@ func readCurrentHoldings(ctx context.Context, tx *sql.Tx, id string) (CurrentHol
 	out.Snapshot = &HoldingsSnapshot{}
 	if payload != audited || decodeReceipt(payload, out.Snapshot) != nil || !out.Snapshot.valid() || out.Snapshot.Version != strconv.FormatInt(version, 10) {
 		return out, ErrCorrupt
-	}
-	var latest, count, audits int64
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(version),0),count(*),
-		(SELECT count(*) FROM audit_log WHERE account_id=? AND entity_type='manual_trade')
-		FROM manual_trades WHERE account_id=?`, id, id).Scan(&latest, &count, &audits); err != nil {
-		return out, err
-	}
-	if count != audits || latest != 0 && (out.Snapshot.Trades == nil || out.Snapshot.Trades.LastVersion != strconv.FormatInt(latest, 10)) || latest == 0 && out.Snapshot.Trades != nil && out.Snapshot.Trades.LastVersion != "" {
-		return out, ErrCorrupt
-	}
-	if latest != 0 {
-		if _, err := readManualTrade(ctx, tx, id, latest); err != nil {
-			return out, err
-		}
 	}
 	return out, nil
 }
@@ -105,12 +84,9 @@ func (s *Store) CurrentHoldings(ctx context.Context, id string) (CurrentHoldings
 		return out, ErrQuery
 	}
 	err := s.db.WithTx(ctx, func(tx *sql.Tx) error {
-		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
+		_, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
 		if err != nil {
 			return err
-		}
-		if info.AccountingMode != "reported" {
-			return ErrUnsupported
 		}
 		out, err = readCurrentHoldings(ctx, tx, id)
 		return err
@@ -124,13 +100,7 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 	if !validID(id) || !validID(key) || err != nil || expected < 0 || expected == math.MaxInt64 || strconv.FormatInt(expected, 10) != input.ExpectedVersion || input.Cash == nil || *input.Cash < 0 || input.Positions == nil || len(input.Positions) > 200 {
 		return out, ErrOperation
 	}
-	baselineDate := ""
-	if input.BaselineDate != nil {
-		baselineDate = *input.BaselineDate
-		if !validDate(baselineDate) {
-			return out, ErrOperation
-		}
-	}
+	input.Securities = append([]instrumentJSON(nil), input.Securities...)
 	// Freeze caller-owned input before any database work. Receipt identity includes row order.
 	raw, err := json.Marshal(struct {
 		AccountID string
@@ -166,17 +136,11 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 			if decodeReceipt(payload, &saved) != nil || !reflect.DeepEqual(saved, *out.Snapshot) || saved.Cash != next.Cash || !reflect.DeepEqual(saved.Positions, next.Positions) {
 				return ErrCorrupt
 			}
-			if baselineDate != "" && manualBasis(id, saved).FloorDate != baselineDate {
-				return ErrCorrupt
-			}
 			return nil
 		}
-		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
+		_, err = scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
 		if err != nil {
 			return err
-		}
-		if info.AccountingMode != "reported" {
-			return ErrUnsupported
 		}
 		old, err := readCurrentHoldings(ctx, tx, id)
 		if err != nil {
@@ -194,35 +158,56 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 			return err
 		}
 		next.SavedAt = stamp
-		floor := date
-		if baselineDate != "" {
-			// readCurrentHoldings verifies LastVersion against the immutable journal.
-			if old.Snapshot != nil && old.Snapshot.Trades != nil && old.Snapshot.Trades.LastVersion != "" && baselineDate != date {
-				return ErrUnsafeTradeDate
-			}
-			if baselineDate > date || baselineDate < info.OpeningDate {
-				return ErrOperation
-			}
-			floor = baselineDate
-		}
-		if old.Snapshot != nil && old.Snapshot.Trades != nil {
-			next.Trades = resetManualBasis(id, *old.Snapshot, next, floor)
-		} else if baselineDate != "" {
-			basis := manualBasis(id, next)
-			basis.FloorDate = floor
-			next.Trades = &basis
-		}
 		if !next.valid() {
 			return ErrOperation
 		}
-		for _, p := range next.Positions {
-			var exists bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM instruments WHERE id=?)`, p.InstrumentID).Scan(&exists); err != nil {
-				return err
-			}
-			if !exists {
+		identities := map[string]bool{}
+		if len(input.Securities) > len(next.Positions) {
+			return ErrOperation
+		}
+		for _, i := range input.Securities {
+			if !validID(i.ID) || !slices.ContainsFunc(next.Positions, func(p CurrentPosition) bool { return p.InstrumentID == i.ID }) || !validText(i.Name) || strings.TrimSpace(i.Name) == "" || !validText(i.Market) || !validText(i.Code) || !i.Currency.valid() || i.Market != strings.ToUpper(strings.TrimSpace(i.Market)) || i.Code != strings.ToUpper(strings.TrimSpace(i.Code)) {
 				return ErrOperation
 			}
+			switch i.Market {
+			case "SH", "SZ":
+				if len(i.Code) != 6 || strings.Trim(i.Code, "0123456789") != "" {
+					return ErrOperation
+				}
+			case "HK":
+				if len(i.Code) != 5 || strings.Trim(i.Code, "0123456789") != "" {
+					return ErrOperation
+				}
+			case "US":
+			default:
+				return ErrOperation
+			}
+			result, err := tx.ExecContext(ctx, `INSERT INTO instruments(id,market,code,name,currency) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, i.ID, i.Market, i.Code, i.Name, i.Currency)
+			if err != nil {
+				return constraintError(err)
+			}
+			if n, err := result.RowsAffected(); err != nil {
+				return err
+			} else if n == 1 {
+				if _, err := appendAudit(ctx, tx, key, "create", "instrument", i.ID, id, 1, stamp, "human", nil, i, nil); err != nil {
+					return err
+				}
+			}
+			stored, err := holdingInstrument(ctx, tx, i.ID)
+			if err != nil || i != (instrumentJSON{stored.ID, stored.Market, stored.Code, stored.Name, stored.Currency}) {
+				return ErrConflict
+			}
+		}
+		for _, p := range next.Positions {
+			i, err := holdingInstrument(ctx, tx, p.InstrumentID)
+			if err != nil {
+				return ErrOperation
+			}
+			identity := i.Market + "/" + i.Code
+			if identities[identity] {
+				return ErrConflict
+			}
+			identities[identity] = true
 		}
 		action := "create"
 		var before any
@@ -267,6 +252,18 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 		return CurrentHoldings{}, err
 	}
 	return out, nil
+}
+
+func holdingInstrument(ctx context.Context, tx *sql.Tx, id string) (Instrument, error) {
+	var i Instrument
+	err := tx.QueryRowContext(ctx, `SELECT id,market,code,name,currency FROM instruments WHERE id=?`, id).Scan(&i.ID, &i.Market, &i.Code, &i.Name, &i.Currency)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	if err == nil && (!i.Currency.valid() || !validID(i.ID)) {
+		err = ErrCorrupt
+	}
+	return i, err
 }
 
 func (h Handler) currentHoldings(w http.ResponseWriter, r *http.Request) {

@@ -23,7 +23,7 @@ const snapshot: ValuationHistory = {
   schema_version: 1,
   account_name: "保存时账户名称",
   valuation: {
-    source: "transaction_replay",
+    source: "manual_snapshot",
     ...row,
     complete: true,
     known_positions_value: row.positions_value,

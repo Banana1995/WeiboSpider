@@ -210,6 +210,7 @@ it("validates amounts, protects unsaved edits on close and Escape, and restores 
   await click("放弃修改");
   expect(document.activeElement).toBe(trigger.element);
   expect(wrapper.findAll("tbody tr")).toHaveLength(6);
+  await click("＋ 记一笔");
   await click("更新总资产");
   await dialog().get('[name="assets"]').setValue("0");
   await submit();
@@ -218,12 +219,15 @@ it("validates amounts, protects unsaved edits on close and Escape, and restores 
 
 it("keeps notes and missing assets blank, differentiating empty results from empty accounts", async () => {
   start();
-  await click("＋ 记一笔");
-  await click("仅记备注");
+  await wrapper.get('[aria-label="记录类型"]').setValue("note");
+  await wrapper.get("tbody tr button").trigger("click");
+  await flushPromises();
+  await dialog().get('[name="note"]').setValue("");
   await submit();
   expect(dialog().text()).toContain("请填写备注内容");
   await dialog().get('[name="note"]').setValue("仅备注不改金额");
   await submit();
+  await wrapper.get('[aria-label="记录类型"]').setValue("note");
   expect(wrapper.get("tbody tr").text()).toContain("仅备注不改金额");
   expect(wrapper.get("tbody tr .lp-record-assets").text()).toBe("—");
   expect(wrapper.get('[data-testid="latest-assets"]').text()).toBe(
@@ -236,11 +240,12 @@ it("keeps notes and missing assets blank, differentiating empty results from emp
   await wrapper.get('[aria-label="记录类型"]').setValue("out");
   expect(wrapper.text()).toContain("没有符合筛选条件的记录");
   await wrapper.get("#demo-account").setValue(1);
-  expect(wrapper.get("tbody tr").text()).toContain("仅备注不改金额");
   expect(wrapper.get('[aria-label="记录类型"]').element).toHaveProperty(
     "value",
     "all",
   );
+  await wrapper.get('[aria-label="记录类型"]').setValue("note");
+  expect(wrapper.get("tbody tr").text()).toContain("仅备注不改金额");
 });
 
 it("edits account information without silently relabelling populated currencies", async () => {

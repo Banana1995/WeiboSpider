@@ -83,7 +83,7 @@ const errors: Record<string, string> = {
             ? "本次估值不完整，不写入历史记录。"
             : snapshot.history_id
               ? `此快照已保存为历史记录 #${snapshot.history_id}`
-              : "只读预览，尚未保存，不改变账本。请使用“更新并保存总资产”明确保存。"
+              : "只读参考估值，不改变账本。历史资产由每周任务或人工资产记录维护。"
         }}
       </p>
       <p v-if="!complete" role="alert">

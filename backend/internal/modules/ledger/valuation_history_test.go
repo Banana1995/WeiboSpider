@@ -19,6 +19,24 @@ import (
 
 var historyKeys atomic.Int64
 
+// Exercise the fixed-record writer directly. The production HTTP valuation
+// resource remains read-only; weekly tests separately exercise job idempotency.
+func sampleValuation(t *testing.T, s *Store, id string, h Handler) Valuation {
+	t.Helper()
+	v, instruments, err := s.valuationInputs(t.Context(), id)
+	require.NoError(t, err)
+	if h.Now == nil {
+		h.Now = s.now
+	}
+	require.NoError(t, h.valuePositions(t.Context(), &v, instruments))
+	historyID, err := s.RecordValuation(t.Context(), v, instruments)
+	require.NoError(t, err)
+	v.HistoryID = historyID
+	var wire Valuation
+	require.NoError(t, json.Unmarshal([]byte(httpPayload(t, v)), &wire))
+	return wire
+}
+
 func historyHTTPRequest(method, path string) *http.Request {
 	r := httptest.NewRequest(method, ledgerPrefix+"/accounts/"+path, nil)
 	if method == "POST" {
@@ -54,7 +72,8 @@ func historyCount(t *testing.T, s *Store, want int) {
 
 func TestHistoryAppendPagesAndReadOnly(t *testing.T) {
 	s := valuationFixture(t, nil, nil)
-	require.NoError(t, s.InitializeAccount(t.Context(), "Other", Opening{AccountID: "b", Currency: CNY, Date: "2026-01-01"}))
+	manualSourceAccount(t, s, "b")
+	putSource(t, s, "b", "input-b", "0", 0)
 	mux := historyMux(s)
 	require.JSONEq(t, `{"items":[]}`, string(historyRequest(t, mux, "GET", "a/valuations", 200)))
 	for _, path := range []string{"a/valuation", "a/valuations", "missing/valuations"} {
@@ -67,8 +86,7 @@ func TestHistoryAppendPagesAndReadOnly(t *testing.T) {
 	historyCount(t, s, 0)
 	var first Valuation
 	for n := 1; n <= 3; n++ {
-		var v Valuation
-		require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &v))
+		v := sampleValuation(t, s, "a", Handler{})
 		require.Equal(t, strconv.Itoa(n), v.HistoryID)
 		require.Len(t, v.LedgerRevision, 64)
 		if n == 1 {
@@ -78,9 +96,9 @@ func TestHistoryAppendPagesAndReadOnly(t *testing.T) {
 			require.Equal(t, first, v)
 		}
 	}
-	historyRequest(t, mux, "POST", "b/valuation", 200)
+	sampleValuation(t, s, "b", Handler{})
 	s.now = func() time.Time { return stockNow.AddDate(0, 0, 1) }
-	historyRequest(t, mux, "POST", "a/valuation", 200)
+	sampleValuation(t, s, "a", Handler{})
 	var page listJSON[ValuationSummary]
 	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "GET", "a/valuations?limit=2", 200), &page))
 	require.Equal(t, []string{"5", "3"}, []string{page.Items[0].ID, page.Items[1].ID})
@@ -119,10 +137,8 @@ func TestHistoryAppendPagesAndReadOnly(t *testing.T) {
 
 func TestHistoryForeignFrozenAfterCorrectionsAndMarketChanges(t *testing.T) {
 	i := Instrument{ID: "i", Market: "HK", Code: "00700", Name: "Original name", Currency: HKD}
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "i", Quantity: 1_234_567}}, []Instrument{i})
-	op := Operation{ID: "deposit", AccountID: "a", Date: "2026-02-01", Sequence: 1, Kind: Deposit, Amount: 100}
-	_, err := s.Write(t.Context(), Command{Action: CreateOperation, Key: "create", Operation: op, Reason: "initial"})
-	require.NoError(t, err)
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "i", Quantity: 1_234_567}}, []Instrument{i})
+	putSource(t, s, "a", "cash-edit", "1", 10100, CurrentPosition{"i", 1_234_567})
 	price, rate := Price(12_345_678), Rate(91_234_567)
 	h := Handler{Store: s, Now: func() time.Time { return stockNow }, Quotes: valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
 		rows := validValuationQuotes(ctx, is)
@@ -133,8 +149,7 @@ func TestHistoryForeignFrozenAfterCorrectionsAndMarketChanges(t *testing.T) {
 	})}
 	mux := http.NewServeMux()
 	h.Register(mux)
-	var v Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &v))
+	v := sampleValuation(t, s, "a", h)
 	historyPath := "a/valuations/" + v.HistoryID
 	before := historyRequest(t, mux, "GET", historyPath, 200)
 	var saved ValuationHistory
@@ -146,17 +161,13 @@ func TestHistoryForeignFrozenAfterCorrectionsAndMarketChanges(t *testing.T) {
 	require.Equal(t, Money(1390), *saved.Valuation.PositionsValue)
 	require.Equal(t, "prior_date", saved.Valuation.Items[0].Status)
 	price, rate = 20_000_000, 100_000_000
-	op.Amount = 200
-	_, err = s.Write(t.Context(), Command{Action: ReplaceOperation, Key: "replace", ExpectedVersion: 1, Operation: op, Reason: "correct"})
-	require.NoError(t, err)
-	var corrected Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &corrected))
+	putSource(t, s, "a", "replace-input", "2", 10200, CurrentPosition{"i", 2_000_000})
+	corrected := sampleValuation(t, s, "a", h)
 	require.NotEqual(t, v.LedgerRevision, corrected.LedgerRevision)
 	require.NotEqual(t, *v.TotalAssets, *corrected.TotalAssets)
-	_, err = s.Write(t.Context(), Command{Action: VoidOperation, Key: "void", ExpectedVersion: 2, Operation: Operation{ID: op.ID}, Reason: "void"})
-	require.NoError(t, err)
+	putSource(t, s, "a", "delete-holding", "3", 0)
 	// Frozen identities cannot be changed out of band.
-	_, err = s.db.ExecContext(t.Context(), `UPDATE instruments SET name='Changed',code='00005'; UPDATE accounts SET name='Changed'`)
+	_, err := s.db.ExecContext(t.Context(), `UPDATE instruments SET name='Changed',code='00005'; UPDATE accounts SET name='Changed'`)
 	require.Error(t, err)
 	readMux := http.NewServeMux()
 	Handler{Store: s, Quotes: valuationQuotes(func(context.Context, []Instrument) map[string]QuoteResult {
@@ -170,21 +181,20 @@ func TestHistoryForeignFrozenAfterCorrectionsAndMarketChanges(t *testing.T) {
 
 func TestHistoryLateFinishCapturesOriginalBasisAndClosedIdentities(t *testing.T) {
 	i := Instrument{ID: "i", Market: "SH", Code: "600000", Name: "Original", Currency: CNY}
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
-	v, _, err := s.valuationInputs(t.Context(), "a")
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
+	v, captured, err := s.valuationInputs(t.Context(), "a")
 	require.NoError(t, err)
 	h := Handler{Store: s, Now: func() time.Time { return stockNow }, Quotes: valuationQuotes(func(ctx context.Context, is []Instrument) map[string]QuoteResult {
-		_, err := s.Write(ctx, Command{Action: CreateOperation, Key: "sell", Reason: "close", Operation: Operation{ID: "sell", AccountID: "a", InstrumentID: "i", Kind: Sell, Date: "2026-09-06", Sequence: 1, Quantity: 1_000_000, Price: 10_000_000}})
+		_, err := s.PutCurrentHoldings(ctx, "a", "remove", CurrentHoldingsInput{ExpectedVersion: "1", Cash: replayMoney(20000), Positions: []CurrentPosition{}})
 		require.NoError(t, err)
 		return validValuationQuotes(ctx, is)
 	})}
-	mux := http.NewServeMux()
-	h.Register(mux)
-	var observed Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &observed))
-	require.Equal(t, v.LedgerRevision, observed.LedgerRevision)
-	require.Equal(t, v.Cash, observed.Cash)
-	require.Equal(t, Quantity(1_000_000), observed.Items[0].Quantity)
+	require.NoError(t, h.valuePositions(t.Context(), &v, captured))
+	require.Equal(t, Money(10000), v.Cash)
+	require.Equal(t, Quantity(1_000_000), v.Items[0].Quantity)
+	_, err = s.RecordValuation(t.Context(), v, captured)
+	require.ErrorIs(t, err, errWeeklyBasis)
+	historyCount(t, s, 0)
 	current, held, err := s.valuationInputs(t.Context(), "a")
 	require.NoError(t, err)
 	require.NotEqual(t, v.LedgerRevision, current.LedgerRevision)
@@ -195,9 +205,9 @@ func TestHistoryLateFinishCapturesOriginalBasisAndClosedIdentities(t *testing.T)
 	require.NoError(t, err)
 	detail, err := s.ValuationHistory(t.Context(), "a", historyID)
 	require.NoError(t, err)
-	require.Len(t, detail.Instruments, 1)
-	require.Equal(t, "closed", detail.Valuation.Items[0].Status)
-	require.Equal(t, "Original", detail.Instruments[0].Name)
+	require.Empty(t, detail.Instruments)
+	require.Empty(t, detail.Valuation.Items)
+	require.Equal(t, Money(20000), *detail.Valuation.TotalAssets)
 }
 
 func TestHistoryWriteErrorsAndCancellationRollback(t *testing.T) {
@@ -238,7 +248,7 @@ func TestHistoryWriteErrorsAndCancellationRollback(t *testing.T) {
 			}
 			historyCount(t, s, 0)
 			if mode == "after_insert_error" || mode == "commit_error" {
-				historyRequest(t, historyMux(s), "POST", "a/valuation", 500)
+				historyRequest(t, historyMux(s), "POST", "a/valuation", 405)
 				historyRequest(t, historyMux(s), "GET", "a/valuation", 200)
 				historyCount(t, s, 0)
 				// HEAD still succeeds without attempting the failing write.
@@ -250,23 +260,12 @@ func TestHistoryWriteErrorsAndCancellationRollback(t *testing.T) {
 
 func TestHistoryConcurrentObservations(t *testing.T) {
 	s := valuationFixture(t, nil, nil)
-	mux := historyMux(s)
 	const count = 16
 	var wg sync.WaitGroup
 	ids := make(chan string, count)
 	for range count {
 		wg.Go(func() {
-			w := httptest.NewRecorder()
-			mux.ServeHTTP(w, historyHTTPRequest("POST", "a/valuation"))
-			if w.Code != 200 {
-				t.Errorf("status %d: %s", w.Code, w.Body.String())
-				return
-			}
-			var v Valuation
-			if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
-				t.Error(err)
-				return
-			}
+			v := sampleValuation(t, s, "a", Handler{})
 			ids <- v.HistoryID
 		})
 	}
@@ -291,12 +290,10 @@ func TestHistoryLargeSharedTimelineIDs(t *testing.T) {
 		_, err := putAccountRecord(t.Context(), tx, &record, nil, "high-sequence", "Synthetic", "human")
 		return err
 	}))
-	var v Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &v))
+	v := sampleValuation(t, s, "a", Handler{})
 	require.Equal(t, "9007199254740993", v.HistoryID)
 	historyRequest(t, mux, "GET", "a/valuations/9007199254740993", 200)
-	var latest Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &latest))
+	latest := sampleValuation(t, s, "a", Handler{})
 	require.Equal(t, "9007199254740994", latest.HistoryID)
 	var page listJSON[ValuationSummary]
 	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "GET", "a/valuations?limit=1", 200), &page))
@@ -309,7 +306,7 @@ func TestHistoryLargeSharedTimelineIDs(t *testing.T) {
 
 func TestHistoryRejectsCorruptQuoteFXAndIdentity(t *testing.T) {
 	i := Instrument{ID: "i", Market: "HK", Code: "00700", Name: "Frozen", Currency: HKD}
-	s := valuationFixture(t, []OpeningPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
+	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "i", Quantity: 1_000_000}}, []Instrument{i})
 	v, held, err := s.valuationInputs(t.Context(), "a")
 	require.NoError(t, err)
 	h := Handler{Now: func() time.Time { return stockNow }, Quotes: valuationQuotes(validValuationQuotes), FX: valuationFX(func(context.Context, FXRequest) (FXQuote, error) {
@@ -376,7 +373,7 @@ func TestHistoryCorruptStorageAndInvalidSnapshotsFailClosed(t *testing.T) {
 		t.Run(mutation, func(t *testing.T) {
 			s := valuationFixture(t, nil, nil)
 			mux := historyMux(s)
-			historyRequest(t, mux, "POST", "a/valuation", 200)
+			sampleValuation(t, s, "a", Handler{})
 			allowAuditCorruption(t, s.db)
 			_, err := s.db.ExecContext(t.Context(), mutation)
 			require.NoError(t, err)

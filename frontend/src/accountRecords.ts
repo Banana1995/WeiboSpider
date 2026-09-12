@@ -1,18 +1,12 @@
 import type { ImportedRow } from "./ledgerImport";
 export type AccountRecordOrigin =
-  | "import"
-  | "manual"
-  | "currentrefresh"
-  | "weekly"
-  | "weekly_carry"
-  | "operation";
+  "import" | "manual" | "currentrefresh" | "weekly" | "weekly_carry";
 export const accountRecordOriginLabels: Record<AccountRecordOrigin, string> = {
   import: "Excel 导入",
   manual: "手工记录",
   currentrefresh: "自动估值",
   weekly: "周六估值",
   weekly_carry: "每周沿用",
-  operation: "持仓操作",
 };
 export interface AccountEntry {
   kind: "asset" | "cash_flow" | "log";
@@ -36,7 +30,6 @@ export interface AccountRecord extends AccountEntry {
   sequence?: string;
   account_id: string;
   origin: AccountRecordOrigin;
-  operation_id?: string;
   quote_audit_id?: string;
   manual_assertion?: boolean;
   carried_from?: AccountRecordSource;

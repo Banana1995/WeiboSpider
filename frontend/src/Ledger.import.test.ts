@@ -8,12 +8,11 @@ import { LedgerError, request, type Account } from "./ledger";
 import type { ImportPreview } from "./ledgerImport";
 
 const holdings: Account = {
-  current_holdings_input: "transaction_replay",
+  current_holdings_input: "manual_snapshot",
   id: "holdings",
   name: "合成持仓账户",
   currency: "CNY",
-  accounting_mode: "holdings",
-  opening_cash: "10.00",
+  opening_cash: null,
   opening_date: "2026-01-01",
   version: "1",
 };
@@ -21,7 +20,6 @@ const reported: Account = {
   ...holdings,
   id: "reported",
   name: "合成总资产账户",
-  accounting_mode: "reported",
   current_holdings_input: "manual_snapshot",
   opening_cash: null,
 };
@@ -86,6 +84,12 @@ let summary404: boolean;
 let committed: boolean;
 let commits: { path: string; body: FormData; key: string | null }[];
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   accounts = [holdings, reported];
   readFailure = false;
   uncertain = false;
@@ -130,6 +134,22 @@ beforeEach(() => {
         audit_id: "",
         snapshot: null,
       });
+    if (path.endsWith("/holdings"))
+      return response({
+        account_id: path.split("/")[2],
+        currency: "CNY",
+        source: "manual_snapshot",
+        as_of: "2026-09-06",
+        ledger_at: "2026-09-06T00:00:00Z",
+        revision: "a".repeat(64),
+        manual_version: "0",
+        configured: false,
+        cash: null,
+        complete: false,
+        total_assets: null,
+        items: [],
+      });
+    if (path.endsWith("/records")) return response({ items: [] });
     if (path.endsWith("/import-summary"))
       return summary404
         ? response({ code: "not_found" }, 404)
@@ -167,7 +187,7 @@ beforeEach(() => {
     if (account)
       return response({
         ...account,
-        cash: account.accounting_mode === "holdings" ? "10.00" : null,
+        cash: null,
       });
     return response({ code: "not_found" }, 404);
   });
@@ -194,11 +214,22 @@ async function showPreview() {
 }
 async function start(
   component: typeof ImportAccount | typeof Ledger = ImportAccount,
+  openImport = true,
 ) {
   wrapper =
     component === Ledger
       ? mount(Ledger)
       : mount(ImportAccount, { props: { accounts, disabled: false } });
+  await flushPromises();
+  if (component === Ledger && openImport) {
+    await click("管理账户");
+    await click("导入 Excel 账本");
+  }
+}
+async function click(text: string) {
+  const button = wrapper.findAll("button").find((b) => b.text() === text);
+  expect(button, text).toBeTruthy();
+  await button!.trigger("click");
   await flushPromises();
 }
 
@@ -215,11 +246,17 @@ it("requires explicit preview and confirmation, shows exact signed/combined/miss
     "file",
   ]);
   expect(new Headers(init.headers).has("Content-Type")).toBe(false);
-  expect(wrapper.findAll("tbody tr")).toHaveLength(30);
-  expect(wrapper.findAll("tbody tr")[0]!.text()).toContain("-1.01");
-  expect(wrapper.findAll("tbody tr")[0]!.text()).toContain("90071992547409.01");
-  expect(wrapper.findAll("tbody tr")[1]!.text()).toContain("未提供");
-  expect(wrapper.get("pre").text()).toBe("合成日志\n第二行");
+  expect(wrapper.findAll(".lp-import-preview li")).toHaveLength(30);
+  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
+    "-1.01",
+  );
+  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
+    "90,071,992,547,409.01",
+  );
+  expect(wrapper.findAll(".lp-import-preview li")[1]!.text()).toContain(
+    "总资产 —",
+  );
+  expect(wrapper.get(".lp-note-text").text()).toBe("合成日志\n第二行");
   for (const text of [
     "合成原文 4%",
     "累计流出（正数）",
@@ -234,7 +271,9 @@ it("requires explicit preview and confirmation, shows exact signed/combined/miss
     .findAll("button")
     .find((b) => b.text() === "下一页预览")!
     .trigger("click");
-  expect(wrapper.findAll("tbody tr")[0]!.text()).toContain("#35");
+  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
+    "第 35 行",
+  );
   await wrapper.get('[data-test="import-confirm"]').trigger("click");
   await flushPromises();
   expect(commits).toHaveLength(1);
@@ -300,11 +339,15 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
     wrapper.get('[data-test="import-account"] fieldset').attributes(),
   ).toHaveProperty("disabled");
   expect(
-    wrapper.get('[data-test="account-form"] fieldset').attributes(),
-  ).toHaveProperty("disabled");
+    wrapper
+      .findAll('[role="tab"]')
+      .every((b) => b.attributes("disabled") !== undefined),
+  ).toBe(true);
   expect(
-    wrapper.get(".ledger-account-list button").attributes(),
-  ).toHaveProperty("disabled");
+    wrapper
+      .findAll("nav a")
+      .every((a) => a.attributes("aria-disabled") === "true"),
+  ).toBe(true);
   expect(
     wrapper.get('[data-test="import-retry"]').attributes("disabled"),
   ).toBeUndefined();
@@ -315,11 +358,9 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
   expect(commits[1]!.path).toBe(commits[0]!.path);
   expect(formEntries(commits[1]!.body)).toEqual(formEntries(commits[0]!.body));
   expect(commits[1]!.body.get("file")).toBe(file);
-  expect(wrapper.text()).toContain("相同内容已存在，未重复导入");
+  expect(wrapper.text()).toContain("相同内容未重复导入");
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
-  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
-    "合成来源账户",
-  );
+  expect(wrapper.get(".lp-info").text()).toContain("合成来源账户");
   const id = commits[0]!.path.split("/")[2]!;
   expect(
     fetcher.mock.calls.some(([url]) =>
@@ -339,50 +380,38 @@ it("keeps success final when account and import reads fail, and never retries th
   expect(wrapper.find('[data-test="import-retry"]').exists()).toBe(false);
   expect(wrapper.find('[data-test="valuation"]').exists()).toBe(false);
   readFailure = false;
-  await wrapper.get('[data-test="refresh"]').trigger("click");
+  await click("重新读取账户");
   await flushPromises();
   expect(commits).toHaveLength(1);
-  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
-    "合成来源账户",
-  );
+  expect(wrapper.get(".lp-info").text()).toContain("合成来源账户");
 });
 
 it("accounts without a configured current source do not request valuations or accept transaction inputs", async () => {
-  await start(Ledger);
-  await wrapper.findAll(".ledger-account-list button")[1]!.trigger("click");
+  await start(Ledger, false);
+  await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
-  expect(wrapper.find('[data-test="valuation"]').exists()).toBe(false);
-  expect(wrapper.text()).toContain("总资产账户（无期初现金）");
-  expect(wrapper.text()).toContain("账户级导入记录");
-  expect(wrapper.text()).not.toContain("申报");
-  expect(wrapper.get('[name="account_id"]').text()).not.toContain(
-    reported.name,
+  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
+    "尚未设置当前持仓",
   );
-  await wrapper.get('[name="kind"]').setValue("transfer");
-  expect(wrapper.get('[name="to_account_id"]').text()).not.toContain(
-    reported.name,
+  expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(false);
+  expect(wrapper.find('[name="to_account_id"]').exists()).toBe(false);
+  expect(
+    wrapper
+      .findAll("button")
+      .find((b) => b.text() === "添加持仓")!
+      .attributes("disabled"),
+  ).toBeUndefined();
+  await wrapper.findAll('[role="tab"]')[0]!.trigger("click");
+  await flushPromises();
+  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
+    "尚未设置当前持仓",
   );
   expect(
     fetcher.mock.calls.some(([url]) =>
-      /\/accounts\/reported\/(positions|valuation)/.test(url),
+      /\/(positions|operations|valuation)(?:\?|$)/.test(url),
     ),
   ).toBe(false);
-  await wrapper.findAll(".ledger-account-list button")[0]!.trigger("click");
-  await flushPromises();
-  expect(wrapper.get('[data-test="valuation"]').text()).toContain("10.00");
-  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
-    "90071992547409.01",
-  );
-  expect(
-    fetcher.mock.calls.some(([url]) =>
-      url.includes("/accounts/holdings/positions?"),
-    ),
-  ).toBe(true);
-  expect(
-    fetcher.mock.calls.some(([url]) =>
-      url.includes("/accounts/holdings/valuations?"),
-    ),
-  ).toBe(true);
+  expect(commits).toHaveLength(0);
 });
 
 it("edits current holdings on the imported account, coordinates pending locks and only explicitly quotes", async () => {
@@ -407,43 +436,47 @@ it("edits current holdings on the imported account, coordinates pending locks an
         snapshot,
       });
     }
-    if (
-      url.endsWith("/accounts/reported/valuation") &&
-      init.method === "POST"
-    ) {
-      const preview = await original(url, {});
+    if (url.endsWith("/accounts/reported/holdings") && snapshot)
       return response({
-        ...(await preview.json()),
-        history_id: "8",
+        account_id: "reported",
+        currency: "CNY",
         source: "manual_snapshot",
-        current_holdings: { account_id: "reported", audit_id: "5", snapshot },
+        as_of: "2026-09-08",
+        ledger_at: "2026-09-08T00:00:00Z",
+        revision: "a".repeat(64),
+        manual_version: "1",
+        configured: true,
+        cash: "0.00",
+        complete: true,
+        total_assets: "0.00",
+        items: [],
       });
-    }
     return original(url, init);
   });
-  await start(Ledger);
-  await wrapper.findAll(".ledger-account-list button")[1]!.trigger("click");
+  await start(Ledger, false);
+  await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
   const panel = wrapper.get('[data-test="current-holdings"]');
   expect(panel.text()).toContain("尚未设置");
+  await click("编辑现金与持仓");
   await panel.get('[name="current_cash"]').setValue("0.00");
   await panel.get("form").trigger("submit");
   await flushPromises();
   expect(
-    wrapper.get('[data-test="refresh"]').attributes("disabled"),
+    wrapper
+      .findAll("button")
+      .find((b) => b.text() === "刷新当前数据")!
+      .attributes("disabled"),
   ).toBeDefined();
   expect(
     wrapper
-      .findAll(".ledger-account-list button")
+      .findAll('[role="tab"]')
       .every((b) => b.attributes("disabled") !== undefined),
   ).toBe(true);
-  expect(wrapper.findComponent(ImportAccount).props("disabled")).toBe(true);
-  expect(
-    wrapper.findComponent({ name: "AccountRecords" }).props("disabled"),
-  ).toBe(true);
+  expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
   await panel.get('[data-test="current-retry"]').trigger("click");
   await flushPromises();
-  expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(true);
+  expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(false);
   expect(
     fetcher.mock.calls.some(([url]) =>
       url.endsWith("/accounts/reported/valuation"),
@@ -457,15 +490,15 @@ it("edits current holdings on the imported account, coordinates pending locks an
   expect(new Headers(writes[0]![1].headers).get("Idempotency-Key")).toBe(
     new Headers(writes[1]![1].headers).get("Idempotency-Key"),
   );
-  await wrapper.get('[data-test="preview-valuation"]').trigger("click");
+  await click("刷新行情");
   await flushPromises();
-  expect(wrapper.get('[data-test="valuation"]').text()).toContain("10.00");
-  await wrapper.get('[data-test="save-valuation"]').trigger("click");
-  await flushPromises();
-  expect(wrapper.text()).toContain("总资产已保存为记录 #8");
-  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
-    "90071992547409.01",
+  expect(wrapper.get(".lp-holdings-totals").text()).toContain("0.00");
+  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
+    "历史总资产、资金流和收益不变",
   );
+  expect(
+    fetcher.mock.calls.filter(([, init]) => init.method === "POST"),
+  ).toHaveLength(0);
   expect(
     fetcher.mock.calls.some(([url]) =>
       /\/accounts\/reported\/(positions|operations)/.test(url),
@@ -624,26 +657,24 @@ it("storage_busy freezes payload and retry stays available even if account reads
 });
 
 it("ignores old account metadata and imported rows after switching to reported", async () => {
-  let finishAccount!: (value: Response) => void;
   let finishRows!: (value: Response) => void;
+  let signal: AbortSignal | undefined;
   const normal = fetcher.getMockImplementation()!;
   fetcher.mockImplementation((url: string, init: RequestInit) => {
-    if (url.endsWith("/accounts/holdings"))
-      return new Promise((resolve) => {
-        finishAccount = resolve;
-      });
     if (url.includes("/accounts/holdings/imported-records"))
       return new Promise((resolve) => {
+        signal = init.signal as AbortSignal;
         finishRows = resolve;
       });
     return normal(url, init);
   });
-  await start(Ledger);
-  await wrapper.findAll(".ledger-account-list button")[0]!.trigger("click");
+  wrapper = mount(ImportedRecords, {
+    props: { accountId: "holdings", refreshKey: 0 },
+  });
   await flushPromises();
-  await wrapper.findAll(".ledger-account-list button")[1]!.trigger("click");
+  await wrapper.setProps({ accountId: "reported" });
   await flushPromises();
-  finishAccount(response({ ...holdings, cash: "999.99" }));
+  expect(signal?.aborted).toBe(true);
   finishRows(
     response({
       items: [{ ...preview.rows[0], id: "old", note: "合成过时内容" }],
@@ -651,7 +682,9 @@ it("ignores old account metadata and imported rows after switching to reported",
   );
   await flushPromises();
   expect(wrapper.text()).not.toContain("合成过时内容");
-  expect(wrapper.find('[data-test="valuation"]').exists()).toBe(false);
+  expect(wrapper.get('[data-test="imported-records"]').text()).toContain(
+    "合成来源账户",
+  );
   expect(
     fetcher.mock.calls.some(([url]) =>
       /\/accounts\/reported\/(positions|valuation)/.test(url),

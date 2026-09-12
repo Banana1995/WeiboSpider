@@ -14,7 +14,6 @@ const props = defineProps<{
   instrumentsError: string;
   instrumentsLoading: boolean;
   initialTab: string;
-  operationId: string;
   refreshKey: number;
 }>();
 const emit = defineEmits<{
@@ -33,12 +32,6 @@ watch(
   (value) => {
     tab.value = value === "import" ? "info" : value;
     if (value === "import") importOpen.value = true;
-  },
-);
-watch(
-  () => props.operationId,
-  (id) => {
-    if (id) tab.value = "holdings";
   },
 );
 </script>
@@ -77,13 +70,7 @@ watch(
         </div>
         <div>
           <dt>持仓来源</dt>
-          <dd>
-            {{
-              account.current_holdings_input === "manual_snapshot"
-                ? "独立维护当前持仓"
-                : "由交易记录计算"
-            }}
-          </dd>
+          <dd>独立维护当前现金与持仓</dd>
         </div>
       </dl>
       <p class="lp-muted">
@@ -121,7 +108,6 @@ watch(
       :instruments="instruments"
       :instruments-error="instrumentsError"
       :instruments-loading="instrumentsLoading"
-      :operation-id="operationId"
       :refresh-key="refreshKey"
       @locked="emit('locked', $event)"
       @create="emit('create')"

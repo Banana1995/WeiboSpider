@@ -222,11 +222,11 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	info, state, err := s.Account(t.Context(), "reported")
 	require.NoError(t, err)
 	require.Nil(t, state)
-	require.Equal(t, "reported", info.AccountingMode)
+	require.Equal(t, CNY, info.Currency)
 	require.Equal(t, "2020-01-01", info.OpeningDate)
-	book, err := s.State(t.Context())
+	current, err := s.CurrentHoldings(t.Context(), "reported")
 	require.NoError(t, err)
-	require.Empty(t, book.Accounts)
+	require.Nil(t, current.Snapshot)
 	retry, err := s.ConfirmAccountImport(t.Context(), "reported", "key", p.Digest, true, data)
 	require.NoError(t, err)
 	require.Equal(t, result, retry)
@@ -250,8 +250,7 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	_, err = s.ConfirmAccountImport(t.Context(), "reported", "key", cp.Digest, true, changed)
 	require.ErrorIs(t, err, ErrIdempotency)
 	for _, query := range []string{
-		`SELECT count(*) FROM operations`,
-		`SELECT count(*) FROM opening_positions`,
+		`SELECT count(*) FROM current_holdings`,
 		`SELECT count(*) FROM account_records WHERE origin IN ('currentrefresh','weekly')`,
 	} {
 		var count int
@@ -262,10 +261,9 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsupported)
 	_, err = s.RecordValuation(t.Context(), Valuation{AccountID: "reported"}, nil)
 	require.ErrorIs(t, err, ErrUnsupported)
-	_, err = s.Write(t.Context(), Command{Action: CreateOperation, Key: "op", Reason: "Synthetic", Operation: Operation{ID: "op", Kind: Deposit, AccountID: "reported", Date: "2026-01-01", Sequence: 1, Amount: 1}})
-	require.ErrorIs(t, err, ErrUnsupported)
 	require.NoError(t, s.AddInstrument(t.Context(), Instrument{ID: "synthetic", Market: "TEST", Code: "TEST", Name: "Synthetic", Currency: CNY}))
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic holdings", Opening{AccountID: "holdings", Currency: CNY, Date: "2026-01-01", Cash: 12345, Positions: []OpeningPosition{{InstrumentID: "synthetic", Quantity: 1000000}}}))
+	manualSourceAccount(t, s, "holdings")
+	initial := putSource(t, s, "holdings", "initial", "0", 12345, CurrentPosition{"synthetic", 1000000})
 	before, bstate, err := s.Account(t.Context(), "holdings")
 	require.NoError(t, err)
 	_, err = s.ConfirmAccountImport(t.Context(), "holdings", "existing", p.Digest, false, data)
@@ -274,9 +272,10 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, after)
 	require.Equal(t, bstate, astate)
-	_, err = s.Write(t.Context(), Command{Action: CreateOperation, Key: "transfer", Reason: "Synthetic", Operation: Operation{ID: "transfer", Kind: Transfer, AccountID: "holdings", ToAccountID: "reported", Date: "2026-01-01", Sequence: 1, Amount: 1}})
-	require.ErrorIs(t, err, ErrUnsupported)
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic USD", Opening{AccountID: "usd", Currency: USD, Date: "2026-01-01"}))
+	still, err := s.CurrentHoldings(t.Context(), "holdings")
+	require.NoError(t, err)
+	require.Equal(t, initial, still)
+	cashAccount(t, s, "usd", USD, 0)
 	_, err = s.ConfirmAccountImport(t.Context(), "usd", "currency", p.Digest, false, data)
 	require.ErrorAs(t, err, &ie)
 	require.Equal(t, "currency_mismatch", ie.Code)
@@ -387,15 +386,21 @@ func TestAccountImportHTTPContract(t *testing.T) {
 			} else if url == "/accounts/a" {
 				require.Contains(t, w.Body.String(), `"cash":null`)
 				require.Contains(t, w.Body.String(), `"opening_cash":null`)
-				require.Contains(t, w.Body.String(), `"accounting_mode":"reported"`)
+				require.NotContains(t, w.Body.String(), `"accounting_mode"`)
+				require.Contains(t, w.Body.String(), `"current_holdings_input":"manual_snapshot"`)
 			}
 		}
 	}
 	for _, url := range []string{"/accounts/a/valuation", "/accounts/a/positions"} {
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, httptest.NewRequest("GET", ledgerPrefix+url, nil))
-		require.Equal(t, 422, w.Code)
-		require.Contains(t, w.Body.String(), "unsupported_operation")
+		if strings.HasSuffix(url, "/positions") {
+			require.Equal(t, 404, w.Code)
+			require.Contains(t, w.Body.String(), "not_found")
+		} else {
+			require.Equal(t, 422, w.Code)
+			require.Contains(t, w.Body.String(), "unsupported_operation")
+		}
 	}
 	for _, tc := range []struct {
 		url    string

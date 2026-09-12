@@ -68,7 +68,7 @@ func (s valuationSnapshot) validate() error {
 				return ErrCorrupt
 			}
 		}
-	} else if v.Source != "transaction_replay" || v.CurrentHoldings != nil {
+	} else {
 		return ErrCorrupt
 	}
 	revision, err := hex.DecodeString(v.LedgerRevision)
@@ -164,9 +164,7 @@ func (s *Store) RecordValuation(ctx context.Context, v Valuation, instruments []
 // The caller owns the transaction so weekly completion can share this commit.
 func (s *Store) recordValuation(ctx context.Context, tx *sql.Tx, v Valuation, instruments []Instrument) (int64, int64, error) {
 	if v.Source != "manual_snapshot" {
-		if err := requireHoldings(ctx, tx, v.AccountID); err != nil {
-			return 0, 0, err
-		}
+		return 0, 0, ErrUnsupported
 	}
 	snapshot := valuationSnapshot{SchemaVersion: 1, AccountName: v.accountName, Valuation: v, Instruments: make([]instrumentJSON, 0, len(instruments))}
 	for _, i := range instruments {
@@ -226,8 +224,8 @@ const historySelect = `SELECT r.sequence,r.account_id,
 	 AND current.account_id=r.account_id AND current.entity_id=r.id AND current.version=r.version
 	 AND current.after_json=r.payload),
 	r.id,r.payload,r.created_at,r.kind,r.flow_minor,r.total_assets_minor,r.note,r.version,
-	r.updated_at,r.operation_id,r.manual_assertion,
-	(json_extract(a.after_json,'$.valuation.source')='transaction_replay' OR EXISTS(
+	r.updated_at,r.manual_assertion,
+	(EXISTS(
 	 SELECT 1 FROM audit_log source WHERE source.entity_type='current_holdings'
 	 AND source.account_id=r.account_id AND source.entity_id=r.account_id
 	 AND CAST(source.id AS TEXT)=json_extract(a.after_json,'$.valuation.current_holdings.audit_id')
@@ -248,13 +246,12 @@ func scanValuationHistory(row interface{ Scan(...any) error }) (ValuationHistory
 	var quoteAuditID, auditID int64
 	var voided, currentAudited bool
 	var recordFlow, recordAssets, recordVersion sql.NullInt64
-	var operationID sql.NullString
 	var manualAssertion bool
 	var sourceAudited bool
 	err := row.Scan(&id, &m.AccountID, &m.Currency, &m.AsOf, &m.LedgerAt, &m.CalculatedAt, &m.SavedAt, &m.LedgerRevision, &m.Cash, &m.PositionsValue, &m.TotalAssets, &version, &payload,
 		&recordDate, &origin, &quoteAuditID, &auditID, &auditEntity, &voided, &currentAudited,
 		&recordID, &recordPayload, &recordCreated, &recordKind, &recordFlow, &recordAssets, &recordNote, &recordVersion,
-		&recordUpdated, &operationID, &manualAssertion, &sourceAudited)
+		&recordUpdated, &manualAssertion, &sourceAudited)
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, m, ErrNotFound
 	}
@@ -265,7 +262,7 @@ func scanValuationHistory(row interface{ Scan(...any) error }) (ValuationHistory
 	if decodeReceipt(recordPayload, &record) != nil || record.ID != recordID || record.AccountID != m.AccountID || record.Date != recordDate ||
 		record.Sequence != strconv.FormatInt(id, 10) || record.Kind != recordKind || record.Note != recordNote || record.Origin != origin ||
 		record.Voided != voided || record.Version != strconv.FormatInt(recordVersion.Int64, 10) || record.CreatedAt != recordCreated ||
-		record.UpdatedAt != recordUpdated || record.OperationID != operationID.String || record.QuoteAuditID != strconv.FormatInt(quoteAuditID, 10) ||
+		record.UpdatedAt != recordUpdated || record.QuoteAuditID != strconv.FormatInt(quoteAuditID, 10) ||
 		record.ManualAssertion != manualAssertion || (record.Flow != nil) != recordFlow.Valid || (record.TotalAssets != nil) != recordAssets.Valid ||
 		record.Flow != nil && int64(*record.Flow) != recordFlow.Int64 || record.TotalAssets != nil && int64(*record.TotalAssets) != recordAssets.Int64 {
 		return h, m, ErrCorrupt

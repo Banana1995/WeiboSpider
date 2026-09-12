@@ -1,28 +1,23 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
-import {
-  LedgerError,
-  newID,
-  PendingWrite,
-  request,
-  type Instrument,
-} from "./ledger";
+import { LedgerError, newID, request, type Instrument } from "./ledger";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
 type SearchItem = Omit<Instrument, "id">;
-const props = defineProps<{ instruments: Instrument[] }>();
-const emit = defineEmits<{ close: []; registered: [] }>();
-const { locked, error, send } = useLedgerWorkspace();
-error.value = "";
+const props = defineProps<{ initial?: Instrument }>();
+const emit = defineEmits<{ close: []; selected: [Instrument] }>();
+const { locked } = useLedgerWorkspace();
 const empty = (): SearchItem => ({
   name: "",
   market: "SH",
   code: "",
   currency: "CNY",
 });
-const instrument = ref(empty());
+const instrument = ref<SearchItem>(
+  props.initial ? { ...props.initial } : empty(),
+);
 const query = ref("");
 const search = reactive(useLedgerRead<SearchItem[]>());
 const registrationError = ref("");
@@ -115,34 +110,14 @@ function register() {
       "请填写名称与正确的证券代码：沪深六位、港股五位。";
     return;
   }
-  if (
-    props.instruments.some(
-      (existing) =>
-        existing.market === payload.market && existing.code === payload.code,
-    )
-  ) {
-    registrationError.value =
-      "该证券已登记，可直接在持仓或交易中选择，无需重复登记。";
-    return;
-  }
-  send(
-    new PendingWrite<Instrument>("/instruments", "POST", payload),
-    "登记证券",
-    (result) =>
-      result?.id === payload.id &&
-      result.name === payload.name &&
-      result.market === payload.market &&
-      result.code === payload.code &&
-      result.currency === payload.currency,
-    () => emit("registered"),
-  );
+  emit("selected", payload);
 }
 </script>
 
 <template>
   <LedgerDialog
-    title="登记证券"
-    caption="供持仓与交易使用"
+    title="选择持仓证券"
+    caption="查询身份后填写当前数量"
     :dirty="dirty"
     @close="emit('close')"
     v-slot="{ requestClose }"
@@ -175,7 +150,7 @@ function register() {
           </div>
         </div>
         <p class="lp-field-hint">
-          支持沪深港股票代码。查询不登记证券；也可在下方手工填写。
+          支持沪深港股票代码，也可手工填写。证券随本账户持仓一起保存。
         </p>
         <p v-if="search.loading" role="status">
           正在查询证券并核验名称、市场和币种…
@@ -202,7 +177,7 @@ function register() {
           </button>
         </div>
         <p v-if="filled" class="lp-notice" role="status">
-          已按腾讯查询结果回填，请核对后登记。手工修改后以表单为准。
+          已按查询结果回填，请核对证券身份。
         </p>
         <fieldset class="lp-security-fields" :disabled="search.loading">
           <label
@@ -240,7 +215,7 @@ function register() {
             </select></label
           >
           <p class="lp-field-hint">
-            市场、代码和币种登记后不可修改。币种以查询结果或证券资料为准，不填写模拟价格。查询成功不代表支持自动估值；目前港股非
+            可修改本账户的证券身份。币种以查询结果或证券资料为准，不填写模拟价格。查询成功不代表支持自动估值；目前港股非
             HKD 柜台、美股等不支持自动估值。
           </p>
         </fieldset>
@@ -250,7 +225,7 @@ function register() {
         <div class="lp-dialog-footer">
           <button type="button" @click="requestClose">取消</button
           ><button type="submit" class="lp-primary" :disabled="search.loading">
-            登记证券
+            使用此证券
           </button>
         </div>
       </fieldset>

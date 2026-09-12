@@ -85,7 +85,13 @@ const states = {
         </dd>
       </div>
     </dl>
-    <p v-for="warning in result.warnings.filter(w => w !== 'twr_estimated_assets' || manager)" :key="warning" role="status">
+    <p
+      v-for="warning in result.warnings.filter(
+        (w) => w !== 'twr_estimated_assets' || manager,
+      )"
+      :key="warning"
+      role="status"
+    >
       {{ returnWarnings[warning] }}
     </p>
     <details data-test="return-calculation">
@@ -132,7 +138,9 @@ const states = {
         :key="endpoint.label"
         class="ledger-note"
       >
-        {{ endpoint.label }}资产（收益金额 / Dietz / XIRR 原始口径）：{{ endpoint.point?.assets ?? "未知" }}
+        {{ endpoint.label }}资产（各收益指标统一口径）：{{
+          endpoint.point?.assets ?? "未知"
+        }}
         {{ currency }}； 声明记录日期 {{ endpoint.point?.date || "未知" }}；
         资产来源日期 {{ endpoint.point?.source_date || "未知" }}； 来源
         {{ endpoint.point?.source_id || "无" }} / 版本

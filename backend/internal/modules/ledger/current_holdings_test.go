@@ -3,7 +3,6 @@ package ledger
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -77,12 +76,12 @@ func TestCurrentHoldingsReplaceCASReceiptsAndAtomicity(t *testing.T) {
 	}
 }
 
-func TestCurrentHoldingsHTTPStrictAndReplaySourceProtected(t *testing.T) {
+func TestCurrentHoldingsHTTPStrictAndAccountLocalVersions(t *testing.T) {
 	f := newHTTPFixture(t)
 	manualSourceAccount(t, f.store, "a")
 	f.account(t, "replay", "CNY", "10.00", nil)
 	require.Equal(t, "manual_snapshot", f.get(t, "/accounts/a")["current_holdings_input"])
-	require.Equal(t, "transaction_replay", f.get(t, "/accounts/replay")["current_holdings_input"])
+	require.Equal(t, "manual_snapshot", f.get(t, "/accounts/replay")["current_holdings_input"])
 	require.JSONEq(t, `{"account_id":"a","audit_id":"","snapshot":null}`, f.request(t, "GET", "/accounts/a/current-holdings", "", "", 200).Body.String())
 	f.request(t, "HEAD", "/accounts/a/current-holdings", "", "", 200)
 	f.request(t, "GET", "/accounts/missing/current-holdings", "", "", 404)
@@ -96,8 +95,9 @@ func TestCurrentHoldingsHTTPStrictAndReplaySourceProtected(t *testing.T) {
 		f.request(t, "PUT", "/accounts/a/current-holdings", "invalid", body, 400)
 	}
 	payload := `{"expected_version":"0","cash":"0.00","positions":[]}`
-	f.request(t, "PUT", "/accounts/replay/current-holdings", "replay", payload, 422)
-	f.request(t, "GET", "/accounts/replay/current-holdings", "", "", 422)
+	f.request(t, "PUT", "/accounts/replay/current-holdings", "stale-source", payload, 409)
+	f.request(t, "PUT", "/accounts/replay/current-holdings", "next-source", `{"expected_version":"1","cash":"0.00","positions":[]}`, 200)
+	f.request(t, "GET", "/accounts/replay/current-holdings", "", "", 200)
 	f.request(t, "PUT", "/accounts/a/current-holdings?", "invalid", payload, 400)
 	first := f.request(t, "PUT", "/accounts/a/current-holdings", "valid", payload, 200).Body.String()
 	require.Equal(t, first, f.request(t, "PUT", "/accounts/a/current-holdings", "valid", payload, 200).Body.String())
@@ -144,8 +144,9 @@ func TestImportedCurrentHoldingsValuationEvidenceAndDateScope(t *testing.T) {
 	putSource(t, s, "a", "edit", "1", 200, CurrentPosition{"i", 2000000})
 	stale, err := s.AnalysisBasis(t.Context(), "a", "", "", mustInt(t, sampled.ChangeRevision))
 	require.NoError(t, err)
-	require.True(t, stale.PreviousBasisAffected)
-	require.Equal(t, "stale", stale.Closing.Status)
+	require.False(t, stale.PreviousBasisAffected)
+	require.Equal(t, "observed", stale.Closing.Status)
+	require.Equal(t, sampled.Revision, stale.Revision)
 	today := save()
 	s.now = func() time.Time { return time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC) }
 	putSource(t, s, "a", "tomorrow", "2", 0)
@@ -166,7 +167,7 @@ func TestImportedCurrentHoldingsValuationEvidenceAndDateScope(t *testing.T) {
 	require.Equal(t, original, originalAfter)
 }
 
-func TestCurrentHoldingsQuoteIOFenceAndValuationReceipt(t *testing.T) {
+func TestCurrentHoldingsQuoteIOFenceAndFixedValuation(t *testing.T) {
 	f := newHTTPFixture(t)
 	manualSourceAccount(t, f.store, "a")
 	require.NoError(t, f.store.AddInstrument(t.Context(), Instrument{ID: "i", Market: "SH", Code: "600000", Name: "Synthetic", Currency: CNY}))
@@ -180,21 +181,28 @@ func TestCurrentHoldingsQuoteIOFenceAndValuationReceipt(t *testing.T) {
 		return validValuationQuotes(ctx, is)
 	})
 	f.mux = http.NewServeMux()
-	Handler{Store: f.store, Quotes: provider, Now: f.store.now}.Register(f.mux)
-	failed := f.request(t, "POST", "/accounts/a/valuation", "save", "{}", 409)
-	require.Contains(t, failed.Body.String(), "basis_changed")
+	h := Handler{Store: f.store, Quotes: provider, Now: f.store.now}
+	h.Register(f.mux)
+	captured, is, err := f.store.valuationInputs(t.Context(), "a")
+	require.NoError(t, err)
+	require.NoError(t, h.valuePositions(t.Context(), &captured, is))
+	_, err = f.store.RecordValuation(t.Context(), captured, is)
+	require.ErrorIs(t, err, errWeeklyBasis)
 	var n int
 	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records`).Scan(&n))
 	require.Zero(t, n)
-	saved := f.request(t, "POST", "/accounts/a/valuation", "save", "{}", 200).Body.String()
+	saved := sampleValuation(t, f.store, "a", h)
+	frozen, err := f.store.ValuationHistory(t.Context(), "a", mustInt(t, saved.HistoryID))
+	require.NoError(t, err)
 	putSource(t, f.store, "a", "later", "2", 0)
 	count := auditCount(t, f.store)
-	require.Equal(t, saved, f.request(t, "POST", "/accounts/a/valuation", "save", "{}", 200).Body.String())
+	f.request(t, "POST", "/accounts/a/valuation", "save", "{}", 405)
+	after, err := f.store.ValuationHistory(t.Context(), "a", mustInt(t, saved.HistoryID))
+	require.NoError(t, err)
+	require.Equal(t, frozen, after)
 	require.Equal(t, 2, calls)
 	require.Equal(t, count, auditCount(t, f.store))
-	var v Valuation
-	require.NoError(t, json.Unmarshal([]byte(saved), &v))
-	require.Equal(t, "2", v.CurrentHoldings.Snapshot.Version)
+	require.Equal(t, "2", saved.CurrentHoldings.Snapshot.Version)
 }
 
 func TestWeeklyManualSourceEnrollmentPendingRefreshAndFence(t *testing.T) {

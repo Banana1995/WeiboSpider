@@ -1,7 +1,6 @@
 package ledger
 
 import (
-	"encoding/json"
 	"sync"
 	"testing"
 
@@ -37,13 +36,12 @@ func TestUnifiedImportManualAutomaticAndAudit(t *testing.T) {
 	original, err := f.store.ConfirmAccountImport(t.Context(), "a", "init", p.Digest, false, data)
 	require.NoError(t, err)
 	basisEntry(t, f, "manual-postflow", "2026-09-01", "cash_flow", `"20"`, `"120"`)
-	f.request(t, "POST", "/operations", "deposit", httpMutation(t, httpCash("cash", "a", "2026-09-02", "1", "deposit", "5"), ""), 201)
-	var saved Valuation
-	require.NoError(t, json.Unmarshal(f.request(t, "POST", "/accounts/a/valuation", "save-a", "{}", 200).Body.Bytes(), &saved))
+	basisEntry(t, f, "manual-cash", "2026-09-02", "cash_flow", `"5"`, "null")
+	saved := sampleValuation(t, f.store, "a", Handler{})
 	recordID := "valuation-" + saved.HistoryID
 	b := basisRead(t, f, "a", "", "")
 	require.Len(t, b.Points, 8)
-	require.Equal(t, Money(10500), *b.Closing.Assets)
+	require.Equal(t, Money(10000), *b.Closing.Assets)
 	var canonical int
 	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records WHERE account_id='a'`).Scan(&canonical))
 	require.Equal(t, 8, canonical)
@@ -62,7 +60,8 @@ func TestUnifiedImportManualAutomaticAndAudit(t *testing.T) {
 	f.request(t, "HEAD", "/accounts/a/valuation", "", "", 200)
 	require.Equal(t, before, auditCount(t, f.store))
 	f.request(t, "PUT", "/audit/1", "x", `{}`, 405)
-	f.request(t, "PUT", "/accounts/a/records/operation-cash", "managed", `{"expected_version":"1","reason":"synthetic","entry":{"kind":"asset","date":"2026-09-02","total_assets":"999"}}`, 422)
+	f.request(t, "PUT", "/accounts/a/records/manual-cash", "correct-flow", `{"expected_version":"1","reason":"synthetic","entry":{"kind":"cash_flow","date":"2026-09-02","flow":"6"}}`, 200)
+	require.Equal(t, "100.00", f.get(t, "/accounts/a")["cash"])
 	f.request(t, "PUT", "/accounts/a/records/"+recordID, "correct-auto", `{"expected_version":"1","reason":"synthetic correction","entry":{"kind":"asset","date":"2026-09-06","total_assets":"106"}}`, 200)
 	current := f.get(t, "/accounts/a/records/"+recordID)
 	require.Equal(t, true, current["manual_assertion"])
@@ -73,7 +72,7 @@ func TestUnifiedImportManualAutomaticAndAudit(t *testing.T) {
 	require.NoError(t, err)
 	history, err := f.store.ValuationHistory(t.Context(), "a", historyID)
 	require.NoError(t, err)
-	require.Equal(t, Money(10500), *history.Valuation.TotalAssets)
+	require.Equal(t, Money(10000), *history.Valuation.TotalAssets)
 	f.request(t, "GET", "/accounts/a/analysis-basis?track=reported", "", "", 400)
 }
 
@@ -118,37 +117,31 @@ func TestUnifiedCanonicalAuditIntegrity(t *testing.T) {
 	f.request(t, "GET", "/accounts/a/analysis-basis", "", "", 500)
 }
 
-func TestUnifiedTransferCorrectionsAndConcurrentInitialization(t *testing.T) {
+func TestUnifiedAccountIsolationAndConcurrentInitialization(t *testing.T) {
 	f := newHTTPFixture(t)
 	for _, id := range []string{"a", "b", "c"} {
 		f.account(t, id, "CNY", "100.00", nil)
 	}
-	op := httpCash("transfer", "a", "2026-01-02", "1", "transfer", "10")
-	op["to_account_id"] = "b"
-	create := httpMutation(t, op, "")
-	first := f.request(t, "POST", "/operations", "first", create, 201).Body.String()
+	create := `{"id":"manual-flow","entry":{"kind":"cash_flow","date":"2026-01-02","flow":"-10"}}`
+	first := f.request(t, "POST", "/accounts/a/records", "first", create, 201).Body.String()
 	before := auditCount(t, f.store)
-	f.request(t, "POST", "/operations", "first", create, 201)
+	f.request(t, "POST", "/accounts/a/records", "first", create, 201)
 	require.Equal(t, before, auditCount(t, f.store))
-	op["to_account_id"] = "c"
-	op["amount"] = "20"
-	f.request(t, "PUT", "/operations/transfer", "replace", httpMutation(t, op, "1"), 200)
+	f.request(t, "PUT", "/accounts/a/records/manual-flow", "replace", `{"expected_version":"1","reason":"correct","entry":{"kind":"cash_flow","date":"2026-01-02","flow":"-20"}}`, 200)
 	require.Equal(t, "-20.00", basisRead(t, f, "a", "", "").NetFlow)
 	require.Equal(t, "0.00", basisRead(t, f, "b", "", "").NetFlow)
-	require.Equal(t, "20.00", basisRead(t, f, "c", "", "").NetFlow)
-	op["kind"] = "deposit"
-	delete(op, "to_account_id")
-	f.request(t, "PUT", "/operations/transfer", "kind-replace", httpMutation(t, op, "2"), 200)
+	require.Equal(t, "0.00", basisRead(t, f, "c", "", "").NetFlow)
+	f.request(t, "PUT", "/accounts/a/records/manual-flow", "reverse-flow", `{"expected_version":"2","reason":"correct","entry":{"kind":"cash_flow","date":"2026-01-02","flow":"20"}}`, 200)
 	require.Equal(t, "20.00", basisRead(t, f, "a", "", "").NetFlow)
 	require.Equal(t, "0.00", basisRead(t, f, "c", "", "").NetFlow)
-	f.request(t, "DELETE", "/operations/transfer", "void", `{"expected_version":"3","reason":"synthetic"}`, 200)
+	f.request(t, "DELETE", "/accounts/a/records/manual-flow", "void", `{"expected_version":"3","reason":"synthetic"}`, 200)
 	for _, id := range []string{"a", "b", "c"} {
 		require.Equal(t, "0.00", basisRead(t, f, id, "", "").NetFlow)
 	}
-	require.Equal(t, first, f.request(t, "POST", "/operations", "first", create, 201).Body.String())
+	require.Equal(t, first, f.request(t, "POST", "/accounts/a/records", "first", create, 201).Body.String())
 	var n int
-	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records WHERE operation_id='transfer'`).Scan(&n))
-	require.Equal(t, 3, n)
+	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records`).Scan(&n))
+	require.Equal(t, 1, n)
 	// A concurrent manual write can win the empty-account race, but neither
 	// transaction may observe an empty account after the other has committed.
 	f = reportedFixture(t)

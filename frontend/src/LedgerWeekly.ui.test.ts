@@ -15,8 +15,7 @@ const accounts: Account[] = [
     id: "a",
     name: "合成持仓账户",
     currency: "CNY",
-    accounting_mode: "holdings",
-    current_holdings_input: "transaction_replay",
+    current_holdings_input: "manual_snapshot",
     opening_date: "2020-01-01",
     opening_cash: "0.00",
     version: "1",
@@ -25,7 +24,6 @@ const accounts: Account[] = [
     id: "b",
     name: "合成手工账户 <b>原文</b>",
     currency: "CNY",
-    accounting_mode: "reported",
     current_holdings_input: "manual_snapshot",
     opening_date: "2020-01-01",
     opening_cash: null,
@@ -62,7 +60,7 @@ const frozen: ValuationHistory = {
   saved_at: "2026-09-05T00:00:03Z",
   instruments: [],
   valuation: {
-    source: "transaction_replay",
+    source: "manual_snapshot",
     account_id: "a",
     currency: "CNY",
     as_of: "2026-09-05",
@@ -303,8 +301,8 @@ it("reads linked zero-asset frozen history only, literal escaped names and old-r
   );
   expect(record.text()).not.toContain("2026-09-05T00:00:01Z");
   expect(record.find("img").exists()).toBe(false);
-  expect(wrapper.text()).toContain("后续交易或更正可能使旧快照过期");
-  expect(wrapper.text()).toContain("不是所有历史估值都来自周六任务");
+  expect(wrapper.text()).toContain("后续持仓修改不会使其失效");
+  expect(wrapper.text()).toContain("周任务保存固定资产记录");
   expect(wrapper.text()).toContain("共用一条收益曲线，不设切换日期");
   expect(
     fetcher.mock.calls.every(
@@ -320,7 +318,7 @@ it("an account without any prior total stays missing rather than becoming fake z
   await wrapper.get('[name="weekly_account"]').setValue("b");
   await flushPromises();
   expect(wrapper.find('[data-test="weekly-history"]').exists()).toBe(false);
-  expect(wrapper.text()).toContain("周六会复制截至当日最近一笔有效总资产");
+  expect(wrapper.text()).toContain("沿用最近明确资产并保留原始来源");
   expect(wrapper.text()).toContain(
     "没有可沿用的历史总资产，本周未更新（不是失败或零资产）",
   );

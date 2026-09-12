@@ -1,4 +1,4 @@
-import { decimal, LedgerError, type Decimal } from "./ledger";
+import { decimal, LedgerError, type Decimal, type Instrument } from "./ledger";
 
 export interface CurrentPosition {
   instrument_id: string;
@@ -15,8 +15,8 @@ export interface CurrentHoldings {
   } | null;
 }
 export interface CurrentHoldingsInput {
+  securities?: Instrument[];
   expected_version: string;
-  baseline_date?: string;
   cash: Decimal;
   positions: CurrentPosition[];
 }
@@ -36,6 +36,7 @@ export function validateCurrentHoldings(
         !Number.isFinite(Date.parse(s.saved_at)) ||
         typeof s.cash !== "string" ||
         !decimal(s.cash, 2) ||
+        s.cash.startsWith("-") ||
         !Array.isArray(s.positions) ||
         s.positions.length > 200 ||
         s.positions.some(
@@ -44,6 +45,7 @@ export function validateCurrentHoldings(
             (n > 0 && p.instrument_id <= s.positions[n - 1]!.instrument_id) ||
             typeof p.quantity !== "string" ||
             !decimal(p.quantity, 6) ||
+            p.quantity.startsWith("-") ||
             !/[1-9]/.test(p.quantity),
         ))
   )

@@ -45,10 +45,6 @@ type reportedAccountIntent struct {
 	Action string
 	Input  ReportedAccountInput
 }
-type valuationIntent struct {
-	Action    string
-	AccountID string
-}
 
 type storedReceipt struct {
 	Response string
@@ -145,7 +141,7 @@ func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload
 		if err := decodeReceipt(payload, &result); err != nil {
 			return err
 		}
-		want := accountJSON{ID: c.Input.ID, Name: c.Input.Name, Currency: c.Input.Currency, OpeningDate: c.Input.OpeningDate, Version: "1", AccountingMode: "reported"}
+		want := accountJSON{ID: c.Input.ID, Name: c.Input.Name, Currency: c.Input.Currency, OpeningDate: c.Input.OpeningDate, Version: "1"}
 		if !reflect.DeepEqual(result, want) {
 			return ErrCorrupt
 		}

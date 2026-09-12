@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"math/big"
 	"strconv"
@@ -114,7 +113,7 @@ func TestReturnsMissingCarryAndTrust(t *testing.T) {
 	require.Equal(t, "no_interval", basisRead(t, f, "a", "reported", "").Returns.Profit.Reason)
 	basisEntry(t, f, "manual-carry", "2020-01-03", "cash_flow", `"20"`, "null")
 	r := basisRead(t, f, "a", "reported", "").Returns
-	require.Equal(t, "-20.00", *r.Profit.Value)
+	require.Equal(t, "0.00", *r.Profit.Value)
 	require.Equal(t, "reference", r.Profit.Status)
 	require.Contains(t, r.Warnings, "carried_assets_unchanged")
 	require.Equal(t, "reference", r.TWR.Status)
@@ -411,25 +410,19 @@ func TestReturnsReadOnlyCorrectionAndVoid(t *testing.T) {
 	historyCount(t, f.store, 0)
 }
 
-func TestReturnsHoldingsCashFlowsWithoutDoubleTrades(t *testing.T) {
+func TestReturnsFixedAssetsAndFlowsRemainIndependentOfCurrentCash(t *testing.T) {
 	f := newHTTPFixture(t)
-	f.account(t, "a", "CNY", "100.00", nil)
-	f.instrument(t, "i")
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	f.store.now = func() time.Time { return now }
+	f.account(t, "a", "CNY", "100.00", nil)
 	mux := historyMux(f.store)
-	historyRequest(t, mux, "POST", "a/valuation", 200) // cash-only, no network
+	sampleValuation(t, f.store, "a", Handler{})
 	now = now.AddDate(0, 0, 1)
-	o := httpTrade("buy", "i", "2026-01-02", "1", "deposit_buy", "1", "10", "0")
-	o["amount"] = "20"
-	f.request(t, "POST", "/operations", "buy", httpMutation(t, o, ""), 201)
-	dividend := httpCash("div", "a", "2026-01-02", "2", "dividend", "5")
-	dividend["instrument_id"], dividend["cycle_id"] = "i", "buy"
-	f.request(t, "POST", "/operations", "div", httpMutation(t, dividend, ""), 201)
-	f.request(t, "POST", "/operations", "sell", httpMutation(t, httpTrade("sell", "i", "2026-01-02", "3", "sell", "1", "10", "0"), ""), 201)
-	f.request(t, "POST", "/operations", "out", httpMutation(t, httpCash("out", "a", "2026-01-02", "4", "withdrawal", "10"), ""), 201)
-	var closing Valuation
-	require.NoError(t, json.Unmarshal(historyRequest(t, mux, "POST", "a/valuation", 200), &closing)) // closed position, still no network
+	basisEntry(t, f, "manual-in", "2026-01-02", "cash_flow", `"20"`, "null")
+	basisEntry(t, f, "manual-out", "2026-01-02", "cash_flow", `"-10"`, "null")
+	basisEntry(t, f, "manual-note", "2026-01-02", "log", "null", "null")
+	putSource(t, f.store, "a", "new-cash", "1", 11500)
+	closing := sampleValuation(t, f.store, "a", Handler{})
 	b := basisRead(t, f, "a", "holdings", "")
 	require.Equal(t, "5.00", *b.Returns.Profit.Value)
 	require.Equal(t, "10.00", b.Returns.NetFlow)
@@ -438,14 +431,16 @@ func TestReturnsHoldingsCashFlowsWithoutDoubleTrades(t *testing.T) {
 	require.Equal(t, "0.050000000000", *b.Returns.Dietz.Value)
 	old := historyRequest(t, mux, "GET", "a/valuations/"+closing.HistoryID, 200)
 	now = now.AddDate(0, 0, 1)
-	f.request(t, "POST", "/operations", "later", httpMutation(t, httpCash("later", "a", "2026-01-03", "5", "deposit", "1"), ""), 201)
+	basisEntry(t, f, "manual-later", "2026-01-03", "cash_flow", `"1"`, "null")
 	require.Equal(t, "reference", basisRead(t, f, "a", "holdings", "").Returns.Profit.Status)
-	f.request(t, "PUT", "/operations/out", "correct", httpMutation(t, httpCash("out", "a", "2026-01-02", "4", "withdrawal", "9"), "1"), 200)
-	require.Equal(t, "stale_endpoint", basisRead(t, f, "a", "holdings", "").Returns.Profit.Reason)
+	f.request(t, "PUT", "/accounts/a/records/manual-out", "correct", `{"expected_version":"1","reason":"correct flow","entry":{"kind":"cash_flow","date":"2026-01-02","flow":"-9"}}`, 200)
+	require.Equal(t, "4.00", *basisRead(t, f, "a", "", "").Returns.Profit.Value)
+	require.Equal(t, "115.00", f.get(t, "/accounts/a")["cash"])
 	require.Equal(t, old, historyRequest(t, mux, "GET", "a/valuations/"+closing.HistoryID, 200))
-	historyRequest(t, mux, "POST", "a/valuation", 200)
+	putSource(t, f.store, "a", "observed-cash", "2", 11600)
+	sampleValuation(t, f.store, "a", Handler{})
 	b = basisRead(t, f, "a", "holdings", "")
 	require.Equal(t, "available", b.Returns.Profit.Status)
-	require.Equal(t, "5.00", *b.Returns.Profit.Value)
+	require.Equal(t, "4.00", *b.Returns.Profit.Value)
 	require.Equal(t, b.Revision, b.Returns.Revision)
 }

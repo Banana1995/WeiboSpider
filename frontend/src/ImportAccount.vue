@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
-import { decimal, failure, LedgerError, newID, request, type Account } from "./ledger";
+import {
+  decimal,
+  failure,
+  LedgerError,
+  newID,
+  request,
+  type Account,
+} from "./ledger";
 import {
   PendingImport,
   type ImportPreview,
@@ -82,13 +89,32 @@ async function loadPreview() {
       "/imports/youzhiyouxing/preview",
       { method: "POST", body, signal: controller.signal },
     );
-    if (!result || typeof result.digest !== "string" || !result.digest || !result.metadata ||
-      typeof result.metadata.name !== "string" || !["CNY", "HKD", "USD"].includes(result.metadata.currency) ||
-      !Array.isArray(result.rows) || result.rows.length > 10000 || !Array.isArray(result.warnings) ||
-      result.warnings.some(w => typeof w !== "string") || !result.summary || result.summary.row_count !== result.rows.length ||
-      result.rows.some(r => !r || !validDay(r.date) || !["asset", "cash_flow"].includes(r.kind) ||
-        typeof r.note !== "string" || (r.flow !== null && (typeof r.flow !== "string" || !decimal(r.flow, 2))) ||
-        (r.total_assets !== null && (typeof r.total_assets !== "string" || !decimal(r.total_assets, 2)))))
+    if (
+      !result ||
+      typeof result.digest !== "string" ||
+      !result.digest ||
+      !result.metadata ||
+      typeof result.metadata.name !== "string" ||
+      !["CNY", "HKD", "USD"].includes(result.metadata.currency) ||
+      !Array.isArray(result.rows) ||
+      result.rows.length > 10000 ||
+      !Array.isArray(result.warnings) ||
+      result.warnings.some((w) => typeof w !== "string") ||
+      !result.summary ||
+      result.summary.row_count !== result.rows.length ||
+      result.rows.some(
+        (r) =>
+          !r ||
+          !validDay(r.date) ||
+          !["asset", "cash_flow"].includes(r.kind) ||
+          typeof r.note !== "string" ||
+          (r.flow !== null &&
+            (typeof r.flow !== "string" || !decimal(r.flow, 2))) ||
+          (r.total_assets !== null &&
+            (typeof r.total_assets !== "string" ||
+              !decimal(r.total_assets, 2))),
+      )
+    )
       throw new LedgerError("invalid_response");
     if (current === generation) {
       preview.value = result;
@@ -167,8 +193,7 @@ onBeforeUnmount(() => {
         >导入目标<select v-model="target" data-test="import-target">
           <option value="">新建总资产账户（使用来源原名）</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">
-            {{ a.name }} · {{ a.currency }} ·
-            {{ a.accounting_mode === "reported" ? "总资产账户" : "持仓账户" }}
+            {{ a.name }} · {{ a.currency }}
           </option>
         </select></label
       >
@@ -185,10 +210,19 @@ onBeforeUnmount(() => {
         {{ warningText(warning) }}
       </p>
       <ul class="lp-import-preview" aria-label="导入记录预览">
-        <li v-for="r in preview.rows.slice(page * 30, (page + 1) * 30)" :key="r.source_row">
-          <div><strong>{{ r.date }} · {{ recordKind(r) }}</strong><small>第 {{ r.source_row }} 行</small></div>
-          <div><span>资金变动 {{ money(r.flow) }}</span><span>总资产 {{ money(r.total_assets) }}</span></div>
-          <p class="lp-note-text">{{ r.note || '无备注' }}</p>
+        <li
+          v-for="r in preview.rows.slice(page * 30, (page + 1) * 30)"
+          :key="r.source_row"
+        >
+          <div>
+            <strong>{{ r.date }} · {{ recordKind(r) }}</strong
+            ><small>第 {{ r.source_row }} 行</small>
+          </div>
+          <div>
+            <span>资金变动 {{ money(r.flow) }}</span
+            ><span>总资产 {{ money(r.total_assets) }}</span>
+          </div>
+          <p class="lp-note-text">{{ r.note || "无备注" }}</p>
         </li>
       </ul>
       <div class="ledger-actions">
@@ -225,7 +259,11 @@ onBeforeUnmount(() => {
         导入结果待确认：文件、预览摘要、目标账户
         ID、创建标志和幂等键已锁定。请勿关闭、刷新或另开页面；只能按原请求重试。
       </p>
-        <p>{{ pending.create ? "新建总资产账户" : "导入已选账户" }}，结果确认前不能更改目标。</p>
+      <p>
+        {{
+          pending.create ? "新建总资产账户" : "导入已选账户"
+        }}，结果确认前不能更改目标。
+      </p>
       <button
         type="button"
         data-test="import-retry"

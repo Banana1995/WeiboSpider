@@ -2,77 +2,44 @@ package ledger
 
 import (
 	"fmt"
-	"testing"
-
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestChartSnapshotIncludesAllOperationsNotesAndOnlyCapitalFlows(t *testing.T) {
-	f := newHTTPFixture(t)
-	f.account(t, "a", "CNY", "1000.00", nil)
-	f.account(t, "b", "CNY", "1000.00", nil)
-	f.instrument(t, "stock")
-	for i, kind := range []string{"deposit", "buy", "sell", "deposit_buy", "sell_withdraw", "transfer", "dividend", "withdrawal"} {
-		op := httpCash(kind, "a", "2026-01-02", fmt.Sprint(i+1), kind, "10")
-		if kind == "buy" || kind == "sell" || kind == "deposit_buy" || kind == "sell_withdraw" {
-			op["instrument_id"], op["quantity"], op["price"] = "stock", "1", "1"
-			if kind == "buy" || kind == "sell" {
-				op["amount"] = "0"
-			}
-		}
-		if kind == "transfer" {
-			op["to_account_id"] = "b"
-		}
-		if kind == "dividend" {
-			op["instrument_id"], op["cycle_id"] = "stock", "buy"
-		}
-		f.request(t, "POST", "/operations", kind, httpMutation(t, op, ""), 201)
-	}
-	basisEntry(t, f, "manual-independent", "2026-01-02", "cash_flow", `"999"`, `"9999"`)
-	before := f.snapshot(t)
-	b := basisRead(t, f, "a", "holdings", "&from=2026-01-02&to=2026-01-02")
-	require.Len(t, b.Points, 9)
-	require.Equal(t, Money(999900), *b.Closing.Assets)
-	require.Equal(t, "989.00", b.NetFlow)
-	for _, p := range b.Points[:8] {
-		require.NotNil(t, p.Operation)
-		require.NotNil(t, p.Record)
-		require.Nil(t, p.Assets)
-		require.False(t, p.Selected)
-		require.Equal(t, p.Version, p.Operation.Version)
-		if p.Operation.Operation.ID == "buy" || p.Operation.Operation.ID == "sell" || p.Operation.Operation.ID == "dividend" {
-			require.Nil(t, p.Flow)
-			require.Equal(t, "log", p.Status)
-		} else {
-			require.NotNil(t, p.Flow)
-			require.Equal(t, "unavailable", p.Status)
-		}
-	}
-	other := basisRead(t, f, "b", "holdings", "")
-	require.Len(t, other.Points, 1)
-	require.Equal(t, "10.00", other.NetFlow)
-	reported := basisRead(t, f, "a", "reported", "")
-	require.Len(t, reported.Points, 9)
-	require.Nil(t, reported.Points[8].Operation)
+func TestChartSnapshotContainsIndependentFactsNotHoldings(t *testing.T) {
+	f := reportedFixture(t)
+	manualSourceAccount(t, f.store, "b")
+	basisEntry(t, f, "manual-base", "2024-01-01", "asset", "null", `"1000"`)
+	basisEntry(t, f, "manual-in", "2024-01-02", "cash_flow", `"50"`, "null")
+	basisEntry(t, f, "manual-out", "2024-01-03", "cash_flow", `"-10"`, "null")
+	basisEntry(t, f, "manual-note", "2024-01-03", "log", "null", "null")
+	before := basisRead(t, f, "a", "", "")
+	require.Equal(t, Money(104000), *before.Closing.Assets)
+	require.Equal(t, "40.00", before.NetFlow)
+	require.Equal(t, "0.00", *before.Returns.Profit.Value)
+	require.Len(t, before.Points, 4)
+	require.Nil(t, before.Points[1].Record.TotalAssets)
+	require.Equal(t, "log", before.Points[3].Status)
+	putSource(t, f.store, "a", "direct-cash", "0", 999999)
+	after := basisRead(t, f, "a", "", "")
+	require.Equal(t, before, after)
+	require.Empty(t, basisRead(t, f, "b", "", "").Points)
+	snapshot := f.snapshot(t)
 	f.request(t, "HEAD", "/accounts/a/analysis-basis", "", "", 200)
-	require.Equal(t, before, f.snapshot(t), "chart reads never write operations/receipts")
-	var count int
-	require.NoError(t, f.store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records WHERE origin IN ('currentrefresh','weekly')`).Scan(&count))
-	require.Zero(t, count, "chart GET/HEAD must not save an observation")
+	require.Equal(t, snapshot, f.snapshot(t))
 }
 
 func TestChartConcurrentReadsKeepFlowNoteAndVersionInOneSnapshot(t *testing.T) {
-	f := newHTTPFixture(t)
-	f.account(t, "a", "CNY", "1000.00", nil)
-	op := Operation{ID: "deposit", AccountID: "a", Date: "2026-01-02", Sequence: 1, Kind: Deposit, Amount: 100}
-	_, err := f.store.Write(t.Context(), Command{Action: CreateOperation, Key: "create", Operation: op, Note: "version-1", Reason: "Synthetic"})
+	f := reportedFixture(t)
+	amount := Money(100)
+	c := AccountRecordCommand{Action: CreateOperation, AccountID: "a", ID: "manual-flow", Entry: &AccountEntry{Kind: "cash_flow", Date: "2024-01-02", Flow: &amount, Note: "version-1"}}
+	_, err := f.store.WriteAccountRecord(t.Context(), "create", c)
 	require.NoError(t, err)
 	finished := make(chan error, 1)
 	go func() {
-		for version := int64(2); version <= 20; version++ {
-			o := op
-			o.Amount = Money(version * 100)
-			_, err := f.store.Write(t.Context(), Command{Action: ReplaceOperation, Key: fmt.Sprint("edit-", version), Operation: o, ExpectedVersion: version - 1, Note: fmt.Sprint("version-", version), Reason: "Synthetic"})
+		for version := 2; version <= 20; version++ {
+			n := Money(version * 100)
+			_, err := f.store.WriteAccountRecord(t.Context(), fmt.Sprint("edit-", version), AccountRecordCommand{Action: ReplaceOperation, AccountID: "a", ID: c.ID, ExpectedVersion: fmt.Sprint(version - 1), Reason: "Synthetic", Entry: &AccountEntry{Kind: "cash_flow", Date: "2024-01-02", Flow: &n, Note: fmt.Sprint("version-", version)}})
 			if err != nil {
 				finished <- err
 				return
@@ -80,22 +47,21 @@ func TestChartConcurrentReadsKeepFlowNoteAndVersionInOneSnapshot(t *testing.T) {
 		}
 		finished <- nil
 	}()
-	for i := 0; i < 20; i++ {
-		b := basisRead(t, f, "a", "holdings", "")
+	for range 20 {
+		b := basisRead(t, f, "a", "", "")
 		require.Len(t, b.Points, 1)
 		p := b.Points[0]
-		require.Equal(t, "version-"+p.Version, p.Operation.Note)
+		require.Equal(t, "version-"+p.Version, p.Record.Note)
 		require.Equal(t, p.Version+".00", p.Flow.String())
 		require.Equal(t, p.Flow.String(), b.NetFlow)
-		require.Equal(t, p.Version, p.Operation.Version)
 	}
 	require.NoError(t, <-finished)
-	before := basisRead(t, f, "a", "holdings", "")
-	op.Amount = 2000
-	_, err = f.store.Write(t.Context(), Command{Action: ReplaceOperation, Key: "note-only", Operation: op, ExpectedVersion: 20, Note: "<img onerror=synthetic>new note", Reason: "Synthetic"})
+	before := basisRead(t, f, "a", "", "")
+	n := Money(2000)
+	_, err = f.store.WriteAccountRecord(t.Context(), "note-only", AccountRecordCommand{Action: ReplaceOperation, AccountID: "a", ID: c.ID, ExpectedVersion: "20", Reason: "Synthetic", Entry: &AccountEntry{Kind: "cash_flow", Date: "2024-01-02", Flow: &n, Note: "<img onerror=synthetic>new note"}})
 	require.NoError(t, err)
-	after := basisRead(t, f, "a", "holdings", "")
+	after := basisRead(t, f, "a", "", "")
 	require.NotEqual(t, before.Revision, after.Revision)
 	require.Equal(t, before.NetFlow, after.NetFlow)
-	require.Equal(t, "<img onerror=synthetic>new note", after.Points[0].Operation.Note)
+	require.Equal(t, "<img onerror=synthetic>new note", after.Points[0].Record.Note)
 }

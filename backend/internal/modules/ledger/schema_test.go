@@ -27,19 +27,13 @@ func seedSchemaDB(t *testing.T, db *database.DB) {
 	require.NoError(t, s.AddInstrument(t.Context(), ledger.Instrument{
 		ID: "i", Market: "TEST", Code: "001", Name: "Synthetic", Currency: ledger.CNY,
 	}))
-	require.NoError(t, s.InitializeAccount(t.Context(), "Synthetic", ledger.Opening{
-		AccountID: "a", Currency: ledger.CNY, Date: "2026-01-01", Cash: 10_000,
-		Positions: []ledger.OpeningPosition{{InstrumentID: "i", Quantity: 1_000_000}},
-	}))
-	_, err := s.Write(t.Context(), ledger.Command{
-		Action: ledger.CreateOperation,
-		Key:    "deposit-key",
-		Reason: "Synthetic",
-		Operation: ledger.Operation{
-			ID: "deposit", AccountID: "a", Date: "2026-01-02", Sequence: 1,
-			Kind: ledger.Deposit, Amount: 100,
-		},
-	})
+	_, err := s.CreateReportedAccount(t.Context(), "account", ledger.ReportedAccountInput{ID: "a", Name: "Synthetic", Currency: ledger.CNY, OpeningDate: "2026-01-01"})
+	require.NoError(t, err)
+	cash := ledger.Money(10000)
+	_, err = s.PutCurrentHoldings(t.Context(), "a", "current", ledger.CurrentHoldingsInput{ExpectedVersion: "0", Cash: &cash, Positions: []ledger.CurrentPosition{{InstrumentID: "i", Quantity: 1_000_000}}})
+	require.NoError(t, err)
+	flow := ledger.Money(100)
+	_, err = s.WriteAccountRecord(t.Context(), "deposit-key", ledger.AccountRecordCommand{Action: ledger.CreateOperation, AccountID: "a", ID: "manual-deposit", Entry: &ledger.AccountEntry{Kind: "cash_flow", Date: "2026-01-02", Flow: &flow}})
 	require.NoError(t, err)
 }
 
@@ -72,8 +66,8 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 2, count)
-		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM operations").Scan(&count))
+		require.Equal(t, 1, count)
+		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)
 		if duplicate != nil {
@@ -95,7 +89,7 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	expected := []string{"accounts", "instruments", "opening_positions", "operations", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "schema_migrations", "manual_trades"}
+	expected := []string{"accounts", "instruments", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "schema_migrations"}
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&count))
@@ -108,13 +102,13 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema WHERE type='view'`).Scan(&count))
 	require.Zero(t, count)
 
-	legacy := []string{"operation_revisions", "write_receipts", "account_record_revisions", "account_record_receipts", "account_imports", "imported_account_records", "account_import_receipts", "valuation_history", "valuation_basis", "account_record_order", "effective_account_records", "analysis_changes"}
+	legacy := []string{"operations", "opening_positions", "operation_revisions", "write_receipts", "account_record_revisions", "account_record_receipts", "account_imports", "imported_account_records", "account_import_receipts", "valuation_history", "valuation_basis", "account_record_order", "effective_account_records", "analysis_changes"}
 	for _, name := range legacy {
 		var exists int
 		require.NoError(t, db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name=?)`, name).Scan(&exists))
 		require.Zero(t, exists, name)
 	}
-	for _, table := range expected[:8] {
+	for _, table := range expected[:len(expected)-1] {
 		var strict int
 		require.NoError(t, db.QueryRowContext(t.Context(), `SELECT strict FROM pragma_table_list WHERE name=?`, table).Scan(&strict))
 		require.Equal(t, 1, strict, table)
@@ -128,12 +122,12 @@ func TestSchemaCoreConstraintsAndAppendOnlyHistory(t *testing.T) {
 	seedSchemaDB(t, db)
 
 	for _, statement := range []string{
-		`INSERT INTO accounts(id,name,currency,opening_date,opening_cash_minor,version,accounting_mode) VALUES('bad','Bad','EUR','2026-01-01',0,1,'holdings')`,
-		`INSERT INTO opening_positions(account_id,instrument_id,quantity_micros) VALUES('missing','i',1)`,
-		`INSERT INTO operations(id,kind,business_date,sequence,account_id,amount_minor,status,version,created_at,updated_at) VALUES('bad','deposit','2026-01-02',2,'a',0,'active',1,'now','now')`,
+		`INSERT INTO accounts(id,name,currency,opening_date,opening_cash_minor,version) VALUES('bad','Bad','EUR','2026-01-01',0,1)`,
+		`INSERT INTO current_holdings(account_id,version,audit_id,payload) VALUES('missing',1,1,'{}')`,
+		`UPDATE account_records SET flow_minor=NULL WHERE id='manual-deposit'`,
 		`UPDATE accounts SET name='Changed' WHERE id='a'`,
 		`DELETE FROM instruments WHERE id='i'`,
-		`DELETE FROM operations WHERE id='deposit'`,
+		`DELETE FROM current_holdings WHERE account_id='a'`,
 		`UPDATE audit_log SET after_json='{}'`,
 		`DELETE FROM audit_log`,
 		`UPDATE idempotency_receipts SET response_json='{}'`,

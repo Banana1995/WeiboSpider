@@ -9,7 +9,13 @@ import {
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { returnPercent } from "./ledgerReturns";
-import type { Benchmark } from "./ledgerBenchmark";
+import {
+  accountEncoding,
+  benchmarkEncodings,
+  type Benchmark,
+  type BenchmarkCode,
+  type BenchmarkEncoding,
+} from "./ledgerBenchmark";
 
 use([
   LineChart,
@@ -34,13 +40,10 @@ const props = defineProps<{
     amount: string;
     direction: "in" | "out";
   }[];
-  benchmark: Benchmark | null;
-  currency: string;
+  benchmarks: Benchmark[];
 }>();
 const emit = defineEmits<{ locate: [{ id: string; date: string }] }>();
 
-const ACCOUNT = "#24745b";
-const BENCHMARK = "#6f5b8f";
 const TRANSFER_IN = "#bc514c";
 const TRANSFER_OUT = "#2f7d5b";
 
@@ -50,22 +53,17 @@ let chart: EChartsType | undefined;
 let observer: ResizeObserver | undefined;
 
 const plotted = computed(() => props.samples.filter((s) => s.value !== null));
-const benchmarkVisible = computed(
-  () => props.mode === "rate" && !!props.benchmark && props.currency === "CNY",
+const activeBenchmarks = computed(() =>
+  props.mode === "rate" ? props.benchmarks : [],
 );
-const benchmarkNotice = computed(() =>
-  props.mode === "rate" && props.currency !== "CNY"
-    ? `账户以 ${props.currency} 计价，沪深300全收益对比仅提供人民币口径。`
-    : "",
-);
+const encodingFor = (code: string): BenchmarkEncoding =>
+  benchmarkEncodings[code as BenchmarkCode] ?? { color: "#6f5b8f", dash: [] };
 
 const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
 
 // Baseline is 0 at effective_from: before the first index item the series is flat,
 // and each account date takes the last index close on or before it.
-const benchmarkSeries = computed(() => {
-  const benchmark = props.benchmark;
-  if (!benchmarkVisible.value || !benchmark) return [];
+function alignSeries(benchmark: Benchmark) {
   let index = -1;
   return plotted.value.map((sample) => {
     while (
@@ -79,7 +77,7 @@ const benchmarkSeries = computed(() => {
       text: returnPercent(item ? item.return : "0.00000000"),
     };
   });
-});
+}
 
 function curveValue(date: string): number | null {
   const samples = plotted.value;
@@ -174,24 +172,35 @@ function render() {
       connectNulls: false,
       sampling: "lttb" as const,
       animation: false,
-      lineStyle: { width: 1.5, color: ACCOUNT },
-      itemStyle: { color: ACCOUNT },
+      lineStyle: {
+        width: 1.8,
+        color: accountEncoding.color,
+        type: "solid" as const,
+      },
+      itemStyle: { color: accountEncoding.color },
       emphasis: { scale: false },
     };
-    const benchmark = {
-      name: "沪深300全收益",
-      type: "line" as const,
-      data: benchmarkSeries.value,
-      showSymbol: false,
-      symbol: "none",
-      smooth: false,
-      connectNulls: false,
-      sampling: "lttb" as const,
-      animation: false,
-      lineStyle: { width: 1.5, color: BENCHMARK },
-      itemStyle: { color: BENCHMARK },
-      emphasis: { scale: false },
-    };
+    const benchmarks = activeBenchmarks.value.map((benchmark) => {
+      const encoding = encodingFor(benchmark.code);
+      return {
+        name: benchmark.name,
+        type: "line" as const,
+        data: alignSeries(benchmark),
+        showSymbol: false,
+        symbol: "none",
+        smooth: false,
+        connectNulls: false,
+        sampling: "lttb" as const,
+        animation: false,
+        lineStyle: {
+          width: 1.5,
+          color: encoding.color,
+          type: encoding.dash.length ? encoding.dash : ("solid" as const),
+        },
+        itemStyle: { color: encoding.color },
+        emphasis: { scale: false },
+      };
+    });
     chart.setOption(
       {
         animation: false,
@@ -211,11 +220,7 @@ function render() {
           },
           splitLine: { lineStyle: { color: "#edf0ec", type: "dashed" } },
         },
-        series: [
-          account,
-          ...(benchmarkVisible.value ? [benchmark] : []),
-          ...flowSeries.value,
-        ],
+        series: [account, ...benchmarks, ...flowSeries.value],
       },
       true,
     );
@@ -225,16 +230,7 @@ function render() {
   }
 }
 
-watch(
-  () => [
-    props.mode,
-    props.samples,
-    props.flows,
-    props.benchmark,
-    props.currency,
-  ],
-  render,
-);
+watch(() => [props.mode, props.samples, props.flows, props.benchmarks], render);
 onMounted(() => {
   if (!element.value) return;
   try {
@@ -267,12 +263,9 @@ onBeforeUnmount(() => {
       :aria-label="
         mode === 'profit'
           ? '累计收益曲线；红点为转入、绿点为转出，点选可定位记录'
-          : '收益率曲线，可选择对比沪深300全收益'
+          : '收益率曲线；账户为实线，对比指数使用不同虚线样式以区分'
       "
     />
-    <p v-if="benchmarkNotice" class="lp-chart-note" role="status">
-      {{ benchmarkNotice }}
-    </p>
   </section>
 </template>
 

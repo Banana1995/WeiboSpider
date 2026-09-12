@@ -20,18 +20,35 @@ const samples = [
   { date: "2026-01-02", value: 0.05, text: "5.00%" },
   { date: "2026-01-05", value: 0.1, text: "10.00%" },
 ];
-const benchmark: Benchmark = {
-  code: "H00300",
-  name: "沪深300全收益",
-  currency: "CNY",
-  source: "中证指数",
-  from: "2026-01-02",
-  to: "2026-01-05",
-  items: [
-    { date: "2026-01-02", close: "100", return: "0.00000000" },
-    { date: "2026-01-05", close: "120", return: "0.20000000" },
-  ],
-};
+function makeBenchmark(
+  code: string,
+  name: string,
+  currency: string,
+  source: string,
+  items: Benchmark["items"],
+): Benchmark {
+  return {
+    code,
+    name,
+    currency,
+    source,
+    from: items[0]!.date,
+    to: items[items.length - 1]!.date,
+    items,
+  };
+}
+const hs300 = makeBenchmark("H00300", "沪深300全收益", "CNY", "中证指数", [
+  { date: "2026-01-02", close: "100", return: "0.00000000" },
+  { date: "2026-01-05", close: "120", return: "0.20000000" },
+]);
+const dividend = makeBenchmark("H00922", "中证红利全收益", "CNY", "中证指数", [
+  { date: "2026-01-02", close: "200", return: "0.00000000" },
+  { date: "2026-01-05", close: "210", return: "0.05000000" },
+]);
+const sp500 = makeBenchmark("usINX", "标普500", "USD", "腾讯", [
+  { date: "2026-01-02", close: "7000", return: "0.00000000" },
+  { date: "2026-01-05", close: "7140", return: "0.02000000" },
+]);
 
 function setup(props: Record<string, unknown> = {}) {
   vi.stubGlobal(
@@ -49,8 +66,7 @@ function setup(props: Record<string, unknown> = {}) {
       mode: "rate",
       samples,
       flows: [],
-      benchmark: null,
-      currency: "CNY",
+      benchmarks: [],
       ...props,
     },
   });
@@ -62,7 +78,7 @@ afterEach(() => {
 
 type Point = { value: [number, number]; text?: string };
 
-it("renders crisp thin account lines at devicePixelRatio and cleans up", () => {
+it("renders a crisp thin solid account line at devicePixelRatio and cleans up", () => {
   const w = setup();
   expect(init).toHaveBeenCalledOnce();
   expect(init.mock.calls[0]![2]).toEqual({
@@ -81,7 +97,11 @@ it("renders crisp thin account lines at devicePixelRatio and cleans up", () => {
     sampling: "lttb",
     animation: false,
   });
-  expect(option.series[0].lineStyle).toEqual({ width: 1.5, color: "#24745b" });
+  expect(option.series[0].lineStyle).toEqual({
+    width: 1.8,
+    color: "#1f6f5c",
+    type: "solid",
+  });
   expect((option.series[0].data as Point[]).map((p) => p.value[1])).toEqual([
     0, 0.05, 0.1,
   ]);
@@ -94,10 +114,14 @@ it("renders crisp thin account lines at devicePixelRatio and cleans up", () => {
 });
 
 it("aligns an optional benchmark with a flat baseline before its first point", () => {
-  const w = setup({ benchmark });
+  const w = setup({ benchmarks: [hs300] });
   const option = chart.setOption.mock.calls.at(-1)![0];
   expect(option.series).toHaveLength(2);
-  expect(option.series[1].lineStyle).toEqual({ width: 1.5, color: "#6f5b8f" });
+  expect(option.series[1].lineStyle).toEqual({
+    width: 1.5,
+    color: "#2f6fb0",
+    type: [6, 3],
+  });
   const points = option.series[1].data as Point[];
   expect(points.map((p) => p.value[1])).toEqual([0, 0, 0.2]);
   expect(points[2]!.text).toBe("20.00%");
@@ -121,11 +145,42 @@ it("aligns an optional benchmark with a flat baseline before its first point", (
   w.unmount();
 });
 
-it("hides the benchmark and explains why for non-CNY accounts", () => {
-  const w = setup({ benchmark, currency: "USD" });
+it("distinguishes account and every benchmark by dash pattern, not color alone", () => {
+  const w = setup({ benchmarks: [hs300, dividend, sp500] });
   const option = chart.setOption.mock.calls.at(-1)![0];
-  expect(option.series).toHaveLength(1);
-  expect(w.text()).toContain("账户以 USD 计价");
+  expect(option.series).toHaveLength(4);
+  expect(option.series[0].lineStyle).toEqual({
+    width: 1.8,
+    color: "#1f6f5c",
+    type: "solid",
+  });
+  expect(option.series[1].lineStyle).toEqual({
+    width: 1.5,
+    color: "#2f6fb0",
+    type: [6, 3],
+  });
+  expect(option.series[2].lineStyle).toEqual({
+    width: 1.5,
+    color: "#a8721f",
+    type: [1.5, 3],
+  });
+  expect(option.series[3].lineStyle).toEqual({
+    width: 1.5,
+    color: "#6f5b8f",
+    type: [8, 3, 2, 3],
+  });
+  const patterns = option.series
+    .slice(1)
+    .map((series: { lineStyle: { type: number[] } }) =>
+      series.lineStyle.type.join(","),
+    );
+  expect(new Set(patterns).size).toBe(3);
+
+  // The legend/control lives in the parent so it is not duplicated above the plot.
+  expect(w.find(".lp-chart-legend").exists()).toBe(false);
+  expect(w.get(".lp-return-canvas").attributes("aria-label")).toContain(
+    "不同虚线样式",
+  );
   w.unmount();
 });
 

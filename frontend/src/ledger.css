@@ -350,12 +350,22 @@
   color: var(--lp-muted);
 }
 .ledger-page .lp-benchmark[aria-pressed="true"] {
-  color: #6f5b8f;
-  border-color: #c9bfd8;
-  background: #f2eef7;
+  color: var(--lp-primary);
+  border-color: #b9cbb9;
+  background: #eef2ee;
 }
 .ledger-page .lp-benchmark:disabled {
   opacity: 0.55;
+}
+.ledger-page .lp-swatch {
+  width: 30px;
+  height: 12px;
+  flex: none;
+}
+.ledger-page .lp-chart-note {
+  font-size: 12px;
+  color: var(--lp-muted);
+  margin: 8px 0 0;
 }
 .ledger-page .lp-date-range {
   display: flex;

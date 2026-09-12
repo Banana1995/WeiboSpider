@@ -73,6 +73,56 @@ it("rejects identity, currency, envelope and range drift", () => {
   expect(validBenchmark(benchmark(), "H00301", from, to)).toBe(false);
 });
 
+it("accepts each whitelisted definition with its own name, currency and source", () => {
+  for (const definition of [
+    {
+      code: "H00300",
+      name: "沪深300全收益",
+      currency: "CNY",
+      source: "中证指数",
+    },
+    {
+      code: "H00922",
+      name: "中证红利全收益",
+      currency: "CNY",
+      source: "中证指数",
+    },
+    { code: "usINX", name: "标普500", currency: "USD", source: "腾讯" },
+  ]) {
+    expect(
+      validBenchmark(
+        benchmark({
+          code: definition.code,
+          name: definition.name,
+          currency: definition.currency,
+          source: definition.source,
+        }),
+        definition.code,
+        from,
+        to,
+      ),
+    ).toBe(true);
+  }
+  // Presentation drift or an unknown code is rejected even with valid items.
+  for (const value of [
+    benchmark({ code: "H00922", name: "沪深300全收益" }),
+    benchmark({
+      code: "usINX",
+      name: "标普500",
+      currency: "CNY",
+      source: "腾讯",
+    }),
+    benchmark({
+      code: "usINX",
+      name: "标普500",
+      currency: "USD",
+      source: "中证指数",
+    }),
+  ])
+    expect(validBenchmark(value, value.code, from, to)).toBe(false);
+  expect(validBenchmark(benchmark(), "SPX", from, to)).toBe(false);
+});
+
 it("rejects malformed items, dates, closes and inconsistent returns", () => {
   const item = (overrides: Record<string, unknown>) => ({
     ...benchmark().items[1]!,

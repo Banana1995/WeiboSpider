@@ -57,7 +57,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		}
 		ledgerMux := http.NewServeMux()
 		ledgerStore, quotes, fx := ledger.NewStore(application.ledgerDB, nil), ledger.NewTencentQuotes(), ledger.NewTencentFX()
-		benchmark := ledger.NewCSIndexBenchmark()
+		benchmark := ledger.NewBenchmarkService()
 		application.ledgerWorker, err = ledger.NewWeeklyWorker(ledgerStore, quotes, fx, ledger.WeeklyConfig{Enabled: cfg.LedgerWeeklyEnabled, Time: cfg.LedgerWeeklyTime}, logger)
 		if err != nil {
 			return nil, errors.Join(err, application.Close())

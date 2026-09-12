@@ -20,23 +20,44 @@ import {
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 import LedgerReturnChart from "./LedgerReturnChart.vue";
-import { validBenchmark, type Benchmark } from "./ledgerBenchmark";
+import {
+  accountEncoding,
+  benchmarkDash,
+  benchmarkDefinitions,
+  benchmarkEncodings,
+  validBenchmark,
+  type Benchmark,
+  type BenchmarkCode,
+} from "./ledgerBenchmark";
 
 const props = defineProps<{ account: Account; refreshKey: number }>();
 const emit = defineEmits<{
   locate: [event: { id: string; date: string; accountId: string }];
 }>();
+
+type BenchmarkRead = {
+  data?: Benchmark;
+  error: string;
+  loading: boolean;
+  clear: () => void;
+  load: (read: (signal: AbortSignal) => Promise<Benchmark>) => Promise<void>;
+};
 const { locked } = useLedgerWorkspace();
 const summary = reactive(useLedgerRead<EffectiveSummary>());
 const basis = reactive(useLedgerRead<AnalysisBasis>());
-const benchmark = reactive(useLedgerRead<Benchmark>());
+const benchmarkReads = Object.fromEntries(
+  benchmarkDefinitions.map((definition) => [
+    definition.code,
+    reactive(useLedgerRead<Benchmark>()),
+  ]),
+) as unknown as Record<BenchmarkCode, BenchmarkRead>;
+const selectedBenchmarks = ref<BenchmarkCode[]>([]);
 const range = ref("all");
 const today = ref(todayShanghai());
 const customFrom = ref("");
 const customTo = ref(today.value);
 const view = ref("personal");
 const chartMode = ref<"rate" | "profit">("rate");
-const benchmarkOn = ref(false);
 const bounds = computed(() => {
   const year = today.value.slice(0, 4);
   const start = new Date(`${today.value}T00:00:00Z`);
@@ -95,7 +116,33 @@ const effectiveRange = computed(() =>
     ? `${result.value.effective_from} 至 ${result.value.effective_to}`
     : "尚无可计算区间",
 );
-const benchmarkAvailable = computed(() => props.account.currency === "CNY");
+const selectedDefinitions = computed(() =>
+  benchmarkDefinitions.filter((definition) =>
+    selectedBenchmarks.value.includes(definition.code),
+  ),
+);
+const activeBenchmarks = computed(() =>
+  selectedDefinitions.value
+    .map((definition) => benchmarkReads[definition.code].data)
+    .filter((benchmark): benchmark is Benchmark => !!benchmark),
+);
+const benchmarkErrors = computed(() =>
+  selectedDefinitions.value
+    .filter((definition) => benchmarkReads[definition.code].error)
+    .map((definition) => ({
+      code: definition.code,
+      name: definition.name,
+      error: benchmarkReads[definition.code].error,
+    })),
+);
+const benchmarkCurrencyNotes = computed(() =>
+  selectedDefinitions.value
+    .filter((definition) => definition.currency !== props.account.currency)
+    .map(
+      (definition) =>
+        `${definition.name} 以 ${definition.currency} 计价，与账户 ${props.account.currency} 未做汇率调整，仅比较涨跌幅。`,
+    ),
+);
 const warningLabels: Record<string, string> = {
   carried_assets_unchanged:
     "部分资产按最近明确总资产加后续净转入推算，仅供参考。",
@@ -166,20 +213,23 @@ const flows = computed(() => {
 function locate(event: { id: string; date: string }) {
   emit("locate", { ...event, accountId: props.account.id });
 }
-function loadBenchmark() {
-  benchmark.clear();
+function isBenchmarkSelected(code: BenchmarkCode) {
+  return selectedBenchmarks.value.includes(code);
+}
+function toggleBenchmark(code: BenchmarkCode) {
+  selectedBenchmarks.value = isBenchmarkSelected(code)
+    ? selectedBenchmarks.value.filter((selected) => selected !== code)
+    : [...selectedBenchmarks.value, code];
+}
+function loadBenchmark(code: BenchmarkCode) {
+  const read = benchmarkReads[code];
+  read.clear();
   const r = result.value;
-  if (
-    !benchmarkOn.value ||
-    !benchmarkAvailable.value ||
-    !r?.effective_from ||
-    !r.effective_to
-  )
+  if (!isBenchmarkSelected(code) || !r?.effective_from || !r.effective_to)
     return;
-  const code = "H00300";
   const from = r.effective_from;
   const to = r.effective_to;
-  void benchmark.load(async (signal) => {
+  void read.load(async (signal) => {
     const data = await request<unknown>(
       `/benchmark${query({ code, from, to })}`,
       { signal },
@@ -188,6 +238,9 @@ function loadBenchmark() {
       throw new LedgerError("invalid_response");
     return data;
   });
+}
+function loadBenchmarks() {
+  for (const definition of benchmarkDefinitions) loadBenchmark(definition.code);
 }
 function loadAnalysis() {
   basis.clear();
@@ -225,8 +278,9 @@ watch(
     today.value = todayShanghai();
     customFrom.value = "";
     customTo.value = today.value;
-    benchmarkOn.value = false;
-    benchmark.clear();
+    selectedBenchmarks.value = [];
+    for (const definition of benchmarkDefinitions)
+      benchmarkReads[definition.code].clear();
     loadSummary();
     loadAnalysis();
   },
@@ -235,12 +289,11 @@ watch(
 watch(bounds, loadAnalysis);
 watch(
   [
-    benchmarkOn,
+    () => selectedBenchmarks.value.join(","),
     () => result.value?.effective_from,
     () => result.value?.effective_to,
-    benchmarkAvailable,
   ],
-  loadBenchmark,
+  loadBenchmarks,
 );
 watch(
   () => props.refreshKey,
@@ -399,8 +452,7 @@ watch(
         :mode="chartMode"
         :samples="samples"
         :flows="flows"
-        :benchmark="benchmark.data ?? null"
-        :currency="account.currency"
+        :benchmarks="activeBenchmarks"
         @locate="locate"
       />
       <div class="lp-chart-footer">
@@ -409,30 +461,80 @@ watch(
             <span><i class="lp-in" />转入</span
             ><span><i class="lp-out" />转出</span>
           </template>
-          <button
-            v-if="chartMode === 'rate'"
-            type="button"
-            class="lp-benchmark"
-            :aria-pressed="benchmarkOn"
-            :disabled="locked || !benchmarkAvailable"
-            :title="
-              benchmarkAvailable
-                ? '叠加沪深300全收益对比'
-                : '账户非人民币计价，暂不支持对比'
-            "
-            @click="benchmarkOn = !benchmarkOn"
-          >
-            沪深300全收益
-            <small v-if="benchmark.loading">读取中…</small>
-          </button>
+          <template v-else>
+            <span class="lp-account-legend">
+              <svg
+                class="lp-swatch"
+                viewBox="0 0 34 12"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <line
+                  x1="1"
+                  y1="6"
+                  x2="33"
+                  y2="6"
+                  :stroke="accountEncoding.color"
+                  stroke-width="1.8"
+                />
+              </svg>
+              账户
+            </span>
+            <button
+              v-for="definition in benchmarkDefinitions"
+              :key="definition.code"
+              type="button"
+              class="lp-benchmark"
+              :aria-pressed="isBenchmarkSelected(definition.code)"
+              :disabled="locked"
+              :title="`叠加${definition.name}（${definition.source}，${definition.currency}）`"
+              @click="toggleBenchmark(definition.code)"
+            >
+              <svg
+                class="lp-swatch"
+                viewBox="0 0 34 12"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <line
+                  x1="1"
+                  y1="6"
+                  x2="33"
+                  y2="6"
+                  :stroke="benchmarkEncodings[definition.code].color"
+                  stroke-width="1.5"
+                  :stroke-dasharray="benchmarkDash(definition.code)"
+                />
+              </svg>
+              {{ definition.name }}
+              <small v-if="benchmarkReads[definition.code].loading"
+                >读取中…</small
+              >
+            </button>
+          </template>
         </div>
         <p>
           曲线只连接已有数值，跳过无数值日期，不补零；转入、转出同日总资产为资金变动后金额。
         </p>
       </div>
-      <p v-if="benchmark.error" class="lp-error" role="alert">
-        {{ errorText(benchmark.error) }}
-        <button :disabled="locked || benchmark.loading" @click="loadBenchmark">
+      <p
+        v-if="benchmarkCurrencyNotes.length"
+        class="lp-chart-note"
+        role="status"
+      >
+        {{ benchmarkCurrencyNotes.join(" ") }}
+      </p>
+      <p
+        v-for="item in benchmarkErrors"
+        :key="item.code"
+        class="lp-error"
+        role="alert"
+      >
+        {{ item.name }}：{{ errorText(item.error) }}
+        <button
+          :disabled="locked || benchmarkReads[item.code].loading"
+          @click="loadBenchmark(item.code)"
+        >
           重试读取指数
         </button>
       </p>

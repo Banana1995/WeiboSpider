@@ -191,8 +191,7 @@ const returnChart = defineComponent({
     mode: { type: String, required: true },
     samples: { type: Array, required: true },
     flows: { type: Array, required: true },
-    benchmark: { type: Object, default: null },
-    currency: { type: String, required: true },
+    benchmarks: { type: Array, required: true },
   },
   emits: ["locate"],
   template: "<div class='lp-return-chart-stub' />",
@@ -240,19 +239,38 @@ beforeEach(() => {
       }
       if (url.pathname.endsWith("/records"))
         return response({ items: [basis.points[4]!.record] });
-      if (url.pathname.endsWith("/benchmark"))
+      if (url.pathname.endsWith("/benchmark")) {
+        const code = url.searchParams.get("code")!;
+        const definitions: Record<
+          string,
+          { name: string; currency: string; source: string }
+        > = {
+          H00300: {
+            name: "沪深300全收益",
+            currency: "CNY",
+            source: "中证指数",
+          },
+          H00922: {
+            name: "中证红利全收益",
+            currency: "CNY",
+            source: "中证指数",
+          },
+          usINX: { name: "标普500", currency: "USD", source: "腾讯" },
+        };
+        const definition = definitions[code]!;
         return response({
-          code: "H00300",
-          name: "沪深300全收益",
-          currency: "CNY",
-          source: "中证指数",
+          code,
+          name: definition.name,
+          currency: definition.currency,
+          source: definition.source,
           from: "2020-01-01",
           to: "2021-09-01",
           items: [
             { date: "2020-01-01", close: "100", return: "0.00000000" },
-            { date: "2021-09-01", close: "110", return: "0.10000000" },
+            { date: "2021-09-01", close: "105", return: "0.05000000" },
           ],
         });
+      }
       throw new Error(`Unexpected test request: ${input}`);
     }),
   );
@@ -746,23 +764,107 @@ it("opens the folded record table from a real chart event without resetting over
   }
 });
 
-it("loads the benchmark only on demand and keeps the account curve intact", async () => {
+it("loads each selected benchmark independently and keeps the account curve intact", async () => {
   await overview();
-  const toggle = () =>
-    wrapper.findAll("button").find((b) => b.text().includes("沪深300全收益"))!;
-  expect(toggle().attributes("aria-pressed")).toBe("false");
-  expect(wrapper.findComponent(returnChart).props().benchmark).toBeNull();
-  await toggle().trigger("click");
+  const toggle = (name: string) =>
+    wrapper.findAll("button").find((b) => b.text().includes(name))!;
+  const benchmarkCodes = () =>
+    (
+      wrapper.findComponent(returnChart).props().benchmarks as {
+        code: string;
+      }[]
+    )
+      .map((b) => b.code)
+      .sort();
+  expect(wrapper.findComponent(returnChart).props().benchmarks).toEqual([]);
+  await toggle("沪深300全收益").trigger("click");
   await flushPromises();
-  expect(toggle().attributes("aria-pressed")).toBe("true");
+  expect(toggle("沪深300全收益").attributes("aria-pressed")).toBe("true");
   expect(
     calls.includes(
       "/api/platform/ledger/benchmark?code=H00300&from=2020-01-01&to=2021-09-01",
     ),
   ).toBe(true);
-  const chart = wrapper.findComponent(returnChart).props();
-  expect((chart.benchmark as { code: string }).code).toBe("H00300");
+  expect(benchmarkCodes()).toEqual(["H00300"]);
+
+  await toggle("中证红利全收益").trigger("click");
+  await flushPromises();
   expect(
-    (chart.samples as { value: number | null }[]).some((s) => s.value !== null),
+    calls.includes(
+      "/api/platform/ledger/benchmark?code=H00922&from=2020-01-01&to=2021-09-01",
+    ),
+  ).toBe(true);
+  expect(benchmarkCodes()).toEqual(["H00300", "H00922"]);
+  // One legend doubles as the control; account is solid, each index a distinct dash.
+  expect(wrapper.find(".lp-account-legend").text()).toContain("账户");
+  const swatches = wrapper
+    .findAll(".lp-legend .lp-swatch line")
+    .map((line) => line.attributes("stroke-dasharray") ?? "");
+  expect(swatches).toEqual(["", "6 3", "1.5 3", "8 3 2 3"]);
+  expect(new Set(swatches.slice(1)).size).toBe(3);
+  expect(
+    (
+      wrapper.findComponent(returnChart).props().samples as {
+        value: number | null;
+      }[]
+    ).some((s) => s.value !== null),
+  ).toBe(true);
+
+  await toggle("沪深300全收益").trigger("click");
+  await flushPromises();
+  expect(toggle("沪深300全收益").attributes("aria-pressed")).toBe("false");
+  expect(benchmarkCodes()).toEqual(["H00922"]);
+});
+
+it("notes a benchmark currency that differs from the account without FX adjustment", async () => {
+  await overview();
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text().includes("标普500"))!
+    .trigger("click");
+  await flushPromises();
+  const note = wrapper.get(".lp-chart-note");
+  expect(note.text()).toContain("标普500");
+  expect(note.text()).toContain("USD");
+  expect(note.text()).toContain("CNY");
+  expect(note.text()).toContain("未做汇率调整");
+});
+
+it("shows a per-index error and retries without breaking the account curve", async () => {
+  const original = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, options?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (
+        url.pathname.endsWith("/benchmark") &&
+        url.searchParams.get("code") === "H00922"
+      )
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: "benchmark_unavailable",
+              message: "upstream",
+            }),
+            {
+              status: 502,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      return original(input, options);
+    }),
+  );
+  await overview();
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text().includes("中证红利全收益"))!
+    .trigger("click");
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(true);
+  expect(
+    wrapper
+      .findAll('[role="alert"]')
+      .some((alert) => alert.text().includes("中证红利全收益")),
   ).toBe(true);
 });

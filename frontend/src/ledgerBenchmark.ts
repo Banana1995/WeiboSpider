@@ -13,6 +13,55 @@ export interface Benchmark {
   items: BenchmarkItem[];
 }
 
+export type BenchmarkCode = "H00300" | "H00922" | "usINX";
+
+export interface BenchmarkDefinition {
+  code: BenchmarkCode;
+  name: string;
+  currency: "CNY" | "USD";
+  source: string;
+}
+
+export const benchmarkDefinitions: BenchmarkDefinition[] = [
+  {
+    code: "H00300",
+    name: "沪深300全收益",
+    currency: "CNY",
+    source: "中证指数",
+  },
+  {
+    code: "H00922",
+    name: "中证红利全收益",
+    currency: "CNY",
+    source: "中证指数",
+  },
+  { code: "usINX", name: "标普500", currency: "USD", source: "腾讯" },
+];
+
+// Presentation is shared with the parent toggles so the dash pattern is visible
+// on the control as well as on the curve; never color-only.
+export interface BenchmarkEncoding {
+  color: string;
+  dash: number[];
+}
+export const accountEncoding: BenchmarkEncoding = {
+  color: "#1f6f5c",
+  dash: [],
+};
+export const benchmarkEncodings: Record<BenchmarkCode, BenchmarkEncoding> = {
+  H00300: { color: "#2f6fb0", dash: [6, 3] },
+  H00922: { color: "#a8721f", dash: [1.5, 3] },
+  usINX: { color: "#6f5b8f", dash: [8, 3, 2, 3] },
+};
+export const benchmarkDash = (code: string) =>
+  (benchmarkEncodings[code as BenchmarkCode]?.dash ?? []).join(" ");
+
+export function benchmarkDefinition(
+  code: string,
+): BenchmarkDefinition | undefined {
+  return benchmarkDefinitions.find((definition) => definition.code === code);
+}
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CLOSE = /^-?\d+(?:\.\d+)?$/;
 const RETURN = /^-?\d+\.\d{8}$/;
@@ -52,16 +101,16 @@ export function validBenchmark(
   from: string,
   to: string,
 ): value is Benchmark {
+  const definition = benchmarkDefinition(code);
+  if (!definition) return false;
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return false;
   const benchmark = value as Record<string, unknown>;
   if (
     benchmark.code !== code ||
-    typeof benchmark.name !== "string" ||
-    !benchmark.name.trim() ||
-    benchmark.currency !== "CNY" ||
-    typeof benchmark.source !== "string" ||
-    !benchmark.source.trim() ||
+    benchmark.name !== definition.name ||
+    benchmark.currency !== definition.currency ||
+    benchmark.source !== definition.source ||
     !validDate(benchmark.from) ||
     !validDate(benchmark.to) ||
     benchmark.from > benchmark.to ||

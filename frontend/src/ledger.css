@@ -30,17 +30,7 @@
   opacity: 0.5;
 }
 .ledger-page
-  :is(
-    button,
-    a,
-    input,
-    textarea,
-    select,
-    summary,
-    circle,
-    tr,
-    .lp-chart-readout
-  ):focus-visible {
+  :is(button, a, input, textarea, select, summary, tr):focus-visible {
   outline: 2px solid #438b70;
   outline-offset: 3px;
 }
@@ -308,103 +298,6 @@
   position: relative;
   padding-top: 8px;
 }
-.ledger-page .lp-plot {
-  position: relative;
-}
-.ledger-page .lp-chart svg {
-  width: 100%;
-  height: 210px;
-  display: block;
-  overflow: visible;
-}
-.ledger-page .lp-chart-readout {
-  height: 72px;
-  overflow-y: auto;
-  padding-bottom: 8px;
-  font-size: 12px;
-  color: var(--lp-muted);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.ledger-page .lp-chart-readout strong {
-  margin-left: 12px;
-  color: var(--lp-primary);
-}
-.ledger-page .lp-axis-top,
-.ledger-page .lp-axis-zero {
-  position: absolute;
-  right: 0;
-  max-width: 45%;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-  color: var(--lp-muted);
-  background: var(--lp-surface);
-  padding-left: 4px;
-}
-.ledger-page .lp-axis-top {
-  top: 6px;
-}
-.ledger-page .lp-gridline {
-  stroke: #e7ebe4;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-.ledger-page .lp-zero {
-  stroke: #bfcac0;
-  stroke-dasharray: 3 5;
-  vector-effect: non-scaling-stroke;
-}
-.ledger-page .lp-curve {
-  stroke: var(--lp-primary);
-  stroke-width: 2.3;
-  fill: none;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-.ledger-page .lp-point {
-  fill: var(--lp-primary);
-  stroke: var(--lp-primary);
-  stroke-width: 1.7;
-  vector-effect: non-scaling-stroke;
-}
-.ledger-page .lp-point:hover,
-.ledger-page .lp-point:focus {
-  r: 6;
-  stroke-width: 2.5;
-}
-.ledger-page .lp-event-scroll {
-  max-height: 116px;
-  overflow-y: auto;
-  padding-top: 4px;
-}
-.ledger-page .lp-event-lane {
-  position: relative;
-  min-height: 28px;
-  margin: 0;
-}
-.ledger-page .lp-event {
-  position: absolute;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  font-size: 16px;
-  background: var(--lp-surface);
-  border-color: currentColor;
-  line-height: 1;
-}
-.ledger-page .lp-axis-dates {
-  display: flex;
-  justify-content: space-between;
-  margin: 6px 2% 12px;
-  font-size: 12px;
-  color: var(--lp-muted);
-}
 .ledger-page .lp-chart-footer {
   display: flex;
   align-items: flex-start;
@@ -441,6 +334,28 @@
 }
 .ledger-page .lp-out {
   color: var(--lp-primary);
+}
+.ledger-page .lp-benchmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid var(--lp-rule);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lp-muted);
+}
+.ledger-page .lp-benchmark small {
+  color: var(--lp-muted);
+}
+.ledger-page .lp-benchmark[aria-pressed="true"] {
+  color: #6f5b8f;
+  border-color: #c9bfd8;
+  background: #f2eef7;
+}
+.ledger-page .lp-benchmark:disabled {
+  opacity: 0.55;
 }
 .ledger-page .lp-date-range {
   display: flex;
@@ -1613,9 +1528,6 @@
   }
   .ledger-page .lp-range button {
     padding: 5px 9px;
-  }
-  .ledger-page .lp-chart-readout {
-    font-size: 11px;
   }
   .ledger-page .lp-date-range {
     gap: 8px;

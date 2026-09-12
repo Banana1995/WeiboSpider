@@ -57,11 +57,12 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		}
 		ledgerMux := http.NewServeMux()
 		ledgerStore, quotes, fx := ledger.NewStore(application.ledgerDB, nil), ledger.NewTencentQuotes(), ledger.NewTencentFX()
+		benchmark := ledger.NewCSIndexBenchmark()
 		application.ledgerWorker, err = ledger.NewWeeklyWorker(ledgerStore, quotes, fx, ledger.WeeklyConfig{Enabled: cfg.LedgerWeeklyEnabled, Time: cfg.LedgerWeeklyTime}, logger)
 		if err != nil {
 			return nil, errors.Join(err, application.Close())
 		}
-		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Weekly: application.ledgerWorker}.Register(ledgerMux)
+		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, Weekly: application.ledgerWorker}.Register(ledgerMux)
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})

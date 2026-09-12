@@ -185,6 +185,18 @@ const manager = defineComponent({
     return () => null;
   },
 });
+const returnChart = defineComponent({
+  name: "LedgerReturnChart",
+  props: {
+    mode: { type: String, required: true },
+    samples: { type: Array, required: true },
+    flows: { type: Array, required: true },
+    benchmark: { type: Object, default: null },
+    currency: { type: String, required: true },
+  },
+  emits: ["locate"],
+  template: "<div class='lp-return-chart-stub' />",
+});
 beforeEach(() => {
   basis = fixture();
   calls = [];
@@ -228,6 +240,19 @@ beforeEach(() => {
       }
       if (url.pathname.endsWith("/records"))
         return response({ items: [basis.points[4]!.record] });
+      if (url.pathname.endsWith("/benchmark"))
+        return response({
+          code: "H00300",
+          name: "沪深300全收益",
+          currency: "CNY",
+          source: "中证指数",
+          from: "2020-01-01",
+          to: "2021-09-01",
+          items: [
+            { date: "2020-01-01", close: "100", return: "0.00000000" },
+            { date: "2021-09-01", close: "110", return: "0.10000000" },
+          ],
+        });
       throw new Error(`Unexpected test request: ${input}`);
     }),
   );
@@ -244,6 +269,7 @@ async function overview() {
       provide: {
         [ledgerWorkspaceKey as symbol]: createLedgerWorkspace(() => {}),
       },
+      stubs: { LedgerReturnChart: returnChart },
     },
   });
   await flushPromises();
@@ -252,7 +278,9 @@ async function overview() {
 async function ledger() {
   wrapper = mount(Ledger, {
     attachTo: document.body,
-    global: { stubs: { LedgerManagement: manager } },
+    global: {
+      stubs: { LedgerManagement: manager, LedgerReturnChart: returnChart },
+    },
   });
   await flushPromises();
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
@@ -339,48 +367,52 @@ it("keeps a same-day inclusive duration of one, but requires zero when the closi
   );
 });
 
-it("joins numeric samples with one solid path and filled points without changing exact values or provenance", async () => {
+it("passes numeric samples with exact values and provenance to the chart without fabricating points", async () => {
   const original = structuredClone(basis);
   await overview();
   expect(wrapper.get('[data-test="period-days"]').text()).toBe(
     "统计时长 610 天",
   );
-  const svg = wrapper.get('svg[aria-label="账户收益曲线"]');
-  expect(svg.findAll(".lp-point-available, .lp-point-reference")).toHaveLength(
-    0,
+  const chartProps = () =>
+    wrapper.findComponent(returnChart).props() as {
+      mode: string;
+      samples: {
+        date: string;
+        value: number | null;
+        text: string;
+        note: string;
+      }[];
+      flows: { date: string; direction: string }[];
+    };
+  expect(chartProps().mode).toBe("rate");
+  expect(chartProps().samples.filter((p) => p.value !== null)).toHaveLength(5);
+  const reference = chartProps().samples.find((p) => p.date === "2020-03-01")!;
+  expect(reference.text).toBe("26.00%");
+  expect(reference.note).toContain(
+    "基于 2020-02-01 明确总资产加后续净转入推算",
   );
-  expect(svg.findAll("circle")).toHaveLength(5);
-  expect(svg.get("path.lp-curve").attributes("d")!.match(/M/g)).toHaveLength(1);
-  expect(svg.get("path.lp-curve").attributes("d")!.match(/L/g)).toHaveLength(4);
-  expect(svg.findAll("path.lp-curve")).toHaveLength(1);
-  expect(svg.find(".lp-reference-line").exists()).toBe(false);
-  expect(svg.find('.lp-point[aria-label^="2020-04-01"]').exists()).toBe(false);
+  expect(
+    chartProps().samples.some(
+      (p) => p.date === "2020-04-01" && p.value !== null,
+    ),
+  ).toBe(false);
   expect(wrapper.find('[data-test="curve-gaps"]').exists()).toBe(false);
   expect(wrapper.find('[aria-label="收益状态图例"]').exists()).toBe(false);
-  const reference = svg.get('.lp-point[aria-label^="2020-03-01"]');
-  expect(reference.attributes("tabindex")).toBe("0");
-  await reference.trigger("focus");
-  expect(wrapper.get(".lp-chart-readout").text()).toContain("26.00%");
-  expect(wrapper.get(".lp-chart-readout").text()).toContain(
-    "基于 2020-02-01 明确总资产加后续净转入推算",
-  );
-  await reference.trigger("blur", {
-    relatedTarget: wrapper.get(".lp-chart-readout").element,
-  });
-  expect(wrapper.get(".lp-chart-readout").text()).toContain(
-    "基于 2020-02-01 明确总资产加后续净转入推算",
-  );
-  expect(reference.attributes("aria-label")).not.toContain("sample-");
+  expect(chartProps().flows.map((f) => [f.date, f.direction])).toEqual([
+    ["2021-05-02", "in"],
+  ]);
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "收益金额")!
+    .find((b) => b.text() === "累计收益曲线")!
     .trigger("click");
-  expect(wrapper.get(".lp-chart-readout").text()).toContain(
-    "90,071,992,547,409.03",
-  );
+  await nextTick();
+  expect(chartProps().mode).toBe("profit");
+  expect(
+    chartProps().samples.find((p) => p.date === "2020-03-01")!.text,
+  ).toContain("90,071,992,547,409.03");
   expect(calls).toHaveLength(2);
-  expect(styles).not.toContain(".lp-reference-line");
-  expect(styles).toMatch(/\.lp-point\s*\{[^}]*fill: var\(--lp-primary\)/);
+  expect(styles).not.toContain(".lp-curve");
+  expect(styles).not.toContain(".lp-event");
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
   expect(basis).toEqual(original);
 });
@@ -399,16 +431,18 @@ it.each([0, 1])(
     basis.returns.modified_dietz = basis.returns.curve.at(-1)!.modified_dietz;
     const original = structuredClone(basis);
     await overview();
-    expect(wrapper.findAll(".lp-point")).toHaveLength(count);
+    const chart = wrapper.findComponent(returnChart);
     if (count) {
-      const path = wrapper.get("path.lp-curve").attributes("d")!;
-      expect(path).toMatch(/^M/);
-      expect(path).not.toContain("L");
-      expect(wrapper.get(".lp-point").attributes("aria-label")).toContain(
+      const chartSamples = chart.props().samples as {
+        value: number | null;
+        text: string;
+      }[];
+      expect(chartSamples.filter((p) => p.value !== null)).toHaveLength(1);
+      expect(chartSamples.find((p) => p.value !== null)!.text).toContain(
         "0.00%",
       );
     } else {
-      expect(wrapper.find("path.lp-curve").exists()).toBe(false);
+      expect(chart.exists()).toBe(false);
       expect(wrapper.text()).toContain("这个区间还画不出曲线");
     }
     expect(basis).toEqual(original);
@@ -437,53 +471,64 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   basis.returns.warnings.push("twr_estimated_assets");
   const original = structuredClone(basis);
   await overview();
-  const readout = () => wrapper.get(".lp-chart-readout").text();
-  const point = () => wrapper.get('.lp-point[aria-label^="2020-03-01"]');
-  await point().trigger("focus");
-  expect(readout()).toContain("26.00%");
-  expect(readout()).toContain("基于 2020-02-01 明确总资产加后续净转入推算");
-  expect(readout()).not.toContain("90071992547509.03");
+  const sample = (date: string) =>
+    (
+      wrapper.findComponent(returnChart).props().samples as {
+        date: string;
+        text: string;
+        note: string;
+      }[]
+    ).find((p) => p.date === date)!;
+  expect(sample("2020-03-01").text).toBe("26.00%");
+  expect(sample("2020-03-01").note).toContain(
+    "基于 2020-02-01 明确总资产加后续净转入推算",
+  );
+  expect(sample("2020-03-01").note).not.toContain("90071992547509.03");
   expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
 
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "基金经理视角")!
     .trigger("click");
-  expect(readout()).toContain("0.00%");
-  expect(readout()).toContain("TWR 估算资产 90071992547509.03 CNY");
-  expect(readout()).toContain("基于 2020-02-01 最后明确总资产");
-  expect(readout()).toContain("累计净流入 100.00 CNY");
-  expect(readout()).not.toContain("sample-1");
-  expect(readout()).not.toContain("未增加资金流");
-  expect(point().attributes("aria-label")).not.toContain("sample-1");
-  expect(point().get("title").text()).toContain("累计净流入 100.00");
+  await nextTick();
+  expect(sample("2020-03-01").text).toBe("0.00%");
+  expect(sample("2020-03-01").note).toContain(
+    "TWR 估算资产 90071992547509.03 CNY",
+  );
+  expect(sample("2020-03-01").note).toContain("基于 2020-02-01 最后明确总资产");
+  expect(sample("2020-03-01").note).toContain("累计净流入 100.00 CNY");
+  expect(sample("2020-03-01").note).not.toContain("sample-1");
+  expect(sample("2020-03-01").note).not.toContain("未增加资金流");
   expect(wrapper.get(".lp-reference").text()).toContain("TWR 仅供参考");
   expect(wrapper.get(".lp-reference").text()).toContain(
     "最近明确总资产加后续净转入推算",
   );
-  await wrapper.get('.lp-point[aria-label^="2021-09-01"]').trigger("focus");
-  expect(readout()).toContain("TWR 包含较早的估算边界");
-  expect(readout()).not.toContain("沿用 2021-05-02");
-  expect(readout()).not.toContain("TWR 估算资产");
+  expect(sample("2021-09-01").note).toContain("TWR 包含较早的估算边界");
+  expect(sample("2021-09-01").note).not.toContain("沿用 2021-05-02");
+  expect(sample("2021-09-01").note).not.toContain("TWR 估算资产");
 
-  await point().trigger("focus");
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "收益金额")!
+    .find((b) => b.text() === "累计收益曲线")!
     .trigger("click");
-  expect(readout()).toContain("90,071,992,547,409.03");
-  expect(readout()).toContain("基于 2020-02-01 明确总资产加后续净转入推算");
-  expect(readout()).not.toContain("TWR 估算资产");
+  await nextTick();
+  expect(sample("2020-03-01").text).toContain("90,071,992,547,409.03");
+  expect(sample("2020-03-01").note).toContain(
+    "基于 2020-02-01 明确总资产加后续净转入推算",
+  );
+  expect(sample("2020-03-01").note).not.toContain("TWR 估算资产");
   expect(wrapper.get(".lp-assets strong").text()).toBe("90,071,992,547,409.03");
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "个人视角")!
     .trigger("click");
+  await nextTick();
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "收益率")!
+    .find((b) => b.text() === "收益率曲线")!
     .trigger("click");
-  expect(readout()).toContain("26.00%");
+  await nextTick();
+  expect(sample("2020-03-01").text).toBe("26.00%");
   expect(wrapper.get('[data-test="annual-return"]').text()).toContain(
     returnReasons.possible_multiple_roots,
   );
@@ -535,7 +580,7 @@ it("does not invent duration or assets for missing endpoints", async () => {
   expect(wrapper.get('[data-test="annual-return"]').text()).toContain(
     "缺少期初资产",
   );
-  expect(wrapper.find('svg[aria-label="账户收益曲线"]').exists()).toBe(false);
+  expect(wrapper.findComponent(returnChart).exists()).toBe(false);
 });
 
 it("uses accessible account tabs, roving keyboard focus and keeps focus after reads", async () => {
@@ -599,7 +644,7 @@ it("clears stale account metrics and does not move focus when an old request fin
   );
   await wrapper.get("#account-tab-a").trigger("keydown", { key: "ArrowRight" });
   expect(wrapper.get(".lp-chart-empty").text()).toContain("正在读取收益记录");
-  expect(wrapper.find(".lp-chart circle").exists()).toBe(false);
+  expect(wrapper.findComponent(returnChart).exists()).toBe(false);
   await wrapper.get("#account-tab-b").trigger("keydown", { key: "ArrowRight" });
   await flushPromises();
   resolve(response(fixture("b")));
@@ -673,7 +718,10 @@ it("opens the folded record table from a real chart event without resetting over
     await ledger();
     const records = wrapper.get("details.lp-records");
     expect((records.element as HTMLDetailsElement).open).toBe(false);
-    await wrapper.get(".lp-event").trigger("click");
+    wrapper
+      .findComponent(returnChart)
+      .vm.$emit("locate", { id: "sample-4", date: "2021-05-02" });
+    await flushPromises();
     await records.trigger("toggle");
     await flushPromises();
     expect((records.element as HTMLDetailsElement).open).toBe(true);
@@ -696,4 +744,25 @@ it("opens the folded record table from a real chart event without resetting over
   } finally {
     HTMLElement.prototype.scrollIntoView = original;
   }
+});
+
+it("loads the benchmark only on demand and keeps the account curve intact", async () => {
+  await overview();
+  const toggle = () =>
+    wrapper.findAll("button").find((b) => b.text().includes("沪深300全收益"))!;
+  expect(toggle().attributes("aria-pressed")).toBe("false");
+  expect(wrapper.findComponent(returnChart).props().benchmark).toBeNull();
+  await toggle().trigger("click");
+  await flushPromises();
+  expect(toggle().attributes("aria-pressed")).toBe("true");
+  expect(
+    calls.includes(
+      "/api/platform/ledger/benchmark?code=H00300&from=2020-01-01&to=2021-09-01",
+    ),
+  ).toBe(true);
+  const chart = wrapper.findComponent(returnChart).props();
+  expect((chart.benchmark as { code: string }).code).toBe("H00300");
+  expect(
+    (chart.samples as { value: number | null }[]).some((s) => s.value !== null),
+  ).toBe(true);
 });

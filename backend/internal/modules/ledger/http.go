@@ -28,6 +28,7 @@ type Handler struct {
 	FX               FXProvider
 	Quotes           QuotesProvider
 	InstrumentSearch InstrumentSearchProvider
+	Benchmark        BenchmarkProvider
 	Now              func() time.Time
 	Weekly           *WeeklyWorker
 }
@@ -58,6 +59,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,
 		"/instruments":                                h.instruments,
 		"/instruments/search":                         h.searchInstruments,
+		"/benchmark":                                  h.benchmark,
 		"":                                            h.notFound, "/": h.notFound,
 	} {
 		mux.HandleFunc(ledgerPrefix+path, func(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +285,46 @@ func (h Handler) instruments(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(items) == limit {
 		result.NextCursor = items[len(items)-1].ID
+	}
+	httpapi.Write(w, 200, result)
+}
+func (h Handler) benchmark(w http.ResponseWriter, r *http.Request) {
+	if !method(w, r, http.MethodGet, http.MethodHead) {
+		return
+	}
+	values, err := query(r, "code", "from", "to")
+	if err == nil && (values.Get("code") == "" || values.Get("from") == "" || values.Get("to") == "") {
+		err = ErrQuery
+	}
+	var result Benchmark
+	if err == nil {
+		err = validateBenchmarkRange(values.Get("code"), values.Get("from"), values.Get("to"))
+	}
+	if err == nil {
+		if h.Benchmark == nil {
+			err = ErrBenchmarkUnavailable
+		} else {
+			ctx, cancel := context.WithTimeout(r.Context(), benchmarkTimeout)
+			defer cancel()
+			result, err = h.Benchmark.Fetch(ctx, values.Get("code"), values.Get("from"), values.Get("to"))
+			if err == nil {
+				err = ctx.Err()
+			}
+		}
+	}
+	if err != nil {
+		switch benchmarkError(err) {
+		case ErrBenchmarkTimeout:
+			httpapi.Fail(w, 504, "benchmark_timeout", "benchmark data timed out")
+		case ErrBenchmarkUnavailable:
+			httpapi.Fail(w, 502, "benchmark_unavailable", "benchmark data is temporarily unavailable")
+		default:
+			h.fail(w, r, err)
+		}
+		return
+	}
+	if result.Items == nil {
+		result.Items = []BenchmarkItem{}
 	}
 	httpapi.Write(w, 200, result)
 }

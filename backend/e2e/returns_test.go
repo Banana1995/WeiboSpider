@@ -19,7 +19,7 @@ func TestProcessReturnsSnapshotAndRestart(t *testing.T) {
 		require.Equal(t, status, got, "%s", data)
 		return data
 	}
-	send("POST", "/reported-accounts", `{"id":"synthetic-returns","name":"Synthetic returns","currency":"CNY","opening_date":"2021-01-01"}`, "account", 201)
+	send("POST", "/accounts", `{"id":"synthetic-returns","name":"Synthetic returns","currency":"CNY","opening_date":"2021-01-01"}`, "account", 201)
 	send("POST", "/accounts/synthetic-returns/records", `{"id":"manual-base","entry":{"kind":"cash_flow","date":"2021-01-01","flow":"100","total_assets":"100"}}`, "base", 201)
 	send("POST", "/accounts/synthetic-returns/records", `{"id":"manual-close","entry":{"kind":"asset","date":"2022-01-01","total_assets":"110"}}`, "close", 201)
 	path := "/accounts/synthetic-returns/analysis-basis?to=2022-02-01"

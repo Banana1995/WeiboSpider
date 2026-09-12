@@ -27,6 +27,7 @@ const empty: CurrentHoldings = {
 let current: CurrentHoldings;
 let wrapper: VueWrapper;
 let fetcher: ReturnType<typeof vi.fn>;
+let workspace: ReturnType<typeof createLedgerWorkspace>;
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status });
 beforeEach(() => {
@@ -75,6 +76,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 async function start() {
+  workspace = createLedgerWorkspace(() => {});
   wrapper = mount(Panel, {
     props: {
       accountId: "a",
@@ -85,7 +87,7 @@ async function start() {
     },
     global: {
       provide: {
-        [ledgerWorkspaceKey as symbol]: createLedgerWorkspace(() => {}),
+        [ledgerWorkspaceKey as symbol]: workspace,
       },
     },
   });
@@ -132,7 +134,8 @@ it("adds a queried identity and quantity atomically without standalone registrat
   expect(input).not.toHaveProperty("baseline_date");
   expect(fetcher.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
   expect(wrapper.emitted("saved")).toHaveLength(1);
-  expect(wrapper.text()).toContain("历史总资产、资金流和收益不变");
+  expect(wrapper.text()).toContain("历史记录不变");
+  expect(wrapper.find("dialog").exists()).toBe(false);
 });
 it("rejects duplicate market/code on add and edit even with different IDs", async () => {
   current = {
@@ -149,10 +152,11 @@ it("rejects duplicate market/code on add and edit even with different IDs", asyn
   await button("添加持仓");
   await selectStock();
   expect(wrapper.text()).toContain("本账户已持有该市场和代码");
-  expect(wrapper.findAll('[name^="current_quantity_"]')).toHaveLength(1);
+  expect(wrapper.findAll(".lp-security-cell")).toHaveLength(1);
+  expect(wrapper.findAll('[name^="current_quantity_"]')).toHaveLength(0);
   expect(fetcher.mock.calls.some(([, i]) => i?.method === "PUT")).toBe(false);
 });
-it("edits identity and quantity and deletes holdings without creating asset or flow rows", async () => {
+it("edits quantity and deletes holdings inline without creating asset or flow rows", async () => {
   current = {
     account_id: "a",
     audit_id: "1",
@@ -164,17 +168,15 @@ it("edits identity and quantity and deletes holdings without creating asset or f
     },
   };
   await start();
-  await button("编辑现金与持仓");
-  await button("修改证券");
-  await wrapper.get('[name="security_name"]').setValue("Changed");
-  await wrapper.get('[name="security_code"]').setValue("600001");
-  await wrapper.get('[data-test="instrument-form"]').trigger("submit");
-  await flushPromises();
+  await button("编辑");
   await wrapper.get('[name="current_quantity_0"]').setValue("2.5");
   await save();
-  expect(current.snapshot?.positions[0]?.instrument_id).not.toBe(stock.id);
-  await button("编辑现金与持仓");
-  await button("移除此证券");
+  expect(current.snapshot?.positions[0]).toEqual({
+    instrument_id: stock.id,
+    quantity: "2.5",
+  });
+  await button("删除");
+  expect(current.snapshot?.positions).toHaveLength(1);
   await save();
   expect(current.snapshot?.positions).toEqual([]);
   expect(current.snapshot?.cash).toBe("10.00");
@@ -184,11 +186,11 @@ it("edits identity and quantity and deletes holdings without creating asset or f
 });
 it("retries uncertain writes with the same body and idempotency key", async () => {
   await start();
-  await button("编辑现金与持仓");
+  await button("设置现金");
   fetcher.mockRejectedValueOnce(new TypeError("response lost"));
   await save();
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
-  await button("按原请求重试确认持仓");
+  await button("重试保存持仓");
   const writes = fetcher.mock.calls.filter(([, i]) => i?.method === "PUT");
   expect(writes).toHaveLength(2);
   expect(writes[0]![1]?.body).toBe(writes[1]![1]?.body);
@@ -197,11 +199,12 @@ it("retries uncertain writes with the same body and idempotency key", async () =
 });
 it("retains draft after version conflict and requires explicit reload", async () => {
   await start();
-  await button("编辑现金与持仓");
+  await button("设置现金");
   await wrapper.get('[name="current_cash"]').setValue("15");
   fetcher.mockResolvedValueOnce(response({ code: "version_conflict" }, 409));
   await save();
-  expect(wrapper.text()).toContain("version_conflict");
+  expect(wrapper.text()).toContain("记录已被修改");
+  expect(wrapper.text()).not.toContain("version_conflict");
   expect(
     (wrapper.get('[name="current_cash"]').element as HTMLInputElement).value,
   ).toBe("15");
@@ -222,4 +225,104 @@ it("distinguishes missing input from explicit zero and rejects malformed quantit
   expect(validateCurrentHoldings(value, "a").snapshot?.cash).toBe("0.00");
   value.snapshot!.positions.push({ instrument_id: "i", quantity: "-1" });
   expect(() => validateCurrentHoldings(value, "a")).toThrow();
+});
+
+it("protects inline cash drafts without locking their own save, and clears the navigation guard on cancel", async () => {
+  await start();
+  await button("设置现金");
+  expect(workspace.navigationLocked.value).toBe(true);
+  expect(workspace.locked.value).toBe(false);
+  await wrapper.get('[name="current_cash"]').setValue("125.25");
+  await button("取消");
+  expect(wrapper.text()).toContain("放弃尚未保存的修改");
+  expect(wrapper.find("dialog").exists()).toBe(false);
+  await button("继续编辑");
+  expect(
+    (wrapper.get('[name="current_cash"]').element as HTMLInputElement).value,
+  ).toBe("125.25");
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  await button("取消");
+  await button("放弃修改");
+  expect(workspace.navigationLocked.value).toBe(false);
+  expect(fetcher.mock.calls.some(([, init]) => init.method === "PUT")).toBe(
+    false,
+  );
+});
+
+it("protects a securities search draft without opening any dialog", async () => {
+  await start();
+  await button("添加持仓");
+  await wrapper.get('[name="security_search"]').setValue("600000");
+  await button("取消");
+  expect(wrapper.text()).toContain("放弃尚未保存的修改");
+  expect(wrapper.find("dialog").exists()).toBe(false);
+  await button("继续编辑");
+  expect(
+    (wrapper.get('[name="security_search"]').element as HTMLInputElement).value,
+  ).toBe("600000");
+});
+
+it("allows a security held elsewhere when this account has no duplicate", async () => {
+  await start();
+  await button("添加持仓");
+  await selectStock();
+  await wrapper.get('[name="current_quantity_0"]').setValue("2");
+  await save();
+  expect(current.snapshot?.positions).toHaveLength(1);
+  expect(wrapper.emitted("saved")).toHaveLength(1);
+});
+
+it("does not show quote values from another holdings version or while refreshing", async () => {
+  current = {
+    account_id: "a",
+    audit_id: "1",
+    snapshot: {
+      version: "2",
+      cash: "10.00",
+      positions: [{ instrument_id: stock.id, quantity: "2.500000" }],
+      saved_at: "2026-09-12T00:00:00Z",
+    },
+  };
+  await start();
+  const valuation = {
+    account_id: "a",
+    currency: "CNY",
+    source: "manual_snapshot",
+    as_of: "2026-09-12",
+    ledger_at: "2026-09-12T00:00:00Z",
+    revision: "a".repeat(64),
+    manual_version: "1",
+    configured: true,
+    cash: "10.00",
+    complete: true,
+    total_assets: "321.00",
+    items: [],
+  };
+  await wrapper.setProps({ valuation });
+  expect(wrapper.text()).not.toContain("321.00");
+  expect(wrapper.text()).toContain("持仓已变化");
+  await wrapper.setProps({ valuation: { ...valuation, manual_version: "2" } });
+  expect(wrapper.text()).toContain("321.00");
+  await wrapper.setProps({ valuationLoading: true });
+  expect(wrapper.text()).not.toContain("321.00");
+  expect(wrapper.text()).toContain("2.5");
+  expect(wrapper.text()).not.toContain("2.500000");
+});
+
+it("requires an explicit discard before reloading a conflicting draft", async () => {
+  await start();
+  await button("设置现金");
+  await wrapper.get('[name="current_cash"]').setValue("15");
+  fetcher.mockResolvedValueOnce(response({ code: "version_conflict" }, 409));
+  await save();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const count = fetcher.mock.calls.length;
+  await button("重新读取最新持仓");
+  expect(fetcher).toHaveBeenCalledTimes(count);
+  confirm.mockReturnValue(true);
+  await button("重新读取最新持仓");
+  expect(wrapper.find("form").exists()).toBe(false);
+  expect(workspace.navigationLocked.value).toBe(false);
 });

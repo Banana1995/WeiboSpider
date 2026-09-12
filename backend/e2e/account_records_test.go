@@ -20,17 +20,19 @@ func TestProcessAccountRecordReceipts(t *testing.T) {
 		return data
 	}
 	account := `{"id":"synthetic","name":"Synthetic","currency":"USD","opening_date":"2020-01-01"}`
-	accountReceipt := send("POST", "/reported-accounts", account, "account", 201)
+	accountReceipt := send("POST", "/accounts", account, "account", 201)
 	create := `{"id":"manual-synthetic","entry":{"kind":"cash_flow","date":"2099-01-01","flow":"-90071992547409.01","total_assets":null,"note":"Synthetic"}}`
 	receipt := send("POST", "/accounts/synthetic/records", create, "create", 201)
-	replace := `{"expected_version":"1","reason":"Synthetic correction","entry":{"kind":"asset","date":"2099-01-01","total_assets":"0"}}`
+	// Keep the original future-dated receipt, but correct to a past asset date:
+	// current summary amounts intentionally exclude future asset assertions.
+	replace := `{"expected_version":"1","reason":"Synthetic correction","entry":{"kind":"asset","date":"2020-01-02","total_assets":"0"}}`
 	send("PUT", "/accounts/synthetic/records/manual-synthetic", replace, "replace", 200)
 	for i := 0; i < 2; i++ {
 		if i == 1 {
 			p.stop(t, false)
 			p = startProcess(t, binary, dir, overrides)
 		}
-		require.JSONEq(t, string(accountReceipt), string(send("POST", "/reported-accounts", account, "account", 201)))
+		require.JSONEq(t, string(accountReceipt), string(send("POST", "/accounts", account, "account", 201)))
 		require.JSONEq(t, string(receipt), string(send("POST", "/accounts/synthetic/records", create, "create", 201)))
 		var summary map[string]any
 		require.NoError(t, json.Unmarshal(send("GET", "/accounts/synthetic/effective-summary", "", "", 200), &summary))

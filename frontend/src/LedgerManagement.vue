@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
-import LedgerHoldings from "./LedgerHoldings.vue";
 import ImportAccount from "./ImportAccount.vue";
 import LedgerAutoUpdates from "./LedgerAutoUpdates.vue";
 import type { Account, Instrument } from "./ledger";
@@ -23,7 +22,7 @@ const emit = defineEmits<{
   instruments: [];
   changed: [];
 }>();
-const { locked, error } = useLedgerWorkspace();
+const { locked, navigationLocked, error } = useLedgerWorkspace();
 const tab = ref(props.initialTab === "import" ? "info" : props.initialTab);
 const importOpen = ref(props.initialTab === "import");
 const importDirty = ref(false);
@@ -42,12 +41,11 @@ watch(
       <button
         v-for="item in [
           ['info', '账户资料'],
-          ['holdings', '当前持仓'],
           ['weekly', '自动更新记录'],
         ]"
         :key="item[0]"
         :aria-pressed="tab === item[0]"
-        :disabled="locked || importOpen"
+        :disabled="navigationLocked"
         @click="tab = item[0]!"
       >
         {{ item[1] }}
@@ -74,7 +72,7 @@ watch(
         </div>
       </dl>
       <p class="lp-muted">
-        账户名称、币种和期初创建后不可修改，当前服务不提供资料编辑。记录可以单独更正。
+        账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
       </p>
       <div class="lp-management-secondary">
         <div>
@@ -86,7 +84,7 @@ watch(
       <div class="lp-management-secondary">
         <div>
           <h3>从文件开始</h3>
-          <p>导入真实 Excel 账本，先预览再确认，仅用于空账户初始化。</p>
+          <p>导入 Excel 历史记录，可新建账户或导入到空账户。</p>
         </div>
         <button
           :disabled="locked"
@@ -100,27 +98,12 @@ watch(
         </button>
       </div>
     </div>
-    <LedgerHoldings
-      v-else-if="tab === 'holdings'"
-      :key="account?.id"
-      :account="account"
-      :accounts="accounts"
-      :instruments="instruments"
-      :instruments-error="instrumentsError"
-      :instruments-loading="instrumentsLoading"
-      :refresh-key="refreshKey"
-      @locked="emit('locked', $event)"
-      @create="emit('create')"
-      @instruments="emit('instruments')"
-      @changed="emit('changed')"
-    />
     <div v-else class="lp-management-body">
       <LedgerAutoUpdates :account="account" />
     </div>
     <LedgerDialog
       v-if="importOpen"
       title="导入 Excel 账本"
-      :caption="account?.name"
       :dirty="importDirty"
       @close="importOpen = false"
     >

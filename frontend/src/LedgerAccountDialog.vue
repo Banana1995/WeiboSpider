@@ -80,7 +80,7 @@ function save() {
           /></label>
         </div>
         <p class="lp-field-hint">
-          创建后可直接维护当前现金与持仓；历史总资产和资金流独立记录，开始日期不会自动生成金额。
+          名称、币种和开始日期创建后不可修改。创建后可添加历史记录和当前持仓。
         </p>
         <p v-if="validation" class="lp-error" role="alert">{{ validation }}</p>
         <div class="lp-dialog-footer">

@@ -252,15 +252,13 @@ it("keeps legacy chart and accessible table explanations specific to TWR versus 
   expect(tooltip()).not.toContain("TWR 估算资产");
   await w.setProps({ manager: true });
   expect(tooltip()).toContain("TWR 估算资产 9223372036854775808.09 CNY");
-  expect(tooltip()).toContain("来源记录 synthetic-explicit");
+  expect(tooltip()).not.toContain("synthetic-explicit");
   expect(tooltip()).toContain("累计净流入 -100.00 CNY");
   expect(tooltip()).not.toContain("未增加资金流");
   const rows = w.findAll("tbody tr");
   expect(rows[1]!.findAll("td")[1]!.text()).toContain("90071992547409.03");
   expect(rows[1]!.findAll("td")[1]!.text()).toContain("加后续净转入推算");
-  expect(rows[1]!.findAll("td")[2]!.text()).toContain(
-    "来源记录 synthetic-explicit",
-  );
+  expect(rows[1]!.findAll("td")[2]!.text()).not.toContain("synthetic-explicit");
   expect(rows[2]!.findAll("td")[2]!.text()).toContain("TWR 包含较早的估算边界");
   await w.get('select[name="return_trend_metric"]').setValue("profit");
   expect(tooltip()).toContain("90071992547409.03");

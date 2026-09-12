@@ -179,8 +179,7 @@ async function locate(record: DemoRecord) {
   });
 }
 
-type Modal =
-  "record" | "detail" | "void" | "account" | "import" | "holdings";
+type Modal = "record" | "detail" | "void" | "account" | "import" | "holdings";
 const dialog = ref<HTMLDialogElement>();
 const modal = ref<Modal>("record");
 const isOpen = ref(false);
@@ -323,8 +322,7 @@ function saveRecord() {
     assets === null
   )
     return fail("请输入有效的总资产，允许为 0，最多两位小数，上限 100 亿元。");
-  if (kind === "note" && !f.note.trim())
-    return fail("请填写备注内容。");
+  if (kind === "note" && !f.note.trim()) return fail("请填写备注内容。");
   const summary = `${f.date} ${kindLabels[kind]}${amount === null ? "" : ` ${money(amount)}`}；总资产 ${money(assets)}；${f.note.trim() || "无备注"}`;
   if (editing.value) {
     Object.assign(editing.value, {
@@ -1183,10 +1181,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             }}</span></label
           >
           <label
-            >备注
-            <small>{{
-              form.kind === "note" ? "必填" : "选填"
-            }}</small
+            >备注 <small>{{ form.kind === "note" ? "必填" : "选填" }}</small
             ><textarea
               v-model="form.note"
               name="note"

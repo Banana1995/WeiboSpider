@@ -31,8 +31,8 @@ defineProps<{ metadata: ImportMetadata; summary: ImportSummary }>();
     <dd>{{ money(summary.total_out) }} {{ metadata.currency }}</dd>
     <dt>最近记录的总资产（不是当前自动估值或现金）</dt>
     <dd>
-      {{ money(summary.latest_assets) }} {{ metadata.currency }} ·
-      实际记录日期 {{ summary.latest_asset_date ?? "未提供" }}
+      {{ money(summary.latest_assets) }} {{ metadata.currency }} · 实际记录日期
+      {{ summary.latest_asset_date ?? "未提供" }}
     </dd>
   </dl>
 </template>

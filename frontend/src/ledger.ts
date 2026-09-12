@@ -95,8 +95,9 @@ export interface Page<T> {
   next_cursor?: string;
 }
 const errors: Record<string, string> = {
+  network_error: "网络连接中断，请重试",
   invalid_import: "导入文件格式或内容不合法，请检查指定行列",
-  preview_mismatch: "文件与预览不一致，请重新预览",
+  preview_mismatch: "文件校验不一致，请重新选择文件后导入",
   currency_mismatch: "文件币种与目标账户不一致，不能导入",
   import_already_exists: "账户已有不同的导入批次，不支持增量合并",
   initialization_requires_empty_account:
@@ -106,8 +107,8 @@ const errors: Record<string, string> = {
   fx_timeout: "腾讯汇率查询超时，请稍后重试",
   unsupported_currency: "汇率仅支持 CNY、HKD、USD",
   invalid_body: "请求字段格式不正确",
-  invalid_query: "查询条件或资源 ID 不合法",
-  invalid_idempotency_key: "幂等键不合法",
+  invalid_query: "查询条件不合法",
+  invalid_idempotency_key: "请求凭据不合法",
   invalid_operation: "账本字段或日期不合法",
   invalid_precision: "数值精度或范围不合法",
   unauthorized: "服务未授权，请检查受控代理配置",
@@ -119,11 +120,11 @@ const errors: Record<string, string> = {
   not_found: "资源不存在或账本尚未启用",
   method_not_allowed: "接口不支持此方法",
   request_canceled: "请求已取消，需使用原请求确认结果",
-  idempotency_conflict: "幂等键与原始请求冲突，请保留原请求核查",
+  idempotency_conflict: "本次请求与已保存的内容冲突，请保留此页核查",
   version_conflict: "记录已被修改，请重新读取详情后更正",
   basis_changed: "报价期间当前持仓已变化，本次未保存",
   operation_voided: "记录已作废，不能更正",
-  conflict: "ID 或证券身份冲突",
+  conflict: "账户信息或证券身份重复",
   body_too_large: "请求内容过大",
   content_type: "请求内容类型不正确",
   unsupported_operation: "尚无当前估值来源，或不支持此操作",
@@ -153,6 +154,9 @@ export class LedgerError extends Error {
 }
 export const failure = (e: unknown) =>
   e instanceof Error ? e.message : "请求失败";
+// Keep typed/debug codes in state for conflict handling, not in business copy.
+export const errorText = (message: string) =>
+  message.replace(/\s\[[a-z_]+\]/g, "");
 export const newID = () => {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>

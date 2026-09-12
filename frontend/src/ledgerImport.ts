@@ -75,7 +75,16 @@ export class PendingImport {
         `/accounts/${this.accountID}/imports/youzhiyouxing`,
         { method: "POST", headers: { "Idempotency-Key": this.key }, body },
       );
-      if (result.account_id !== this.accountID || !result.batch_id)
+      if (
+        !result ||
+        result.account_id !== this.accountID ||
+        typeof result.batch_id !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(result.batch_id) ||
+        !Number.isInteger(result.imported_count) ||
+        result.imported_count < 0 ||
+        result.imported_count > 10000 ||
+        typeof result.duplicate !== "boolean"
+      )
         throw new LedgerError("invalid_response");
       return result;
     } catch (e) {

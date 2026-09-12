@@ -61,33 +61,40 @@ func TestProcessLedgerReceiptsSurviveRestart(t *testing.T) {
 			}
 			if token != "" {
 				code, _ := request(t, p, "GET", "/api/platform/ledger/accounts", "", nil)
-				require.Equal(t, 401, code)
+				require.Equal(t, 200, code, "canonical ledger routes are anonymously shared")
+				code, _ = request(t, p, "GET", "/api/platform/liquor/latest", "", nil)
+				require.Equal(t, 401, code, "ledger sharing does not exempt sibling APIs")
 			}
+			code, body := request(t, p, "POST", "/api/platform/ledger/accounts", `{}`, map[string]string{"Content-Type": "application/json", "Origin": "http://untrusted.invalid", "Idempotency-Key": "cross-origin"})
+			require.Equal(t, 403, code, string(body))
 			ledgerRequest("GET", "/accounts", "", "", 200)
 			const instrument = `{"id":"synthetic-instrument","market":"TEST","code":"SYNTH","name":"Synthetic instrument","currency":"CNY"}`
 			require.JSONEq(t, instrument, string(ledgerRequest("POST", "/instruments", instrument, "", 201)))
-			ledgerRequest("POST", "/accounts", `{"id":"acct","name":"Synthetic account","currency":"CNY","opening_date":"2020-01-01","opening_cash":"1000.00"}`, "", 201)
+			const accountInput = `{"id":"acct","name":"Synthetic account","currency":"CNY","opening_date":"2020-01-01"}`
+			accountReceipt := ledgerRequest("POST", "/accounts", accountInput, "create-acct", 201)
+			const holdingsInput = `{"expected_version":"0","cash":"1000.00","positions":[]}`
+			holdingsReceipt := ledgerRequest("PUT", "/accounts/acct/current-holdings", holdingsInput, "current-acct", 200)
 			writes := []struct {
 				method, path, body, key, amount string
 				status                          int
 			}{
-				{"POST", "/operations", `{"operation":{"id":"deposit","account_id":"acct","date":"2020-01-02","sequence":"1","kind":"deposit","amount":"100.00"},"reason":"Synthetic deposit"}`, "create-deposit", "100.00", 201},
-				{"PUT", "/operations/deposit", `{"operation":{"id":"deposit","account_id":"acct","date":"2020-01-02","sequence":"1","kind":"deposit","amount":"200.00"},"expected_version":"1","reason":"Synthetic correction"}`, "replace-deposit", "200.00", 200},
-				{"DELETE", "/operations/deposit", `{"expected_version":"2","reason":"Synthetic void"}`, "void-deposit", "200.00", 200},
+				{"POST", "/accounts/acct/records", `{"id":"manual-deposit","entry":{"date":"2020-01-02","kind":"cash_flow","flow":"100.00","total_assets":null,"note":"Synthetic deposit"}}`, "create-deposit", "100.00", 201},
+				{"PUT", "/accounts/acct/records/manual-deposit", `{"entry":{"date":"2020-01-02","kind":"cash_flow","flow":"200.00","total_assets":null,"note":"Synthetic deposit"},"expected_version":"1","reason":"Synthetic correction"}`, "replace-deposit", "200.00", 200},
+				{"DELETE", "/accounts/acct/records/manual-deposit", `{"expected_version":"2","reason":"Synthetic void"}`, "void-deposit", "200.00", 200},
 			}
 			type record struct {
-				Version   string `json:"version"`
-				CreatedAt string `json:"created_at"`
-				UpdatedAt string `json:"updated_at"`
-				Operation struct {
-					ID        string `json:"id"`
-					AccountID string `json:"account_id"`
-					Date      string `json:"date"`
-					Sequence  string `json:"sequence"`
-					Kind      string `json:"kind"`
-					Amount    string `json:"amount"`
-					Voided    bool   `json:"voided"`
-				} `json:"operation"`
+				Version     string  `json:"version"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+				ID          string  `json:"id"`
+				AccountID   string  `json:"account_id"`
+				Date        string  `json:"date"`
+				Sequence    string  `json:"sequence"`
+				Kind        string  `json:"kind"`
+				Flow        string  `json:"flow"`
+				TotalAssets *string `json:"total_assets"`
+				Origin      string  `json:"origin"`
+				Voided      bool    `json:"voided"`
 			}
 			var receipts [][]byte
 			started := time.Now()
@@ -100,13 +107,15 @@ func TestProcessLedgerReceiptsSurviveRestart(t *testing.T) {
 				var result record
 				require.NoError(t, json.Unmarshal(data, &result))
 				require.Equal(t, strconv.Itoa(i+1), result.Version)
-				require.Equal(t, "deposit", result.Operation.ID)
-				require.Equal(t, "acct", result.Operation.AccountID)
-				require.Equal(t, "2020-01-02", result.Operation.Date)
-				require.Equal(t, "1", result.Operation.Sequence)
-				require.Equal(t, "deposit", result.Operation.Kind)
-				require.Equal(t, write.amount, result.Operation.Amount)
-				require.Equal(t, i == 2, result.Operation.Voided)
+				require.Equal(t, "manual-deposit", result.ID)
+				require.Equal(t, "acct", result.AccountID)
+				require.Equal(t, "2020-01-02", result.Date)
+				require.Equal(t, "1", result.Sequence)
+				require.Equal(t, "cash_flow", result.Kind)
+				require.Equal(t, write.amount, result.Flow)
+				require.Nil(t, result.TotalAssets)
+				require.Equal(t, "manual", result.Origin)
+				require.Equal(t, i == 2, result.Voided)
 				if i == 0 {
 					createdAt = result.CreatedAt
 				}
@@ -134,14 +143,17 @@ func TestProcessLedgerReceiptsSurviveRestart(t *testing.T) {
 					retry := ledgerRequest(write.method, write.path, write.body, write.key, write.status)
 					require.JSONEq(t, string(receipts[i]), string(retry), phase+": return original receipt, not current v3")
 				}
-				latest := ledgerRequest("GET", "/operations/deposit", "", "", 200)
+				require.JSONEq(t, string(accountReceipt), string(ledgerRequest("POST", "/accounts", accountInput, "create-acct", 201)), phase)
+				require.JSONEq(t, string(holdingsReceipt), string(ledgerRequest("PUT", "/accounts/acct/current-holdings", holdingsInput, "current-acct", 200)), phase)
+				ledgerRequest("PUT", "/accounts/acct/current-holdings", holdingsInput, "stale-"+strings.ReplaceAll(phase, " ", "-"), 409)
+				latest := ledgerRequest("GET", "/accounts/acct/records/manual-deposit", "", "", 200)
 				require.JSONEq(t, string(receipts[2]), string(latest), phase)
 				var revisions struct {
 					Items []struct {
 						Record json.RawMessage `json:"record"`
 					} `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(ledgerRequest("GET", "/operations/deposit/revisions", "", "", 200), &revisions))
+				require.NoError(t, json.Unmarshal(ledgerRequest("GET", "/accounts/acct/records/manual-deposit/revisions", "", "", 200), &revisions))
 				require.Len(t, revisions.Items, 3, phase+": retries must not create revisions")
 				for i, revision := range revisions.Items {
 					require.JSONEq(t, string(receipts[i]), string(revision.Record), phase)
@@ -151,6 +163,7 @@ func TestProcessLedgerReceiptsSurviveRestart(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(ledgerRequest("GET", "/accounts/acct", "", "", 200), &account))
 				require.Equal(t, "1000.00", account.Cash, phase)
+				require.JSONEq(t, string(holdingsReceipt), string(ledgerRequest("GET", "/accounts/acct/current-holdings", "", "", 200)), phase+": historical record writes never mutate current holdings")
 				var instruments struct {
 					Items []json.RawMessage `json:"items"`
 				}

@@ -4,7 +4,7 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import Ledger from "./Ledger.vue";
 import ImportAccount from "./ImportAccount.vue";
 import ImportedRecords from "./ImportedRecords.vue";
-import { LedgerError, request, type Account } from "./ledger";
+import { errorText, LedgerError, request, type Account } from "./ledger";
 import type { ImportPreview } from "./ledgerImport";
 
 const holdings: Account = {
@@ -206,9 +206,9 @@ async function upload(file = new File(["synthetic"], "synthetic.xlsx")) {
   await input.trigger("change");
   return file;
 }
-async function showPreview() {
+async function importFile() {
   const file = await upload();
-  await wrapper.get('[data-test="import-preview"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   return file;
 }
@@ -233,92 +233,63 @@ async function click(text: string) {
   await flushPromises();
 }
 
-it("requires explicit preview and confirmation, shows exact signed/combined/missing amounts with bounded paging", async () => {
+it("imports with one click after selecting a file, validates internally and reports the count", async () => {
   await start();
   await upload();
   expect(fetcher).not.toHaveBeenCalled();
   expect(wrapper.find('[data-test="import-confirm"]').exists()).toBe(false);
-  await wrapper.get('[data-test="import-preview"]').trigger("click");
+  expect(wrapper.find('[data-test="import-preview"]').exists()).toBe(false);
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
-  expect(commits).toHaveLength(0);
+  expect(commits).toHaveLength(1);
   const init = fetcher.mock.calls[0]![1] as RequestInit;
   expect(formEntries(init.body as FormData).map(([key]) => key)).toEqual([
     "file",
   ]);
   expect(new Headers(init.headers).has("Content-Type")).toBe(false);
-  expect(wrapper.findAll(".lp-import-preview li")).toHaveLength(30);
-  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
-    "-1.01",
-  );
-  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
-    "90,071,992,547,409.01",
-  );
-  expect(wrapper.findAll(".lp-import-preview li")[1]!.text()).toContain(
-    "总资产 —",
-  );
-  expect(wrapper.get(".lp-note-text").text()).toBe("合成日志\n第二行");
-  for (const text of [
-    "合成原文 4%",
-    "累计流出（正数）",
-    "实际记录日期 2026-01-02",
-    "仅导入账户级历史记录，总资产不是现金，也不关联持仓。",
-    "每个账户只支持首个导入批次，不支持增量合并。",
-    "来源创建时间精度已截断，请以预览时间为准。",
-    "不同文件会被拒绝",
-  ])
-    expect(wrapper.text()).toContain(text);
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text() === "下一页预览")!
-    .trigger("click");
-  expect(wrapper.findAll(".lp-import-preview li")[0]!.text()).toContain(
-    "第 35 行",
-  );
-  await wrapper.get('[data-test="import-confirm"]').trigger("click");
-  await flushPromises();
+  expect(wrapper.findAll(".lp-import-preview li")).toHaveLength(0);
   expect(commits).toHaveLength(1);
   expect(commits[0]!.body.get("create_account")).toBe("true");
   expect(commits[0]!.body.get("preview_digest")).toBe(preview.digest);
   expect(commits[0]!.key).toBeTruthy();
-  expect(wrapper.text()).toContain("导入已确认成功");
+  expect(wrapper.text()).toContain("已导入 65 笔记录");
+  expect(
+    wrapper.get('[data-test="import-submit"]').attributes("disabled"),
+  ).toBeDefined();
   expect(wrapper.find('[data-test="import-confirm"]').exists()).toBe(false);
 });
 
-it("translates known warning codes without displaying the raw codes", async () => {
+it("explains import scope without displaying implementation warnings", async () => {
   await start();
-  await showPreview();
+  await importFile();
   for (const code of preview.warnings)
     expect(wrapper.text()).not.toContain(code);
-  expect(wrapper.text()).toContain("新建总资产账户（使用来源原名）");
-  expect(wrapper.text()).toContain("导入的总资产不是现金");
+  expect(wrapper.text()).toContain("新建账户（使用文件中的名称）");
+  expect(wrapper.text()).toContain("不改变当前持仓");
   expect(wrapper.text()).not.toContain("申报");
 });
 
 it.each([
   ["synthetic_future_warning", "synthetic_future_warning"],
   ["synthetic cell value: 123.45", "unknown_warning"],
-])("shows a generic warning with a safe code for %s", async (warning, code) => {
+])("never echoes internal warning or cell content for %s", async (warning) => {
   fetcher.mockResolvedValueOnce(response({ ...preview, warnings: [warning] }));
   await start();
-  await showPreview();
-  expect(wrapper.text()).toContain(
-    `导入存在其他注意事项，请核对预览（警告代码：${code}）`,
-  );
-  if (warning !== code) expect(wrapper.text()).not.toContain(warning);
+  await importFile();
+  expect(wrapper.text()).not.toContain(warning);
+  expect(commits).toHaveLength(1);
 });
 
 it("imports into existing holdings without rewriting its name or creating an account, and blocks currency mismatch", async () => {
   accounts.push({ ...holdings, id: "usd", currency: "USD" });
   await start();
-  await showPreview();
+  await upload();
   await wrapper.get('[data-test="import-target"]').setValue("usd");
-  expect(
-    wrapper.get('[data-test="import-confirm"]').attributes(),
-  ).toHaveProperty("disabled");
+  await click("导入");
+  expect(wrapper.text()).toContain("文件币种与目标账户不一致");
+  expect(commits).toHaveLength(0);
   await wrapper.get('[data-test="import-target"]').setValue("holdings");
-  expect(wrapper.text()).toContain("来源账户原名合成来源账户");
-  expect(wrapper.text()).toContain("确认目标：合成持仓账户");
-  await wrapper.get('[data-test="import-confirm"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   expect(commits[0]!.path).toBe("/accounts/holdings/imports/youzhiyouxing");
   expect(commits[0]!.body.get("create_account")).toBe("false");
@@ -327,9 +298,9 @@ it("imports into existing holdings without rewriting its name or creating an acc
 
 it("locks parent navigation and all writes after uncertainty, retries the same File/digest/key/ID and accepts a duplicate receipt", async () => {
   await start(Ledger);
-  const file = await showPreview();
+  const file = await upload();
   uncertain = true;
-  await wrapper.get('[data-test="import-confirm"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
   const event = new Event("beforeunload", { cancelable: true });
@@ -349,18 +320,24 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
       .every((a) => a.attributes("aria-disabled") === "true"),
   ).toBe(true);
   expect(
-    wrapper.get('[data-test="import-retry"]').attributes("disabled"),
+    wrapper.get('[data-test="import-submit"]').attributes("disabled"),
   ).toBeUndefined();
-  await wrapper.get('[data-test="import-retry"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   expect(commits).toHaveLength(2);
   expect(commits[1]!.key).toBe(commits[0]!.key);
   expect(commits[1]!.path).toBe(commits[0]!.path);
   expect(formEntries(commits[1]!.body)).toEqual(formEntries(commits[0]!.body));
   expect(commits[1]!.body.get("file")).toBe(file);
-  expect(wrapper.text()).toContain("相同内容未重复导入");
+  expect(wrapper.text()).toContain("未重复添加");
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
-  expect(wrapper.get(".lp-info").text()).toContain("合成来源账户");
+  expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe(
+    "合成来源账户",
+  );
+  expect(
+    wrapper.get('[data-test="account-records"]').attributes("open"),
+  ).toBeDefined();
+  expect(wrapper.find('[aria-label="账户管理"]').exists()).toBe(false);
   const id = commits[0]!.path.split("/")[2]!;
   expect(
     fetcher.mock.calls.some(([url]) =>
@@ -371,11 +348,11 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
 
 it("keeps success final when account and import reads fail, and never retries the commit on refresh", async () => {
   await start(Ledger);
-  await showPreview();
+  await upload();
   readFailure = true;
-  await wrapper.get('[data-test="import-confirm"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
-  expect(wrapper.text()).toContain("导入已确认成功");
+  expect(wrapper.text()).toContain("已导入 65 笔记录");
   expect(wrapper.text()).toContain("读取失败");
   expect(wrapper.find('[data-test="import-retry"]').exists()).toBe(false);
   expect(wrapper.find('[data-test="valuation"]').exists()).toBe(false);
@@ -383,7 +360,12 @@ it("keeps success final when account and import reads fail, and never retries th
   await click("重新读取账户");
   await flushPromises();
   expect(commits).toHaveLength(1);
-  expect(wrapper.get(".lp-info").text()).toContain("合成来源账户");
+  expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe(
+    "合成来源账户",
+  );
+  expect(
+    wrapper.get('[data-test="account-records"]').attributes("open"),
+  ).toBeDefined();
 });
 
 it("accounts without a configured current source do not request valuations or accept transaction inputs", async () => {
@@ -458,7 +440,7 @@ it("edits current holdings on the imported account, coordinates pending locks an
   await flushPromises();
   const panel = wrapper.get('[data-test="current-holdings"]');
   expect(panel.text()).toContain("尚未设置");
-  await click("编辑现金与持仓");
+  await click("设置现金");
   await panel.get('[name="current_cash"]').setValue("0.00");
   await panel.get("form").trigger("submit");
   await flushPromises();
@@ -494,7 +476,7 @@ it("edits current holdings on the imported account, coordinates pending locks an
   await flushPromises();
   expect(wrapper.get(".lp-holdings-totals").text()).toContain("0.00");
   expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
-    "历史总资产、资金流和收益不变",
+    "历史记录不变",
   );
   expect(
     fetcher.mock.calls.filter(([, init]) => init.method === "POST"),
@@ -553,7 +535,7 @@ it("preserves inclusive date filters and limit 30 across first/next imported rec
   );
 });
 
-it("cancels obsolete previews when the File changes, ignores late results and requires a new preview", async () => {
+it("locks file and target during internal validation and ignores replacement file events", async () => {
   let finish!: (value: Response) => void;
   fetcher.mockImplementationOnce(
     () =>
@@ -562,21 +544,17 @@ it("cancels obsolete previews when the File changes, ignores late results and re
       }),
   );
   await start();
-  await upload();
-  await wrapper.get('[data-test="import-preview"]').trigger("click");
+  const file = await upload();
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   const signal = fetcher.mock.calls[0]![1].signal as AbortSignal;
+  expect(wrapper.get("fieldset").attributes("disabled")).toBeDefined();
   await upload(new File(["synthetic replacement"], "synthetic.xlsx"));
-  expect(signal.aborted).toBe(true);
+  expect(signal.aborted).toBe(false);
   finish(response(preview));
   await flushPromises();
   expect(wrapper.find('[data-test="import-confirm"]').exists()).toBe(false);
-  expect(wrapper.text()).not.toContain("合成来源账户");
-  expect(commits).toHaveLength(0);
-  await wrapper.get('[data-test="import-preview"]').trigger("click");
-  await flushPromises();
-  expect(wrapper.find('[data-test="import-confirm"]').exists()).toBe(true);
-  await upload();
-  expect(wrapper.find('[data-test="import-confirm"]').exists()).toBe(false);
+  expect(commits).toHaveLength(1);
+  expect(commits[0]!.body.get("file")).toBe(file);
 });
 
 it("rejects oversized and empty files locally without uploads", async () => {
@@ -600,7 +578,7 @@ it("shows Chinese malformed-file errors with coordinates but never echoes cell v
   };
   fetcher.mockResolvedValue(response(error, 400));
   await start();
-  await showPreview();
+  await importFile();
   expect(wrapper.text()).toContain("导入文件格式或内容不合法");
   expect(wrapper.text()).toContain("第 8 行；列 B");
   expect(wrapper.text()).not.toContain("synthetic-cell-content");
@@ -621,7 +599,8 @@ it.each([
   "handles definite %s rejection without treating it as success",
   async (code) => {
     await start();
-    await showPreview();
+    await upload();
+    fetcher.mockResolvedValueOnce(response(preview));
     fetcher.mockResolvedValueOnce(
       response(
         { code },
@@ -632,23 +611,28 @@ it.each([
             : 409,
       ),
     );
-    await wrapper.get('[data-test="import-confirm"]').trigger("click");
+    await wrapper.get('[data-test="import-submit"]').trigger("click");
     await flushPromises();
-    expect(wrapper.text()).toContain(new LedgerError(code).message);
+    expect(wrapper.text()).toContain(errorText(new LedgerError(code).message));
     expect(wrapper.text()).not.toContain("导入已确认成功");
-    expect(wrapper.find('[data-test="import-retry"]').exists()).toBe(false);
+    const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
+    await click("重试导入");
+    expect(commits[0]!.key).toBe(
+      new Headers(first.headers).get("Idempotency-Key"),
+    );
   },
 );
 
 it("storage_busy freezes payload and retry stays available even if account reads become unavailable", async () => {
   await start();
-  const file = await showPreview();
+  const file = await upload();
+  fetcher.mockResolvedValueOnce(response(preview));
   fetcher.mockResolvedValueOnce(response({ code: "storage_busy" }, 503));
-  await wrapper.get('[data-test="import-confirm"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
   await wrapper.setProps({ disabled: true });
-  await wrapper.get('[data-test="import-retry"]').trigger("click");
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   expect(commits[0]!.key).toBe(
     new Headers(first.headers).get("Idempotency-Key"),
@@ -690,4 +674,60 @@ it("ignores old account metadata and imported rows after switching to reported",
       /\/accounts\/reported\/(positions|valuation)/.test(url),
     ),
   ).toBe(false);
+});
+
+it("locks the import dialog during validation, but allows a selected file to be discarded before importing", async () => {
+  await start(Ledger);
+  await upload();
+  await wrapper.get('[aria-label="关闭弹窗"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.text()).toContain("放弃尚未保存的修改");
+  expect(commits).toHaveLength(0);
+  await click("继续编辑");
+  expect(
+    wrapper.get('[data-test="import-submit"]').attributes("disabled"),
+  ).toBeUndefined();
+});
+
+it.each([
+  null,
+  { digest: "bad" },
+  { ...preview, rows: [{ ...preview.rows[0], total_assets: "not money" }] },
+])(
+  "never writes after an invalid internal validation response",
+  async (invalid) => {
+    await start();
+    fetcher.mockResolvedValueOnce(response(invalid));
+    await importFile();
+    expect(commits).toHaveLength(0);
+    expect(wrapper.text()).toContain("无法确认服务响应");
+    expect(
+      wrapper.get('[data-test="import-submit"]').attributes("disabled"),
+    ).toBeUndefined();
+  },
+);
+
+it("retains the original write after an invalid receipt and safely retries it", async () => {
+  await start();
+  await upload();
+  fetcher.mockResolvedValueOnce(response(preview));
+  fetcher.mockResolvedValueOnce(
+    response({
+      account_id: "wrong",
+      batch_id: "1",
+      imported_count: "3",
+      duplicate: false,
+    }),
+  );
+  await click("导入");
+  const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
+  expect(wrapper.text()).toContain("导入结果暂未确认");
+  await click("重试导入");
+  expect(commits[0]!.key).toBe(
+    new Headers(first.headers).get("Idempotency-Key"),
+  );
+  expect(commits[0]!.body.get("file")).toBe(
+    (first.body as FormData).get("file"),
+  );
+  expect(wrapper.text()).toContain("已导入 65 笔记录");
 });

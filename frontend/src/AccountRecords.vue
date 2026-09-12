@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
-import { query, request, type Account, type Page } from "./ledger";
+import { errorText, query, request, type Account, type Page } from "./ledger";
 import type { AccountRecord } from "./accountRecords";
 import { money, recordKind, recordPage, validDay } from "./ledgerView";
 import { useLedgerRead } from "./useLedgerRead";
@@ -8,7 +8,7 @@ import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
 const props = defineProps<{ account: Account; refreshKey: number }>();
 const emit = defineEmits<{ edit: [id: string]; detail: [id: string] }>();
-const { locked } = useLedgerWorkspace();
+const { navigationLocked: locked } = useLedgerWorkspace();
 const rows = reactive(useLedgerRead<Page<AccountRecord>>());
 const from = ref("");
 const to = ref("");
@@ -165,7 +165,12 @@ async function locate(event: { id: string; date: string; accountId: string }) {
     row?.focus({ preventScroll: true });
   }
 }
-defineExpose({ locate });
+function open() {
+  expanded.value = true;
+  if (table.value) table.value.open = true;
+  if (!rows.data && !rows.loading) load();
+}
+defineExpose({ locate, open });
 watch(
   () => props.account.id,
   () => {
@@ -267,7 +272,9 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="notice" class="lp-filter-summary" role="status">{{ notice }}</p>
     <p v-if="rows.loading" class="lp-empty" role="status">正在读取账户记录…</p>
-    <p v-else-if="rows.error" class="lp-error" role="alert">{{ rows.error }}</p>
+    <p v-else-if="rows.error" class="lp-error" role="alert">
+      {{ errorText(rows.error) }}
+    </p>
     <table v-else-if="rows.data?.items.length" class="lp-record-table">
       <thead>
         <tr>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { LedgerError, query, request, type Account } from "./ledger";
+import { errorText, LedgerError, query, request, type Account } from "./ledger";
 import type { EffectiveSummary } from "./accountRecords";
 import {
   returnPercent,
@@ -315,7 +315,10 @@ watch(
       </div>
     </div>
     <p v-if="summary.error" class="lp-error" role="alert">
-      最新资产读取失败，请刷新。{{ summary.error }}
+      {{ errorText(summary.error) }}
+      <button :disabled="locked || summary.loading" @click="loadSummary">
+        重试读取资产
+      </button>
     </p>
     <div class="lp-chart-toolbar">
       <div class="lp-range" aria-label="收益区间">
@@ -366,7 +369,14 @@ watch(
       /></label>
     </div>
     <p v-if="rangeError || basis.error" class="lp-error" role="alert">
-      {{ rangeError || basis.error }}
+      {{ errorText(rangeError || basis.error) }}
+      <button
+        v-if="basis.error && !rangeError"
+        :disabled="locked || basis.loading"
+        @click="loadAnalysis"
+      >
+        重试读取收益
+      </button>
     </p>
     <div
       v-else-if="basis.loading"
@@ -477,7 +487,9 @@ watch(
       <p>
         {{
           result?.profit.reason === "missing_opening"
-            ? "缺少期初总资产，请补充开始日期之前的总资产，或选择成立以来。"
+            ? range === "all"
+              ? "先用“记一笔”记录总资产；两个不同日期的资产记录可形成收益区间。"
+              : "缺少期初总资产，请补充开始日期之前的总资产，或选择成立以来。"
             : result?.days === 0
               ? "需要两个不同日期的有效总资产记录，才能形成收益区间。"
               : "请调整收益区间或补充总资产记录。缺失金额不会按零计算。"

@@ -98,7 +98,7 @@ export function returnSourceNotes(
     let note = "";
     if (key === "twr") {
       if (estimate) {
-        note = `TWR 估算资产 ${estimate.assets} ${currency}：基于 ${estimate.source_date} 最后明确总资产，加上累计净流入 ${estimate.net_flow} ${currency}（转入减转出）；来源记录 ${estimate.source_record_id}。假设期间没有市场盈亏，不改写原始资产。`;
+        note = `TWR 估算资产 ${estimate.assets} ${currency}：基于 ${estimate.source_date} 最后明确总资产，加上累计净流入 ${estimate.net_flow} ${currency}（转入减转出）。假设期间没有市场盈亏，不改写原始资产。`;
       } else if (p.twr.status === "reference" && priorEstimate) {
         note =
           "TWR 包含较早的估算边界；即使本次为明确总资产，累计收益率仍仅供参考，并非本次资产沿用原额。";

@@ -3,6 +3,7 @@ import { computed, reactive, ref } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import {
   decimal,
+  errorText,
   LedgerError,
   newID,
   PendingWrite,
@@ -98,6 +99,9 @@ async function load() {
     return;
   error.value = "";
   read.clear();
+  revisions.clear();
+  historyCursors.value = [""];
+  historyPage.value = 0;
   const id = props.recordId;
   await read.load(async (signal) => {
     const r = await request<AccountRecord>(
@@ -251,7 +255,7 @@ function nextHistory() {
       正在读取最新记录…
     </div>
     <div v-else-if="read.error" class="lp-dialog-body">
-      <p class="lp-error" role="alert">{{ read.error }}</p>
+      <p class="lp-error" role="alert">{{ errorText(read.error) }}</p>
       <button :disabled="locked" @click="load">重新读取记录</button>
     </div>
     <template v-else-if="!recordId || read.data">
@@ -327,6 +331,7 @@ function nextHistory() {
           @toggle="
             ($event.currentTarget as HTMLDetailsElement).open &&
             !revisions.data &&
+            !revisions.error &&
             !revisions.loading &&
             loadHistory()
           "
@@ -334,8 +339,15 @@ function nextHistory() {
           <summary>修改历史</summary>
           <p v-if="revisions.loading" role="status">正在读取修改历史…</p>
           <p v-if="revisions.error" class="lp-error" role="alert">
-            {{ revisions.error }}
+            {{ errorText(revisions.error) }}
           </p>
+          <button
+            v-if="revisions.error"
+            :disabled="locked || revisions.loading"
+            @click="loadHistory(historyPage, historyCursors[historyPage]!)"
+          >
+            重试读取修改历史
+          </button>
           <ol class="lp-history">
             <li v-for="r in revisions.data?.items" :key="r.record.version">
               <strong

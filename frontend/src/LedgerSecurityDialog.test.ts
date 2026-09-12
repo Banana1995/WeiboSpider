@@ -117,12 +117,12 @@ it.each([
   {
     result: { items: [{ ...stock, code: "000001" }] },
     status: 200,
-    message: "invalid_response",
+    message: "无法确认服务响应",
   },
   {
     result: { items: [{ ...stock, currency: "EUR" }] },
     status: 200,
-    message: "invalid_response",
+    message: "无法确认服务响应",
   },
 ])(
   "allows manual entry after empty or failed lookup: $message",

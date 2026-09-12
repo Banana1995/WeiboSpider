@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
-import { LedgerError, newID, request, type Instrument } from "./ledger";
+import {
+  errorText,
+  LedgerError,
+  newID,
+  request,
+  type Instrument,
+} from "./ledger";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
 type SearchItem = Omit<Instrument, "id">;
-const props = defineProps<{ initial?: Instrument }>();
-const emit = defineEmits<{ close: []; selected: [Instrument] }>();
+const props = defineProps<{ initial?: Instrument; embedded?: boolean }>();
+const emit = defineEmits<{
+  close: [];
+  selected: [Instrument];
+  dirty: [boolean];
+}>();
 const { locked } = useLedgerWorkspace();
 const empty = (): SearchItem => ({
   name: "",
@@ -27,6 +37,16 @@ const dirty = computed(
     !!query.value ||
     JSON.stringify(instrument.value) !== JSON.stringify(empty()),
 );
+watch(dirty, (value) => emit("dirty", value), { flush: "sync" });
+function cancel() {
+  if (locked.value) return;
+  if (
+    props.embedded ||
+    !dirty.value ||
+    window.confirm("放弃尚未保存的证券信息？")
+  )
+    emit("close");
+}
 let generation = 0;
 watch(
   query,
@@ -115,12 +135,12 @@ function register() {
 </script>
 
 <template>
-  <LedgerDialog
+  <component
+    :is="embedded ? 'div' : LedgerDialog"
     title="选择持仓证券"
     caption="查询身份后填写当前数量"
     :dirty="dirty"
     @close="emit('close')"
-    v-slot="{ requestClose }"
   >
     <form
       class="lp-form"
@@ -156,7 +176,7 @@ function register() {
           正在查询证券并核验名称、市场和币种…
         </p>
         <p v-if="search.error" class="lp-error" role="alert">
-          {{ search.error }} 可重试或手工填写。
+          {{ errorText(search.error) }} 可重试或手工填写。
         </p>
         <p v-if="search.data?.length === 0" role="status">
           未找到支持的股票，请核对代码或手工填写。
@@ -223,12 +243,12 @@ function register() {
           {{ registrationError }}
         </p>
         <div class="lp-dialog-footer">
-          <button type="button" @click="requestClose">取消</button
+          <button type="button" @click="cancel">取消</button
           ><button type="submit" class="lp-primary" :disabled="search.loading">
             使用此证券
           </button>
         </div>
       </fieldset>
     </form>
-  </LedgerDialog>
+  </component>
 </template>

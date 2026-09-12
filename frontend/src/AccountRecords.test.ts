@@ -197,7 +197,7 @@ it("rejects retired operation-origin records rather than offering a dead transac
     items: [sample({ origin: "operation" as never })],
   };
   await start();
-  expect(wrapper.text()).toContain("invalid_response");
+  expect(wrapper.text()).toContain("无法确认服务响应");
   expect(wrapper.find("tbody").exists()).toBe(false);
   expect(wrapper.text()).not.toContain("在持仓交易中修改");
   expect(calls.every((c) => c.method === "GET")).toBe(true);

@@ -453,9 +453,9 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   expect(readout()).toContain("TWR 估算资产 90071992547509.03 CNY");
   expect(readout()).toContain("基于 2020-02-01 最后明确总资产");
   expect(readout()).toContain("累计净流入 100.00 CNY");
-  expect(readout()).toContain("来源记录 sample-1");
+  expect(readout()).not.toContain("sample-1");
   expect(readout()).not.toContain("未增加资金流");
-  expect(point().attributes("aria-label")).toContain("来源记录 sample-1");
+  expect(point().attributes("aria-label")).not.toContain("sample-1");
   expect(point().get("title").text()).toContain("累计净流入 100.00");
   expect(wrapper.get(".lp-reference").text()).toContain("TWR 仅供参考");
   expect(wrapper.get(".lp-reference").text()).toContain(

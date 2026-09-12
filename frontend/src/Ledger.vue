@@ -15,7 +15,13 @@ import LedgerRecordDialog from "./LedgerRecordDialog.vue";
 import LedgerAccountDialog from "./LedgerAccountDialog.vue";
 import LedgerManagement from "./LedgerManagement.vue";
 import LedgerHoldings from "./LedgerHoldings.vue";
-import { all, LedgerError, type Account, type Instrument } from "./ledger";
+import {
+  all,
+  errorText,
+  LedgerError,
+  type Account,
+  type Instrument,
+} from "./ledger";
 import { opaqueID, validDay, versionString } from "./ledgerView";
 import {
   createLedgerWorkspace,
@@ -36,14 +42,16 @@ const manage = ref(false);
 const managementTab = ref("info");
 const refreshKey = ref(0);
 const records = ref<InstanceType<typeof AccountRecords>>();
+const importedAccount = ref("");
 const modal = ref<"" | "create" | "edit" | "detail" | "account">("");
 const recordId = ref("");
 const workspace = createLedgerWorkspace(() => {
   refreshKey.value++;
 });
 provide(ledgerWorkspaceKey, workspace);
-const { locked, pending, busy, error, notice, retry, label } = workspace;
-watch(locked, (value) => emit("locked", value), {
+const { locked, navigationLocked, pending, busy, error, notice, retry, label } =
+  workspace;
+watch(navigationLocked, (value) => emit("locked", value), {
   immediate: true,
   flush: "sync",
 });
@@ -70,10 +78,24 @@ async function loadAccounts(preferred = selected.value) {
       throw new LedgerError("invalid_response");
     return items;
   });
-  if (generation === accountRequest && accounts.data)
+  if (generation === accountRequest && accounts.data) {
     selected.value = accounts.data.some((a) => a.id === preferred)
       ? preferred
       : (accounts.data[0]?.id ?? "");
+    await nextTick();
+    if (generation !== accountRequest) return;
+    document
+      .getElementById(`account-tab-${selected.value}`)
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (
+      generation === accountRequest &&
+      importedAccount.value === selected.value &&
+      records.value
+    ) {
+      records.value.open();
+      importedAccount.value = "";
+    }
+  }
 }
 function loadInstruments() {
   instruments.clear();
@@ -96,16 +118,20 @@ function loadInstruments() {
   });
 }
 function refresh() {
-  if (locked.value || modal.value) return;
+  if (navigationLocked.value) return;
   refreshKey.value++;
 }
 function selectAccount(id: string) {
-  if (locked.value || modal.value) return;
+  if (navigationLocked.value) return;
+  if (selected.value !== id) {
+    notice.value = "";
+    error.value = "";
+  }
   selected.value = id;
 }
 function accountKey(event: KeyboardEvent) {
   if (
-    locked.value ||
+    navigationLocked.value ||
     modal.value ||
     !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
   )
@@ -129,31 +155,36 @@ function accountKey(event: KeyboardEvent) {
   tabs[next]!.focus();
 }
 function openRecord(mode: "create" | "edit" | "detail", id = "") {
-  if (locked.value || !account.value) return;
+  if (navigationLocked.value || !account.value) return;
   error.value = "";
   recordId.value = id;
   modal.value = mode;
 }
 function openAccount() {
-  if (locked.value) return;
+  if (navigationLocked.value) return;
   error.value = "";
   if (!instruments.data && !instruments.loading) loadInstruments();
   modal.value = "account";
 }
 function manageAccount(tab = "info") {
-  if (locked.value || modal.value) return;
+  if (navigationLocked.value) return;
   managementTab.value = tab;
   manage.value = true;
   if (!instruments.data && !instruments.loading) loadInstruments();
 }
-function imported(result: ImportResult) {
+async function imported(result: ImportResult) {
   managementTab.value = "info";
-  notice.value = `导入已确认成功${result.duplicate ? "，相同内容未重复导入" : ""}。正在读取当前账户。`;
+  manage.value = false;
+  notice.value = result.duplicate
+    ? `这份文件已导入 ${result.imported_count} 笔记录，未重复添加。`
+    : `已导入 ${result.imported_count} 笔记录。`;
   refreshKey.value++;
-  void loadAccounts(result.account_id);
+  importedAccount.value = result.account_id;
+  await loadAccounts(result.account_id);
 }
 function created(id: string) {
   managementTab.value = "info";
+  manage.value = false;
   void loadAccounts(id);
 }
 async function locate(event: { id: string; date: string; accountId: string }) {
@@ -162,14 +193,14 @@ async function locate(event: { id: string; date: string; accountId: string }) {
   void records.value?.locate(event);
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (locked.value || modal.value) {
+  if (locked.value) {
     event.preventDefault();
     event.returnValue = "";
   }
 }
 function guardLink(event: MouseEvent) {
   if (
-    (locked.value || modal.value) &&
+    navigationLocked.value &&
     event.target instanceof Element &&
     event.target.closest("a[href]")
   )
@@ -202,11 +233,8 @@ onBeforeUnmount(() => {
         ><span class="brand-sub">投资账本</span>
       </div>
       <nav aria-label="模块导航">
-        <a href="/liquor" :aria-disabled="locked || !!modal">白酒行情</a
-        ><a
-          href="/ledger"
-          aria-current="page"
-          :aria-disabled="locked || !!modal"
+        <a href="/liquor" :aria-disabled="navigationLocked">白酒行情</a
+        ><a href="/ledger" aria-current="page" :aria-disabled="navigationLocked"
           >投资账本</a
         >
       </nav>
@@ -218,7 +246,7 @@ onBeforeUnmount(() => {
           <template v-if="!manage"
             ><button
               class="lp-text-button"
-              :disabled="locked || !!modal"
+              :disabled="navigationLocked"
               @click="manageAccount()"
             >
               管理账户
@@ -226,13 +254,13 @@ onBeforeUnmount(() => {
             <button
               class="lp-primary"
               data-ledger-focus
-              :disabled="locked || !account || !!modal"
+              :disabled="navigationLocked || !account"
               @click="openRecord('create')"
             >
               ＋ 记一笔
             </button></template
           >
-          <button v-else :disabled="locked || !!modal" @click="manage = false">
+          <button v-else :disabled="navigationLocked" @click="manage = false">
             返回账户
           </button>
         </div>
@@ -252,7 +280,7 @@ onBeforeUnmount(() => {
           :aria-selected="selected === a.id"
           :aria-controls="`account-panel-${a.id}`"
           :tabindex="selected === a.id ? 0 : -1"
-          :disabled="locked || !!modal"
+          :disabled="navigationLocked"
           :title="a.name"
           @click="selectAccount(a.id)"
         >
@@ -260,7 +288,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p v-if="notice" class="lp-notice" role="status">{{ notice }}</p>
-      <p v-if="error && !modal" class="lp-error" role="alert">{{ error }}</p>
+      <p v-if="error && !modal" class="lp-error" role="alert">
+        {{ errorText(error) }}
+      </p>
       <div v-if="pending && !modal" class="lp-reference" role="status">
         <strong>{{ busy ? `正在确认${label}` : `${label}结果待确认` }}</strong>
         <p>原始内容和账户已锁定，请保留此页，不要刷新或重复录入。</p>
@@ -270,7 +300,7 @@ onBeforeUnmount(() => {
         正在读取账户…
       </p>
       <div v-else-if="accounts.error" class="lp-empty">
-        <p class="lp-error" role="alert">{{ accounts.error }}</p>
+        <p class="lp-error" role="alert">{{ errorText(accounts.error) }}</p>
         <button :disabled="locked" @click="loadAccounts()">重新读取账户</button>
       </div>
       <div
@@ -360,7 +390,7 @@ onBeforeUnmount(() => {
           <span>金额按账户币种记录</span
           ><button
             class="lp-text-button"
-            :disabled="locked || !!modal"
+            :disabled="navigationLocked"
             @click="refresh"
           >
             刷新当前数据

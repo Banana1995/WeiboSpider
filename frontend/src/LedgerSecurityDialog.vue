@@ -225,10 +225,7 @@ function register() {
             /></label>
           </div>
           <label
-            >证券原币<select
-              v-model="instrument.currency"
-              name="security_currency"
-            >
+            >币种<select v-model="instrument.currency" name="security_currency">
               <option>CNY</option>
               <option>HKD</option>
               <option>USD</option>

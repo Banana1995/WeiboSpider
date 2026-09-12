@@ -375,9 +375,6 @@ async function save() {
         </button>
       </div>
     </div>
-    <p class="lp-muted">
-      当前参考估值，不是账本总资产；调整持仓不改变历史资产和资金记录。
-    </p>
     <p v-if="read.loading || valuationLoading" role="status">
       正在读取持仓与参考行情…
     </p>
@@ -455,10 +452,10 @@ async function save() {
     >
       <thead>
         <tr>
-          <th scope="col">证券 / 原币</th>
+          <th scope="col">证券</th>
           <th scope="col">数量</th>
-          <th scope="col">参考价格 / 原币</th>
-          <th scope="col">市值 / 原币与折合</th>
+          <th scope="col">参考价格</th>
+          <th scope="col">市值 / 折合</th>
           <th scope="col">操作</th>
         </tr>
       </thead>
@@ -477,13 +474,13 @@ async function save() {
               >
             </td>
             <td data-label="数量">{{ holdingNumber(p.quantity) }}</td>
-            <td data-label="参考价格 / 原币">
+            <td data-label="参考价格">
               <span
                 >{{ holdingNumber(quote(p.instrument_id)?.price) }}
                 {{ identity(p.instrument_id)?.currency }}</span
               ><small
                 v-if="quote(p.instrument_id)?.quote_status === 'prior_date'"
-                >较早交易日
+                >行情日期
                 <time class="lp-quote-date">{{
                   quote(p.instrument_id)?.quote?.date
                 }}</time></small
@@ -494,7 +491,7 @@ async function save() {
             </td>
             <td data-label="市值">
               <span
-                >原币 {{ money(quote(p.instrument_id)?.market_value) }}
+                >{{ money(quote(p.instrument_id)?.market_value) }}
                 {{ identity(p.instrument_id)?.currency }}</span
               ><small v-if="identity(p.instrument_id)?.currency !== currency"
                 >折合 {{ money(quote(p.instrument_id)?.account_market_value) }}

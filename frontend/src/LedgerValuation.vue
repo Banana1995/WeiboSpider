@@ -59,7 +59,7 @@ const errors: Record<string, string> = {
         historical
           ? "保存时参考估值，非当前资产、非收益率"
           : "当前参考估值，非收益率"
-      }}；现金+持仓数量×原币报价×{{
+      }}；现金+持仓数量×报价×{{
         historical ? "保存时参考汇率" : "最新参考汇率"
       }}；成本不参与估值；行情与汇率可能不同日期，实际成交汇率不随刷新改写
     </p>
@@ -127,7 +127,7 @@ const errors: Record<string, string> = {
           <thead>
             <tr>
               <th>证券 / 快照股数</th>
-              <th>原币报价 / 来源</th>
+              <th>报价 / 来源</th>
               <th>
                 {{ historical ? "保存时参考汇率" : "最新参考汇率" }} / 来源
               </th>
@@ -158,7 +158,7 @@ const errors: Record<string, string> = {
               </td>
               <td>
                 <template v-if="item.quote">
-                  原币价格 {{ show(item.quote.price) }} {{ item.quote.currency
+                  {{ show(item.quote.price) }} {{ item.quote.currency
                   }}<small
                     >{{ item.quote.symbol }} ·
                     {{ show(item.quote.source) }}</small

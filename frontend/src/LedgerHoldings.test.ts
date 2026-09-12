@@ -73,9 +73,9 @@ it("shows a single cash display and reference total with one refresh and no quot
     },
   });
   await flushPromises();
-  expect(wrapper.text()).toContain("当前参考估值");
+  expect(wrapper.text()).toContain("当前持仓");
   expect(wrapper.text()).toContain("123.00");
-  expect(wrapper.text()).toContain("不是账本总资产");
+  expect(wrapper.text()).toContain("参考总资产");
   expect(wrapper.text().match(/当前现金/g)).toHaveLength(1);
   for (const text of ["登记证券", "更新并保存", "新增买卖", "持仓交易"])
     expect(wrapper.text()).not.toContain(text);
@@ -110,7 +110,7 @@ it("offers account creation rather than security registration without an account
   expect(wrapper.text()).not.toContain("登记证券");
 });
 
-it("uses one securities table with explicit original and converted currency, and clears stale quotes on failed refresh", async () => {
+it("uses one securities table with quoted market value and converted amount, and clears stale quotes on failed refresh", async () => {
   const instrument = {
     id: "hk",
     name: "Synthetic HK",
@@ -204,7 +204,7 @@ it("uses one securities table with explicit original and converted currency, and
   expect(wrapper.text().match(/当前现金/g)).toHaveLength(1);
   expect(wrapper.text()).toContain("10.5");
   expect(wrapper.text()).not.toContain("10.500000");
-  expect(wrapper.text()).toContain("原币 210.00 HKD");
+  expect(wrapper.text()).toContain("210.00 HKD");
   expect(wrapper.text()).toContain("折合 189.00 CNY");
   expect(wrapper.text()).toContain("199.00");
   failed = true;
@@ -215,6 +215,6 @@ it("uses one securities table with explicit original and converted currency, and
   await flushPromises();
   expect(wrapper.text()).not.toContain("199.00");
   expect(wrapper.text()).not.toContain("210.00");
-  expect(wrapper.text()).toContain("原币 — HKD");
+  expect(wrapper.text()).toContain("— HKD");
   expect(wrapper.text()).toContain("Synthetic HK");
 });

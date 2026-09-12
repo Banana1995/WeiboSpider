@@ -65,7 +65,7 @@ it("shows exact complete assets and foreign quote/FX provenance without numeric 
   );
   for (const text of [
     "CNY",
-    "原币价格 10.000001 USD",
+    "10.000001 USD",
     "USD/CNY 7.00000001",
     "Tencent/USDCNY",
     "Tencent",
@@ -203,7 +203,7 @@ it("shows CNY price and same-currency treatment without inventing an FX quote", 
       },
     ],
   });
-  expect(wrapper.text()).toContain("原币价格 10.000001 CNY");
+  expect(wrapper.text()).toContain("10.000001 CNY");
   expect(wrapper.text()).toContain("同币种，无需换汇");
   expect(wrapper.text()).toContain("当日参考");
   wrapper.unmount();

@@ -81,6 +81,16 @@ func loadReceipt(ctx context.Context, tx *sql.Tx, key, kind, request string) (st
 	if !auditExists {
 		return result, true, ErrCorrupt
 	}
+	if kind != "account_delete" {
+		var deleted bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log a JOIN audit_log d
+			ON d.account_id=a.account_id AND d.entity_type='account_delete' WHERE a.id=?)`, result.AuditID).Scan(&deleted); err != nil {
+			return result, true, err
+		}
+		if deleted {
+			return result, true, ErrNotFound
+		}
+	}
 	return result, true, nil
 }
 
@@ -97,6 +107,22 @@ func saveReceipt(ctx context.Context, tx *sql.Tx, key, kind, request, response s
 
 func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload, key string, auditID int64) error {
 	switch c := intent.(type) {
+	case accountDeleteIntent:
+		var result AccountDeletion
+		if decodeReceipt(payload, &result) != nil || result.AccountID != c.AccountID || !result.Deleted {
+			return ErrCorrupt
+		}
+		var valid bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log WHERE id=?
+			AND entity_type='account_delete' AND entity_id=? AND account_id=? AND action='delete'
+			AND version=1 AND source='human' AND correlation_id=? AND after_json=?)
+			AND NOT EXISTS(SELECT 1 FROM accounts WHERE id=?)`, auditID, c.AccountID, c.AccountID, key, payload, c.AccountID).Scan(&valid); err != nil {
+			return err
+		}
+		if !valid {
+			return ErrCorrupt
+		}
+		return nil
 	case AccountRecordCommand:
 		var r AccountRecord
 		if err := decodeReceipt(payload, &r); err != nil {

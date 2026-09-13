@@ -232,7 +232,23 @@ func (h Handler) accounts(w http.ResponseWriter, r *http.Request) {
 	httpapi.Write(w, 200, result)
 }
 func (h Handler) account(w http.ResponseWriter, r *http.Request) {
-	if !method(w, r, "GET", "HEAD") {
+	if !method(w, r, "GET", "HEAD", "DELETE") {
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if _, ok := body[struct{}](w, r); !ok {
+			return
+		}
+		key, ok := writeKey(w, r)
+		if !ok {
+			return
+		}
+		result, err := h.Store.DeleteAccount(r.Context(), r.PathValue("id"), key)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		httpapi.Write(w, 200, result)
 		return
 	}
 	if _, err := query(r); err != nil {

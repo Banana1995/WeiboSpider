@@ -152,7 +152,8 @@ func (s *Store) CreateReportedAccount(ctx context.Context, key string, input Rep
 	}
 	return s.accountReceipt(ctx, key, "reported_account", reportedAccountIntent{"reported-account", input}, func(tx *sql.Tx) (any, int64, error) {
 		var exists bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=?)`, input.ID).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=?)
+			OR EXISTS(SELECT 1 FROM audit_log WHERE entity_type='account_delete' AND account_id=?)`, input.ID, input.ID).Scan(&exists); err != nil {
 			return nil, 0, err
 		}
 		if exists {

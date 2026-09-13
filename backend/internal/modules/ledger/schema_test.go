@@ -66,7 +66,7 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 1, count)
+		require.Equal(t, 2, count)
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)

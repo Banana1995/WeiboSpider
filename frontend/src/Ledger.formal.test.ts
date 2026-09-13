@@ -304,6 +304,28 @@ async function ledger() {
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 }
 
+it.each([false, true])(
+  "reloads accounts after deletion, including the last account (%s)",
+  async (last) => {
+    if (last) accountList = [account];
+    await ledger();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "管理账户")!
+      .trigger("click");
+    accountList = last ? [] : accounts.slice(1);
+    wrapper.findComponent(manager).vm.$emit("deleted");
+    await flushPromises();
+    expect(wrapper.find("#account-tab-a").exists()).toBe(false);
+    expect(wrapper.findComponent(manager).exists()).toBe(false);
+    if (!last)
+      expect(wrapper.get("#account-tab-b").attributes("aria-selected")).toBe(
+        "true",
+      );
+    expect(calls.filter((url) => url.includes("/accounts?"))).toHaveLength(2);
+  },
+);
+
 it("validates the inclusive 610-day contract with unchanged 122-day flow weight", () => {
   expect(validateBasis(basis, account, "", basis.to)).toBe(basis);
   const r = basis.returns;

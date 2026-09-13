@@ -187,6 +187,12 @@ function created(id: string) {
   manage.value = false;
   void loadAccounts(id);
 }
+function deleted() {
+  manage.value = false;
+  managementTab.value = "info";
+  importedAccount.value = "";
+  void loadAccounts("");
+}
 async function locate(event: { id: string; date: string; accountId: string }) {
   if (locked.value) return;
   await nextTick();
@@ -340,6 +346,7 @@ onBeforeUnmount(() => {
         </template>
         <LedgerManagement
           v-else
+          @deleted="deleted"
           :account="account"
           :accounts="accounts.data ?? []"
           :instruments="instruments.data ?? []"

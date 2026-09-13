@@ -58,6 +58,13 @@ type storedImport struct {
 
 func readImport(ctx context.Context, tx *sql.Tx, accountID string) (storedImport, error) {
 	var result storedImport
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=?)`, accountID).Scan(&exists); err != nil {
+		return result, err
+	}
+	if !exists {
+		return result, ErrNotFound
+	}
 	var manifest, metadata string
 	err := tx.QueryRowContext(ctx, `SELECT id,entity_id,account_id,recorded_at,correlation_id,after_json,metadata_json
 		FROM audit_log WHERE entity_type='import' AND account_id=? AND action='initialize'`, accountID).
@@ -103,6 +110,16 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 			return validateImportReceipt(ctx, tx, result, p, key, receipt.AuditID)
 		}
 
+		var deleted bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log WHERE entity_type='account_delete' AND account_id=?)`, id).Scan(&deleted); err != nil {
+			return err
+		}
+		if deleted {
+			if create {
+				return ErrConflict
+			}
+			return ErrNotFound
+		}
 		stored, importErr := readImport(ctx, tx, id)
 		if importErr == nil {
 			if stored.Metadata.Digest != p.Digest {

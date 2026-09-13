@@ -178,7 +178,16 @@ function render() {
         type: "solid" as const,
       },
       itemStyle: { color: accountEncoding.color },
-      emphasis: { scale: false },
+      triggerLineEvent: true,
+      emphasis: {
+        focus: "series" as const,
+        scale: false,
+        lineStyle: { width: 2.8 },
+      },
+      blur: {
+        lineStyle: { opacity: 0.15 },
+        itemStyle: { opacity: 0.15 },
+      },
     };
     const benchmarks = activeBenchmarks.value.map((benchmark) => {
       const encoding = encodingFor(benchmark.code);
@@ -198,7 +207,16 @@ function render() {
           type: encoding.dash.length ? encoding.dash : ("solid" as const),
         },
         itemStyle: { color: encoding.color },
-        emphasis: { scale: false },
+        triggerLineEvent: true,
+        emphasis: {
+          focus: "series" as const,
+          scale: false,
+          lineStyle: { width: 2.8 },
+        },
+        blur: {
+          lineStyle: { opacity: 0.15 },
+          itemStyle: { opacity: 0.15 },
+        },
       };
     });
     chart.setOption(

@@ -176,6 +176,13 @@ it("distinguishes account and every benchmark by dash pattern, not color alone",
     );
   expect(new Set(patterns).size).toBe(3);
 
+  // Hovering a line focuses just that series and dims the rest.
+  for (const series of option.series) {
+    expect(series.triggerLineEvent).toBe(true);
+    expect(series.emphasis.focus).toBe("series");
+    expect(series.blur.lineStyle.opacity).toBe(0.15);
+  }
+
   // The legend/control lives in the parent so it is not duplicated above the plot.
   expect(w.find(".lp-chart-legend").exists()).toBe(false);
   expect(w.get(".lp-return-canvas").attributes("aria-label")).toContain(

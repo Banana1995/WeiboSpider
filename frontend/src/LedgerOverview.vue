@@ -359,7 +359,9 @@ watch(
         >
       </div>
       <div data-test="annual-return">
-        <span>{{ view === "personal" ? "XIRR 年化参考" : "TWR 年化参考" }}</span
+        <span>{{
+          view === "personal" ? "XIRR年化收益率" : "TWR年化收益率"
+        }}</span
         ><strong :class="{ 'lp-negative': annual?.value?.startsWith('-') }">{{
           metricText(annual)
         }}</strong>

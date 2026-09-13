@@ -179,10 +179,11 @@ it("distinguishes account and every benchmark by dash pattern, not color alone",
   expect(new Set(patterns).size).toBe(3);
 
   // Hovering a line focuses just that series and dims the rest.
+  expect(option.xAxis.axisPointer.triggerEmphasis).toBe(false);
   for (const series of option.series) {
     expect(series.triggerLineEvent).toBe(true);
     expect(series.emphasis.focus).toBe("series");
-    expect(series.blur.lineStyle.opacity).toBe(0.15);
+    expect(series.blur.lineStyle.opacity).toBe(0.45);
   }
 
   // The legend/control lives in the parent so it is not duplicated above the plot.

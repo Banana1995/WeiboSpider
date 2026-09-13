@@ -157,7 +157,7 @@ const warnings = computed(() => [
       .filter((m) => m?.status === "unavailable")
       .map((m) => returnReasons[m!.reason] ?? "当前指标暂不可计算"),
     ...(result.value?.warnings ?? [])
-      .filter((w) => w !== "twr_estimated_assets" || view.value === "manager")
+      .filter((w) => w !== "twr_estimated_assets")
       .map((w) => warningLabels[w] ?? "当前结果仅供参考"),
   ]),
 ]);
@@ -512,9 +512,6 @@ watch(
             </button>
           </template>
         </div>
-        <p>
-          曲线只连接已有数值，跳过无数值日期，不补零；转入、转出同日总资产为资金变动后金额。
-        </p>
       </div>
       <p
         v-if="benchmarkCurrencyNotes.length"

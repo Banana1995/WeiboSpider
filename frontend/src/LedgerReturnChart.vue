@@ -196,8 +196,8 @@ function render() {
         lineStyle: { width: 2.8 },
       },
       blur: {
-        lineStyle: { opacity: 0.15 },
-        itemStyle: { opacity: 0.15 },
+        lineStyle: { opacity: 0.45 },
+        itemStyle: { opacity: 0.45 },
       },
     };
     const benchmarks = activeBenchmarks.value.map((benchmark) => {
@@ -225,8 +225,8 @@ function render() {
           lineStyle: { width: 2.8 },
         },
         blur: {
-          lineStyle: { opacity: 0.15 },
-          itemStyle: { opacity: 0.15 },
+          lineStyle: { opacity: 0.45 },
+          itemStyle: { opacity: 0.45 },
         },
       };
     });
@@ -235,9 +235,17 @@ function render() {
         animation: false,
         useUTC: true,
         grid: { left: 56, right: 18, top: 18, bottom: 30 },
-        tooltip: { trigger: "axis", confine: true, formatter: tooltip },
+        tooltip: {
+          trigger: "axis",
+          confine: true,
+          formatter: tooltip,
+          axisPointer: { triggerEmphasis: false },
+        },
         xAxis: {
           type: "time",
+          // Keep the shared axis tooltip, but only the line actually under the
+          // pointer should highlight rather than every series at that date.
+          axisPointer: { triggerEmphasis: false },
           axisLabel: { hideOverlap: true, formatter: "{yyyy}-{MM}-{dd}" },
           splitLine: { show: false },
         },

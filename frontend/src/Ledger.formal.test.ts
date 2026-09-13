@@ -517,7 +517,7 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   expect(sample("2020-03-01").note).toContain("累计净流入 100.00 CNY");
   expect(sample("2020-03-01").note).not.toContain("sample-1");
   expect(sample("2020-03-01").note).not.toContain("未增加资金流");
-  expect(wrapper.get(".lp-reference").text()).toContain("TWR 仅供参考");
+  expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
   expect(wrapper.get(".lp-reference").text()).toContain(
     "最近明确总资产加后续净转入推算",
   );

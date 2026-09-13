@@ -353,10 +353,7 @@ watch(
         <strong :class="{ 'lp-negative': rate?.value?.startsWith('-') }">{{
           metricText(rate)
         }}</strong>
-        <small
-          >{{ view === "personal" ? "Modified Dietz" : "TWR"
-          }}{{ rate?.status === "reference" ? " · 仅供参考" : "" }}</small
-        >
+        <small>{{ view === "personal" ? "Modified Dietz" : "TWR" }}</small>
       </div>
       <div data-test="annual-return">
         <span>{{
@@ -369,7 +366,7 @@ watch(
           view === "personal" ? "XIRR · 个人年化" : "TWR · 复合年化"
         }}</small>
         <small
-          v-if="annual && annual.status !== 'available'"
+          v-if="annual && annual.status === 'unavailable'"
           class="lp-metric-status"
           >{{ statusText(annual) }}</small
         >

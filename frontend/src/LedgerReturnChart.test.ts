@@ -142,6 +142,8 @@ it("aligns an optional benchmark with a flat baseline before its first point", (
   expect(tooltip).toContain("2026-01-02");
   expect(tooltip).toContain("账户：5.00%");
   expect(tooltip).toContain("沪深300全收益：0.00%");
+  // Each series/event sits on its own row instead of one horizontal line.
+  expect(tooltip).toBe("2026-01-02<br/>账户：5.00%<br/>沪深300全收益：0.00%");
   w.unmount();
 });
 
@@ -207,6 +209,15 @@ it("draws red transfer-in and green transfer-out dots and emits locate", () => {
   expect(option.series[2].name).toBe("转出");
   expect(option.series[2].itemStyle).toEqual({ color: "#2f7d5b" });
   expect(option.series[1].data[0].value[1]).toBe(0.1);
+  const eventTooltip = option.tooltip.formatter([
+    {
+      value: option.series[1].data[0].value,
+      seriesType: "scatter",
+      seriesName: "转入",
+      data: option.series[1].data[0],
+    },
+  ]);
+  expect(eventTooltip).toBe("2026-01-05<br/>转入 1,000.00");
   const onClick = chart.on.mock.calls[0]![1];
   onClick({ data: option.series[1].data[0] });
   expect(w.emitted("locate")).toEqual([[{ id: "f-in", date: "2026-01-05" }]]);

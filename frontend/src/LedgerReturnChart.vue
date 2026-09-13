@@ -108,7 +108,7 @@ const flowSeries = computed(() =>
           .map((flow) => ({
             value: [time(flow.date), curveValue(flow.date)],
             flow: { id: flow.id, date: flow.date },
-            text: `${flow.date} ${direction === "in" ? "转入" : "转出"} ${flow.amount}`,
+            text: `${direction === "in" ? "转入" : "转出"} ${flow.amount}`,
           }))
           .filter((point) => point.value[1] !== null),
       }))
@@ -147,7 +147,18 @@ function tooltip(raw: unknown): string {
   const events = items
     .filter((item) => item.seriesType === "scatter" && item.data?.text)
     .map((item) => item.data!.text!);
-  return [date, ...rows, ...events].join("\n");
+  // One row per series/event; escape our own strings before HTML line breaks.
+  return [date, ...rows, ...events]
+    .map((line) =>
+      line.replace(
+        /[&<>"]/g,
+        (character) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[
+            character
+          ]!,
+      ),
+    )
+    .join("<br/>");
 }
 
 function onClick(params: unknown) {

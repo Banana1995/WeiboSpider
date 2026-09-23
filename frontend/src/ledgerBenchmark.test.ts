@@ -1,8 +1,20 @@
 import { expect, it } from "vitest";
-import { validBenchmark, type Benchmark } from "./ledgerBenchmark";
+import {
+  benchmarkLookbackFrom,
+  benchmarkRate,
+  validBenchmark,
+  type Benchmark,
+} from "./ledgerBenchmark";
 
 const from = "2026-01-01";
 const to = "2026-01-31";
+
+it("keeps a prior trading close and rebases decimal prices exactly", () => {
+  expect(benchmarkLookbackFrom("2026-01-04")).toBe("2025-12-05");
+  expect(benchmarkRate("102", "100")).toBe("0.02000000");
+  expect(benchmarkRate("4", "3")).toBe("0.33333333");
+  expect(benchmarkRate("1.0000000001", "1")).toBe("0.00000000");
+});
 
 function benchmark(overrides: Partial<Benchmark> = {}): Benchmark {
   return {

@@ -20,11 +20,13 @@ import {
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 import LedgerReturnChart from "./LedgerReturnChart.vue";
+import LedgerAnnualReturns from "./LedgerAnnualReturns.vue";
 import {
   accountEncoding,
   benchmarkDash,
   benchmarkDefinitions,
   benchmarkEncodings,
+  benchmarkLookbackFrom,
   validBenchmark,
   type Benchmark,
   type BenchmarkCode,
@@ -56,7 +58,7 @@ const range = ref("all");
 const today = ref(todayShanghai());
 const customFrom = ref("");
 const customTo = ref(today.value);
-const view = ref("personal");
+const view = ref<"personal" | "manager">("personal");
 const chartMode = ref<"rate" | "profit">("rate");
 const bounds = computed(() => {
   const year = today.value.slice(0, 4);
@@ -227,7 +229,7 @@ function loadBenchmark(code: BenchmarkCode) {
   const r = result.value;
   if (!isBenchmarkSelected(code) || !r?.effective_from || !r.effective_to)
     return;
-  const from = r.effective_from;
+  const from = benchmarkLookbackFrom(r.effective_from);
   const to = r.effective_to;
   void read.load(async (signal) => {
     const data = await request<unknown>(
@@ -449,6 +451,7 @@ watch(
     >
       <LedgerReturnChart
         :mode="chartMode"
+        :from="result.effective_from"
         :samples="samples"
         :flows="flows"
         :benchmarks="activeBenchmarks"
@@ -554,4 +557,10 @@ watch(
     </div>
     <p v-if="warnings.length" class="lp-reference">{{ warnings.join(" ") }}</p>
   </section>
+  <LedgerAnnualReturns
+    :account="account"
+    :refresh-key="refreshKey"
+    :view="view"
+    @view="view = $event"
+  />
 </template>

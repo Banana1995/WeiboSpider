@@ -56,6 +56,17 @@ export const benchmarkEncodings: Record<BenchmarkCode, BenchmarkEncoding> = {
 export const benchmarkDash = (code: string) =>
   (benchmarkEncodings[code as BenchmarkCode]?.dash ?? []).join(" ");
 
+export const benchmarkLookbackDays = 30;
+
+// A market closure at the start of an account period must retain its preceding
+// close; otherwise the first trading day's move would silently disappear.
+export function benchmarkLookbackFrom(date: string): string {
+  const start = new Date(`${date}T00:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - benchmarkLookbackDays);
+  const prior = start.toISOString().slice(0, 10);
+  return prior < "0001-01-01" ? "0001-01-01" : prior;
+}
+
 export function benchmarkDefinition(
   code: string,
 ): BenchmarkDefinition | undefined {
@@ -93,6 +104,18 @@ function cumulativeReturn(close: bigint, base: bigint): bigint {
   const twice = (remainder < 0n ? -remainder : remainder) * 2n;
   if (twice >= base) quotient += delta > 0n ? 1n : delta < 0n ? -1n : 0n;
   return quotient;
+}
+
+// Rebase exact source closes for a chosen account period (not the first point
+// of the HTTP response). Only the chart turns this decimal into a JS number.
+export function benchmarkRate(close: string, base: string): string {
+  const digits = Math.max(
+    close.split(".")[1]?.length ?? 0,
+    base.split(".")[1]?.length ?? 0,
+  );
+  const value = cumulativeReturn(scaled(close, digits)!, scaled(base, digits)!);
+  const absolute = value < 0n ? -value : value;
+  return `${value < 0n ? "-" : ""}${absolute / 100000000n}.${String(absolute % 100000000n).padStart(8, "0")}`;
 }
 
 export function validBenchmark(

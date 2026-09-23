@@ -45,6 +45,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}/records/{recordID}/revisions": h.accountRecordRevisions,
 		"/accounts/{id}/effective-summary":            h.effectiveSummary,
 		"/accounts/{id}/analysis-basis":               h.analysisBasis,
+		"/accounts/{id}/annual-returns":               h.annualReturns,
 		"/imports/youzhiyouxing/preview":              h.importPreview,
 		"/accounts/{id}/imports/youzhiyouxing":        h.importConfirm,
 		"/accounts/{id}/imported-records":             h.importedRecords,

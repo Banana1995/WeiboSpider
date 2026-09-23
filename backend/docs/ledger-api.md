@@ -41,6 +41,8 @@
 | `GET /accounts/{id}/records/{recordID}/revisions` | 严格核验的不可变版本历史 |
 | `GET /accounts/{id}/effective-summary` | 全记录统计及截至今天的账本资产投影 |
 | `GET /accounts/{id}/analysis-basis` | 单账户同快照资产、资金流和收益 |
+| `GET /accounts/{id}/annual-returns?benchmark=H00300` | 单账户年度、记账以来及年化收益与同期指数对比，只读；benchmark 可省略，默认 H00300 |
+| `GET /benchmark?code=H00300&from=...&to=...` | 只读历史指数点位，15 年区间上限 |
 | `POST /imports/youzhiyouxing/preview` | XLSX 预览，不写库 |
 | `POST /accounts/{id}/imports/youzhiyouxing` | 原子确认，可同时新建账户 |
 | `GET /accounts/{id}/import-summary`、`GET /accounts/{id}/imported-records` | 原始导入证据，不受后续人工更正影响 |
@@ -145,6 +147,15 @@ returns 含 `revision/requested_from/requested_to/start_mode/effective_from/effe
 - XIRR 用投资者符号、同日大整数净额和实际天数/365 独立求解，不机械年化 Dietz。无法证明唯一、多根风险、求解范围或舍入认证不足均返回不可用原因；短区间有外推警告。
 - metric 为 `value/percentage/status/reason`；金额两位、比率十二位、百分数两位，直接从未舍入值 half-away-from-zero 输出。不以展示值反向计算或回写事实。
 - 详细求根证明保留于历史设计和数学单元测试；本次未改变 XIRR 唯一性证书与精度认证算法。`carried_assets_unchanged` 是现有 warning 标识，当前解释为流量调整投影，不再表示资产原额不加款。
+
+### 年度收益对比
+
+`GET /accounts/{id}/annual-returns?benchmark=H00300` 返回 `account_id/currency/as_of/revision/benchmark_code/benchmark_name/benchmark_currency/benchmark_source/benchmark_error/annualized/since/years`。基准可选 `H00300`（沪深300全收益）、`H00922`（中证红利全收益）、`usINX`（标普500，USD 价格口径）；未知代码和参数返回 400。每行含 `year/from/to/money_weighted/time_weighted/benchmark/benchmark_from/benchmark_to`，年化及记账以来的 year 为 0。收益率均为 ReturnMetric；指数来源失败时 `benchmark_error=benchmark_unavailable` 或 `benchmark_timeout`，账户列仍返回同一账本快照的结果。
+
+- 账户逐年复用收益引擎：首年以首个明确资产日终为基准，排除该日所有资金流；后续年份以年初前一日日终为计算边界，取得此前最后有效资产并保留投影来源。期末是该年最后有效资产记录日，不延伸到空白年底或今天；无记录的跨年区间保留不可计算行。最多展示连续 100 个年份。
+- `money_weighted` 为该区间 Modified Dietz，`time_weighted` 为该区间 TWR；annualized 行分别为全区间 XIRR 和 TWR 复利年化。不可由累积收益差或年度收益均值替代。年度页面不额外标注沿用资产的 reference 状态；不可计算仍显示原因。
+- 基准是同期**指数本身**的涨跌幅，不模拟账户投入/转出。查询从首个账户有效起点往前最多 30 个自然日，起止收盘价取各自当日或之前最近的有效点位；太久未更新或找不到基准点位时返回 `missing_benchmark`，不会补零或用未来点。响应带实际交易日期；中证指数按最多 10 年分段，标普500按最多 3 年分段以使用日线，整个来源查询共用 12 秒预算。账户与指数币种不同不做自动汇率折算。
+- 收益曲线叠加指数时同样向前读取并以账户计算起点的实际前收盘价重新归零；缺少起点点位时保留空白，不把后来的首个交易日当成零收益。
 
 ## 11. 周六总资产任务（T05 后端）
 

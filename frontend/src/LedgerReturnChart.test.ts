@@ -38,6 +38,7 @@ function makeBenchmark(
   };
 }
 const hs300 = makeBenchmark("H00300", "沪深300全收益", "CNY", "中证指数", [
+  { date: "2025-12-31", close: "100", return: "0.00000000" },
   { date: "2026-01-02", close: "100", return: "0.00000000" },
   { date: "2026-01-05", close: "120", return: "0.20000000" },
 ]);
@@ -113,7 +114,7 @@ it("renders a crisp thin solid account line at devicePixelRatio and cleans up", 
   expect(disconnect).toHaveBeenCalledOnce();
 });
 
-it("aligns an optional benchmark with a flat baseline before its first point", () => {
+it("aligns an optional benchmark with a prior market close", () => {
   const w = setup({ benchmarks: [hs300] });
   const option = chart.setOption.mock.calls.at(-1)![0];
   expect(option.series).toHaveLength(2);
@@ -124,7 +125,7 @@ it("aligns an optional benchmark with a flat baseline before its first point", (
   });
   const points = option.series[1].data as Point[];
   expect(points.map((p) => p.value[1])).toEqual([0, 0, 0.2]);
-  expect(points[2]!.text).toBe("20.00%");
+  expect(points[2]!.text).toBe("20.00%（2026-01-05 收盘）");
   const tooltip = option.tooltip.formatter([
     {
       value: option.series[0].data[1].value,
@@ -141,10 +142,44 @@ it("aligns an optional benchmark with a flat baseline before its first point", (
   ]);
   expect(tooltip).toContain("2026-01-02");
   expect(tooltip).toContain("账户：5.00%");
-  expect(tooltip).toContain("沪深300全收益：0.00%");
+  expect(tooltip).toContain("沪深300全收益：0.00%（2026-01-02 收盘）");
   // Each series/event sits on its own row instead of one horizontal line.
-  expect(tooltip).toBe("2026-01-02<br/>账户：5.00%<br/>沪深300全收益：0.00%");
+  expect(tooltip).toBe(
+    "2026-01-02<br/>账户：5.00%<br/>沪深300全收益：0.00%（2026-01-02 收盘）",
+  );
   w.unmount();
+});
+
+it("includes Monday's move after a Sunday start and leaves missing history blank", () => {
+  const days = [
+    { date: "2026-01-04", value: 0, text: "0.00%" },
+    { date: "2026-01-05", value: 0.01, text: "1.00%" },
+  ];
+  const index = makeBenchmark("H00300", "沪深300全收益", "CNY", "中证指数", [
+    { date: "2026-01-02", close: "100", return: "0.00000000" },
+    { date: "2026-01-05", close: "102", return: "0.02000000" },
+  ]);
+  const w = setup({ from: "2026-01-04", samples: days, benchmarks: [index] });
+  expect(
+    chart.setOption.mock.calls
+      .at(-1)![0]
+      .series[1].data.map((p: Point) => p.value[1]),
+  ).toEqual([0, 0.02]);
+  w.unmount();
+  const noPrior = makeBenchmark(
+    "H00300",
+    "沪深300全收益",
+    "CNY",
+    "中证指数",
+    index.items.slice(1),
+  );
+  const x = setup({ from: "2026-01-04", samples: days, benchmarks: [noPrior] });
+  expect(
+    chart.setOption.mock.calls
+      .at(-1)![0]
+      .series[1].data.map((p: Point) => p.value[1]),
+  ).toEqual([null, null]);
+  x.unmount();
 });
 
 it("distinguishes account and every benchmark by dash pattern, not color alone", () => {

@@ -11,6 +11,8 @@ import { CanvasRenderer } from "echarts/renderers";
 import { returnPercent } from "./ledgerReturns";
 import {
   accountEncoding,
+  benchmarkRate,
+  benchmarkLookbackDays,
   benchmarkEncodings,
   type Benchmark,
   type BenchmarkCode,
@@ -28,6 +30,7 @@ use([
 
 const props = defineProps<{
   mode: "rate" | "profit";
+  from?: string;
   samples: {
     date: string;
     value: number | null;
@@ -61,9 +64,13 @@ const encodingFor = (code: string): BenchmarkEncoding =>
 
 const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
 
-// Baseline is 0 at effective_from: before the first index item the series is flat,
-// and each account date takes the last index close on or before it.
+// Use the last market close not later than the account's opening day. A later
+// first index point cannot be made into a 0% opening without losing its move.
 function alignSeries(benchmark: Benchmark) {
+  const baselineDate = props.from ?? plotted.value[0]?.date ?? "";
+  const base = [...benchmark.items]
+    .reverse()
+    .find((p) => p.date <= baselineDate);
   let index = -1;
   return plotted.value.map((sample) => {
     while (
@@ -72,9 +79,18 @@ function alignSeries(benchmark: Benchmark) {
     )
       index++;
     const item = index >= 0 ? benchmark.items[index] : undefined;
+    const available =
+      base &&
+      item &&
+      item.date >= base.date &&
+      time(sample.date) - time(item.date) <= benchmarkLookbackDays * 86400000;
+    const rate = available ? benchmarkRate(item.close, base.close) : null;
     return {
-      value: [time(sample.date), item ? Number(item.return) : 0],
-      text: returnPercent(item ? item.return : "0.00000000"),
+      value: [time(sample.date), rate === null ? null : Number(rate)],
+      text:
+        rate === null
+          ? "缺少指数收盘点位"
+          : `${returnPercent(rate)}（${item!.date} 收盘）`,
     };
   });
 }
@@ -267,7 +283,10 @@ function render() {
   }
 }
 
-watch(() => [props.mode, props.samples, props.flows, props.benchmarks], render);
+watch(
+  () => [props.mode, props.from, props.samples, props.flows, props.benchmarks],
+  render,
+);
 onMounted(() => {
   if (!element.value) return;
   try {

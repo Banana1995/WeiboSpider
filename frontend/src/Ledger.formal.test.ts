@@ -237,6 +237,66 @@ beforeEach(() => {
           id === "a" ? basis : fixture(id, url.searchParams.get("to")!),
         );
       }
+      if (url.pathname.endsWith("/annual-returns")) {
+        const id = url.pathname.split("/").at(-2)!;
+        const code = url.searchParams.get("benchmark")!;
+        const definition = {
+          H00300: {
+            name: "沪深300全收益",
+            currency: "CNY",
+            source: "中证指数",
+          },
+          H00922: {
+            name: "中证红利全收益",
+            currency: "CNY",
+            source: "中证指数",
+          },
+          usINX: { name: "标普500", currency: "USD", source: "腾讯" },
+        }[code as "H00300" | "H00922" | "usINX"]!;
+        const first = {
+          year: 2020,
+          from: "2020-01-01",
+          to: "2020-04-01",
+          money_weighted: metric(),
+          time_weighted: metric(),
+          benchmark: metric(),
+          benchmark_from: "2020-01-01",
+          benchmark_to: "2020-04-01",
+        };
+        const last = {
+          ...first,
+          year: 2021,
+          from: "2020-12-31",
+          to: "2021-09-01",
+          benchmark_from: "2020-12-31",
+          benchmark_to: "2021-09-01",
+        };
+        const since = {
+          ...first,
+          year: 0,
+          from: "2020-01-01",
+          to: "2021-09-01",
+          benchmark_to: "2021-09-01",
+        };
+        return response({
+          account_id: id,
+          currency: "CNY",
+          as_of: todayShanghai(),
+          revision: "a".repeat(64),
+          benchmark_code: code,
+          benchmark_name: definition.name,
+          benchmark_currency: definition.currency,
+          benchmark_source: definition.source,
+          benchmark_error: "",
+          annualized: {
+            ...since,
+            money_weighted: metric(),
+            time_weighted: metric(),
+          },
+          since,
+          years: [first, last],
+        });
+      }
       if (url.pathname.endsWith("/records"))
         return response({ items: [basis.points[4]!.record] });
       if (url.pathname.endsWith("/benchmark")) {
@@ -450,7 +510,7 @@ it("passes numeric samples with exact values and provenance to the chart without
   expect(
     chartProps().samples.find((p) => p.date === "2020-03-01")!.text,
   ).toContain("90,071,992,547,409.03");
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(3);
   expect(styles).not.toContain(".lp-curve");
   expect(styles).not.toContain(".lp-event");
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
@@ -574,7 +634,7 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   );
   expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
   expect(basis).toEqual(original);
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(3);
 });
 
 it.each([
@@ -804,7 +864,7 @@ it("loads each selected benchmark independently and keeps the account curve inta
   expect(toggle("沪深300全收益").attributes("aria-pressed")).toBe("true");
   expect(
     calls.includes(
-      "/api/platform/ledger/benchmark?code=H00300&from=2020-01-01&to=2021-09-01",
+      "/api/platform/ledger/benchmark?code=H00300&from=2019-12-02&to=2021-09-01",
     ),
   ).toBe(true);
   expect(benchmarkCodes()).toEqual(["H00300"]);
@@ -813,7 +873,7 @@ it("loads each selected benchmark independently and keeps the account curve inta
   await flushPromises();
   expect(
     calls.includes(
-      "/api/platform/ledger/benchmark?code=H00922&from=2020-01-01&to=2021-09-01",
+      "/api/platform/ledger/benchmark?code=H00922&from=2019-12-02&to=2021-09-01",
     ),
   ).toBe(true);
   expect(benchmarkCodes()).toEqual(["H00300", "H00922"]);

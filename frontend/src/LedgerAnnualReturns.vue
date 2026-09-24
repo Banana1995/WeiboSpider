@@ -18,7 +18,8 @@ import { useLedgerWorkspace } from "./useLedgerWorkspace";
 import LedgerDialog from "./LedgerDialog.vue";
 
 const props = defineProps<{
-  account: Account;
+  account: Pick<Account, "id" | "name" | "currency">;
+  portfolio?: boolean;
   refreshKey: number;
   view: "personal" | "manager";
 }>();
@@ -65,7 +66,7 @@ function load() {
   const selected = code.value;
   void read.load(async (signal) => {
     const data = await request<AnnualReturns>(
-      `/accounts/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
+      `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
       { signal },
     );
     try {
@@ -81,10 +82,17 @@ watch([() => props.account.id, () => props.refreshKey, code], load, {
 </script>
 
 <template>
-  <section class="lp-annual" aria-labelledby="lp-annual-title">
+  <section
+    class="lp-annual"
+    :aria-labelledby="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
+  >
     <div class="lp-section-title lp-annual-heading">
       <div>
-        <h2 id="lp-annual-title">年度收益对比</h2>
+        <h2
+          :id="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
+        >
+          年度收益对比
+        </h2>
         <small>按每年的资产与资金记录独立计算</small>
       </div>
       <button

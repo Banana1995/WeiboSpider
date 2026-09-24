@@ -1,0 +1,225 @@
+.ledger-page .lp-workspace-switch {
+  margin-bottom: 26px;
+}
+.ledger-page .lp-portfolio-navigation {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+.ledger-page .lp-portfolio-navigation .lp-account-tabs {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+.ledger-page .lp-new-portfolio {
+  flex: none;
+  margin-top: 6px;
+}
+.ledger-page .lp-portfolio-membership {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.ledger-page .lp-member-names {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ledger-page .lp-member-chip {
+  border: 1px solid var(--lp-rule);
+  border-radius: 4px;
+  padding: 1px 8px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.ledger-page .lp-portfolio-menu {
+  position: relative;
+}
+.ledger-page .lp-portfolio-menu summary {
+  padding: 3px 12px;
+  list-style: none;
+  font-weight: 700;
+}
+.ledger-page .lp-portfolio-menu summary::-webkit-details-marker {
+  display: none;
+}
+.ledger-page .lp-portfolio-menu > div {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 3;
+  min-width: 130px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-rule);
+  border-radius: 5px;
+}
+.ledger-page .lp-portfolio-menu button {
+  border: 0;
+  text-align: left;
+}
+.ledger-page .lp-portfolio-choices {
+  max-height: min(360px, 42dvh);
+  overflow-y: auto;
+  border-block: 1px solid var(--lp-rule);
+  margin-top: 16px;
+}
+.ledger-page .lp-portfolio-choice {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--lp-rule);
+  cursor: pointer;
+}
+.ledger-page .lp-portfolio-choice > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-portfolio-choice small {
+  display: block;
+}
+.ledger-page .lp-form .lp-portfolio-choice > input[type="checkbox"] {
+  accent-color: var(--lp-primary);
+  flex: 0 0 17px;
+  width: 17px;
+  min-width: 17px;
+  max-width: 17px;
+  height: 17px;
+  margin: 0;
+  padding: 0;
+}
+.ledger-page .lp-portfolio-choice:has(input:disabled) {
+  color: var(--lp-muted);
+  cursor: not-allowed;
+}
+.ledger-page .lp-analysis-tabs {
+  margin-bottom: 14px;
+}
+.ledger-page .lp-contribution-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-page .lp-contribution-table :is(th, td) {
+  padding: 15px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-contribution-table th:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+.ledger-page .lp-contribution-table thead th {
+  color: var(--lp-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.ledger-page .lp-contribution-table th small {
+  display: block;
+}
+.ledger-page .lp-contribution-name {
+  text-align: left;
+  font-weight: 600;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-contribution-detail td {
+  padding: 14px 18px;
+  background: #f0f4ee;
+  text-align: left;
+}
+.ledger-page .lp-contribution-detail dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  margin: 0;
+}
+.ledger-page .lp-contribution-detail dt {
+  font-size: 12px;
+  color: var(--lp-muted);
+}
+.ledger-page .lp-contribution-detail dd {
+  margin: 0;
+}
+.ledger-page .lp-portfolio-details {
+  margin-bottom: 20px;
+  border: 1px solid var(--lp-rule);
+  border-radius: 6px;
+  background: var(--lp-surface);
+}
+.ledger-page .lp-portfolio-details > summary {
+  padding: 18px 24px;
+  font-weight: 600;
+}
+.ledger-page .lp-portfolio-details > .lp-portfolio-basis {
+  padding: 0 24px 20px;
+}
+.ledger-page .lp-portfolio-details > .lp-annual {
+  border: 0;
+  margin-bottom: 0;
+}
+.ledger-page .lp-portfolio-entry {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (max-width: 680px) {
+  .ledger-page .lp-portfolio-navigation {
+    gap: 8px;
+  }
+  .ledger-page .lp-new-portfolio {
+    font-size: 12px;
+  }
+  .ledger-page .lp-portfolio-membership {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ledger-page .lp-portfolio-membership > .lp-actions {
+    justify-content: flex-end;
+  }
+  .ledger-page .lp-contribution-extra {
+    display: none;
+  }
+  .ledger-page .lp-contribution-table :is(th, td) {
+    padding: 12px 3px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .ledger-page .lp-contribution-name {
+    max-width: 110px;
+    font-size: 12px;
+  }
+  .ledger-page .lp-contribution-table th small {
+    max-width: 105px;
+    font-size: 10px;
+  }
+  .ledger-page .lp-contribution-detail td {
+    padding: 12px;
+  }
+  .ledger-page .lp-portfolio-entry {
+    flex-wrap: wrap;
+    font-size: 12px;
+  }
+}

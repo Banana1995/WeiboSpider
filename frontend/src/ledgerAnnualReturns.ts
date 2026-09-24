@@ -41,7 +41,7 @@ const benchmarkReasons = [
 
 export function validateAnnualReturns(
   value: AnnualReturns,
-  account: Account,
+  account: Pick<Account, "id" | "currency">,
   code: BenchmarkCode,
 ): AnnualReturns {
   const definition = benchmarkDefinition(code);

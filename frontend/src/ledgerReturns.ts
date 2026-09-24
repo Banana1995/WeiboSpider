@@ -72,6 +72,8 @@ export const returnReasons: Record<string, string> = {
   twr_product_limit: "精确复利乘积超过计算或展示范围，不用近似值替代",
 };
 export const returnWarnings: Record<string, string> = {
+  portfolio_carried_assets:
+    "成员未更新资产时，按最近总资产加后续净转入计算，假设期间无投资涨跌。",
   carried_assets_unchanged:
     "端点资产按最近明确总资产加后续净转入推算，假设期间无市场盈亏，仅供参考。",
   twr_estimated_assets:
@@ -246,7 +248,8 @@ export function validReturns(
         same(r.curve.at(-1)!.modified_dietz, r.modified_dietz) &&
         same(r.curve.at(-1)!.twr, r.twr))) &&
     Array.isArray(r.warnings) &&
-    r.warnings.length <= 4 &&
+    r.warnings.length <= Object.keys(returnWarnings).length &&
+    new Set(r.warnings).size === r.warnings.length &&
     r.warnings.every((w) => Object.hasOwn(returnWarnings, w)) &&
     Array.isArray(r.flows) &&
     r.flows.length <= 10000 &&

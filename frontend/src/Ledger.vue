@@ -10,6 +10,7 @@ import {
   watch,
 } from "vue";
 import LedgerOverview from "./LedgerOverview.vue";
+import LedgerPortfolios from "./LedgerPortfolios.vue";
 import AccountRecords from "./AccountRecords.vue";
 import LedgerRecordDialog from "./LedgerRecordDialog.vue";
 import LedgerAccountDialog from "./LedgerAccountDialog.vue";
@@ -35,6 +36,9 @@ const emit = defineEmits<{ locked: [value: boolean] }>();
 const accounts = reactive(useLedgerRead<Account[]>());
 const instruments = reactive(useLedgerRead<Instrument[]>());
 const selected = ref("");
+const workspaceView = ref<"accounts" | "portfolios">("accounts");
+const portfoliosOpened = ref(false);
+const returnPortfolio = ref("");
 const account = computed(() =>
   accounts.data?.find((a) => a.id === selected.value),
 );
@@ -128,6 +132,27 @@ function selectAccount(id: string) {
     error.value = "";
   }
   selected.value = id;
+}
+function selectWorkspace(view: "accounts" | "portfolios") {
+  if (navigationLocked.value) return;
+  workspaceView.value = view;
+  if (view === "portfolios") portfoliosOpened.value = true;
+  manage.value = false;
+}
+function viewPortfolioAccount(event: { id: string; portfolio: string }) {
+  if (navigationLocked.value) return;
+  returnPortfolio.value = event.portfolio;
+  selectAccount(event.id);
+  selectWorkspace("accounts");
+}
+async function locatePortfolioRecord(event: {
+  id: string;
+  date: string;
+  accountId: string;
+  portfolio: string;
+}) {
+  viewPortfolioAccount({ id: event.accountId, portfolio: event.portfolio });
+  await locate(event);
 }
 function accountKey(event: KeyboardEvent) {
   if (
@@ -248,7 +273,7 @@ onBeforeUnmount(() => {
     <main class="lp-main">
       <div class="lp-account-heading">
         <h1>投资账本</h1>
-        <div class="lp-actions">
+        <div v-if="workspaceView === 'accounts'" class="lp-actions">
           <template v-if="!manage"
             ><button
               class="lp-text-button"
@@ -271,8 +296,33 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
+      <div class="lp-segment lp-workspace-switch" aria-label="账本分析范围">
+        <button
+          :aria-pressed="workspaceView === 'accounts'"
+          :disabled="navigationLocked"
+          @click="selectWorkspace('accounts')"
+        >
+          单账户
+        </button>
+        <button
+          :aria-pressed="workspaceView === 'portfolios'"
+          :disabled="navigationLocked"
+          @click="selectWorkspace('portfolios')"
+        >
+          账户组合
+        </button>
+      </div>
+      <p v-if="returnPortfolio && workspaceView === 'accounts'">
+        <button
+          class="lp-text-button"
+          :disabled="navigationLocked"
+          @click="selectWorkspace('portfolios')"
+        >
+          返回「{{ returnPortfolio }}」组合
+        </button>
+      </p>
       <div
-        v-if="accounts.data?.length"
+        v-if="workspaceView === 'accounts' && accounts.data?.length"
         class="lp-account-tabs"
         role="tablist"
         aria-label="选择账户"
@@ -310,7 +360,7 @@ onBeforeUnmount(() => {
         <button :disabled="locked" @click="loadAccounts()">重新读取账户</button>
       </div>
       <div
-        v-else-if="account"
+        v-else-if="workspaceView === 'accounts' && account"
         :id="`account-panel-${account.id}`"
         role="tabpanel"
         :aria-labelledby="`account-tab-${account.id}`"
@@ -362,7 +412,7 @@ onBeforeUnmount(() => {
         />
       </div>
       <LedgerManagement
-        v-else-if="manage"
+        v-else-if="workspaceView === 'accounts' && manage"
         :accounts="accounts.data ?? []"
         :instruments="instruments.data ?? []"
         :instruments-error="instruments.error"
@@ -375,7 +425,10 @@ onBeforeUnmount(() => {
         @instruments="loadInstruments"
         @changed="refreshKey++"
       />
-      <section v-else class="lp-income lp-empty">
+      <section
+        v-else-if="workspaceView === 'accounts'"
+        class="lp-income lp-empty"
+      >
         <h2>从第一份账户开始</h2>
         <p>记录转入、转出和总资产，留下一条清楚的投资轨迹。</p>
         <div class="lp-actions lp-empty-actions">
@@ -383,6 +436,14 @@ onBeforeUnmount(() => {
           ><button @click="manageAccount('import')">导入 Excel 账本</button>
         </div>
       </section>
+      <LedgerPortfolios
+        v-if="portfoliosOpened && accounts.data"
+        v-show="workspaceView === 'portfolios'"
+        :accounts="accounts.data"
+        :refresh-key="refreshKey"
+        @account="viewPortfolioAccount"
+        @locate="locatePortfolioRecord"
+      />
       <template v-for="a in accounts.data" :key="a.id"
         ><div
           v-if="a.id !== selected"

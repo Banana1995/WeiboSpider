@@ -163,7 +163,7 @@ export interface AnalysisBasis {
 }
 export function validateBasis(
   b: AnalysisBasis,
-  account: Account,
+  account: Pick<Account, "id" | "currency">,
   from: string,
   to: string,
 ): AnalysisBasis {

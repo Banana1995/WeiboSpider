@@ -61,7 +61,17 @@ type AnalysisBasis struct {
 // AnalysisBasis is a fresh, consistent projection, never a historical-price replay.
 // since is the account's last seen account-record audit ID.
 func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since int64) (AnalysisBasis, error) {
-	requestedFrom, requestedTo := from, to
+	out, err := s.analysisBasis(ctx, nil, id, from, to, since)
+	if err == nil {
+		out.Returns, err = calculateReturns(ctx, out, from, to)
+	}
+	return out, err
+}
+
+// A caller-supplied transaction lets a portfolio capture every member at one
+// revision. Financial solvers run after that short read transaction completes.
+func (s *Store) analysisBasis(ctx context.Context, tx *sql.Tx, id, from, to string, since int64) (AnalysisBasis, error) {
+	requestedFrom := from
 	out := AnalysisBasis{AccountID: id, From: from, To: to, Timezone: "Asia/Shanghai", Points: []BasisPoint{}, Changes: []BasisChange{}, Status: "current"}
 	today, _, err := s.cutoff()
 	if err != nil {
@@ -77,7 +87,7 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 	if !validID(id) || !validDate(from) || !validDate(to) || from > to || to > today || since < 0 {
 		return out, ErrQuery
 	}
-	err = s.db.WithTx(ctx, func(tx *sql.Tx) error {
+	read := func(tx *sql.Tx) error {
 		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, id))
 		if err != nil {
 			return err
@@ -286,9 +296,11 @@ func (s *Store) AnalysisBasis(ctx context.Context, id, from, to string, since in
 		hash := sha256.Sum256(payload)
 		out.Revision = hex.EncodeToString(hash[:])
 		return ctx.Err()
-	})
-	if err == nil {
-		out.Returns, err = calculateReturns(ctx, out, requestedFrom, requestedTo)
+	}
+	if tx == nil {
+		err = s.db.WithTx(ctx, read)
+	} else {
+		err = read(tx)
 	}
 	return out, err
 }

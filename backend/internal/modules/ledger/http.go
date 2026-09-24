@@ -35,6 +35,10 @@ type Handler struct {
 
 func (h Handler) Register(mux *http.ServeMux) {
 	for path, handle := range map[string]http.HandlerFunc{
+		"/portfolios":                                 h.portfolios,
+		"/portfolios/{id}":                            h.portfolio,
+		"/portfolios/{id}/analysis-basis":             h.portfolioAnalysis,
+		"/portfolios/{id}/annual-returns":             h.portfolioAnnualReturns,
 		"/audit":                                      h.audit,
 		"/audit/{auditID}":                            h.audit,
 		"/weekly-status":                              h.weeklyStatus,
@@ -357,6 +361,12 @@ func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = 408, "request_canceled", "ledger request canceled; retry writes with the same idempotency key"
 	case errors.Is(err, ErrNotFound):
 		status, code, message = 404, "not_found", "ledger resource not found"
+	case errors.Is(err, ErrPortfolioCurrency):
+		status, code, message = 422, "portfolio_currency_mismatch", "portfolio members must use one currency"
+	case errors.Is(err, ErrPortfolioMember):
+		status, code, message = 409, "portfolio_member_missing", "a member was deleted; update portfolio membership"
+	case errors.Is(err, ErrPortfolioBasis):
+		status, code, message = 422, "portfolio_basis_missing", "member records cannot establish nonnegative opening assets"
 	case errors.Is(err, ErrQuery):
 		status, code, message = 400, "invalid_query", "invalid query parameters or resource id"
 	case errors.Is(err, ErrIdempotency):

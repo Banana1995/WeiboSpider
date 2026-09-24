@@ -29,7 +29,9 @@ use([
 ]);
 
 const props = defineProps<{
-  mode: "rate" | "profit";
+  mode: "rate" | "profit" | "assets";
+  seriesName?: string;
+  markers?: { date: string; text: string }[];
   from?: string;
   samples: {
     date: string;
@@ -42,6 +44,7 @@ const props = defineProps<{
     date: string;
     amount: string;
     direction: "in" | "out";
+    label?: string;
   }[];
   benchmarks: Benchmark[];
 }>();
@@ -124,7 +127,7 @@ const flowSeries = computed(() =>
           .map((flow) => ({
             value: [time(flow.date), curveValue(flow.date)],
             flow: { id: flow.id, date: flow.date },
-            text: `${direction === "in" ? "转入" : "转出"} ${flow.amount}`,
+            text: `${flow.label ?? (direction === "in" ? "转入" : "转出")} ${flow.amount}`,
           }))
           .filter((point) => point.value[1] !== null),
       }))
@@ -187,7 +190,7 @@ function render() {
   if (!chart) return;
   try {
     const account = {
-      name: "账户",
+      name: props.seriesName ?? "账户",
       type: "line" as const,
       data: plotted.value.map((sample) => ({
         value: [time(sample.date), sample.value],
@@ -196,6 +199,7 @@ function render() {
       showSymbol: false,
       symbol: "none",
       smooth: false,
+      step: props.mode === "assets" ? ("end" as const) : false,
       connectNulls: false,
       sampling: "lttb" as const,
       animation: false,
@@ -273,7 +277,28 @@ function render() {
           },
           splitLine: { lineStyle: { color: "#edf0ec", type: "dashed" } },
         },
-        series: [account, ...benchmarks, ...flowSeries.value],
+        series: [
+          account,
+          ...benchmarks,
+          ...flowSeries.value,
+          ...(props.markers?.length
+            ? [
+                {
+                  name: "成员开始计入",
+                  type: "scatter",
+                  symbol: "diamond",
+                  symbolSize: 8,
+                  itemStyle: { color: "#65766b" },
+                  data: props.markers
+                    .map((m) => ({
+                      value: [time(m.date), curveValue(m.date)],
+                      text: m.text,
+                    }))
+                    .filter((m) => m.value[1] !== null),
+                },
+              ]
+            : []),
+        ],
       },
       true,
     );
@@ -284,7 +309,15 @@ function render() {
 }
 
 watch(
-  () => [props.mode, props.from, props.samples, props.flows, props.benchmarks],
+  () => [
+    props.mode,
+    props.from,
+    props.samples,
+    props.flows,
+    props.benchmarks,
+    props.markers,
+    props.seriesName,
+  ],
   render,
 );
 onMounted(() => {
@@ -317,9 +350,11 @@ onBeforeUnmount(() => {
       class="lp-return-canvas"
       role="img"
       :aria-label="
-        mode === 'profit'
-          ? '累计收益曲线；红点为转入、绿点为转出，点选可定位记录'
-          : '收益率曲线；账户为实线，对比指数使用不同虚线样式以区分'
+        mode === 'assets'
+          ? '组合资产曲线；未更新资产时沿用最近总资产并计入净转入'
+          : mode === 'profit'
+            ? '累计收益曲线；红点为转入、绿点为转出，点选可定位记录'
+            : '收益率曲线；账户为实线，对比指数使用不同虚线样式以区分'
       "
     />
   </section>

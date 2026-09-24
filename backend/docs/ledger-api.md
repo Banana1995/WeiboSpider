@@ -201,3 +201,46 @@ returns 含 `revision/requested_from/requested_to/start_mode/effective_from/effe
 - 删除某项表示不再持有；空数组表示纯现金，现金零加空数组表示明确空来源。历史目录、审计及固定资产不会删除。
 - 不接受基准日期、成本、交易或行情价格。保存不更新历史资产、资金流或收益，不要求历史补交易。
 - 当前版本冲突时保留草稿并显式重新读取；不确定结果锁定原请求重试。已提交回执可能是旧版本，确认后另读当前快照，不用旧回执覆盖新状态。
+
+## 14. 账户组合
+
+所有路径仍以 `/api/platform/ledger` 为前缀。组合保存成员关系，不复制原账户财务记录；一个账户可以参与多个组合。
+
+| 方法与路径 | 内容 |
+| --- | --- |
+| `GET/HEAD /portfolios?limit=30&cursor=...` | 按组合 ID 升序分页，limit 为 1～100 |
+| `POST /portfolios` | 新建，返回 201 |
+| `GET/HEAD /portfolios/{id}` | 当前组合定义 |
+| `PUT /portfolios/{id}` | 修改名称/成员，使用 expected_version |
+| `DELETE /portfolios/{id}` | 删除组合定义，使用 expected_version |
+| `GET/HEAD /portfolios/{id}/analysis-basis?from=...&to=...` | 同快照合并资产、收益、曲线及成员贡献 |
+| `GET/HEAD /portfolios/{id}/annual-returns?benchmark=H00300` | 同一计算引擎的年度/记账以来/年化收益及指数对比 |
+
+新建示例（合成 ID，写请求均携带独立 `Idempotency-Key`）：
+
+```json
+{"id":"family","name":"家庭股票","account_ids":["account-a","account-b"]}
+```
+
+修改与删除：
+
+```json
+{"expected_version":"1","name":"家庭投资","account_ids":["account-a","account-c"]}
+```
+
+```json
+{"expected_version":"2"}
+```
+
+- 定义返回 `id/name/currency/account_ids/version/created_at/updated_at`；成员按 ID 排序，币种从成员推导。允许 1～50 个唯一同币种账户，不能嵌套组合。
+- 删除返回 `{"portfolio_id":"family","deleted":true}`。审计与回执保留，组合 ID 不可复用；账户财务记录不属于删除范围。
+- 所有组合写入沿用 64 KiB JSON、同源校验、精度校验及全局幂等键机制。版本冲突为 409 `version_conflict`。
+- 不同币种返回 422 `portfolio_currency_mismatch`；成员已不存在返回 409 `portfolio_member_missing`；无法建立非负资产基准返回 422 `portfolio_basis_missing`。
+- `analysis-basis` 包含第 9/10 节的字段（`account_id` 在此表示组合 ID），另带 `portfolio/members/entries/carried`。组合投影点是临时计算结果，不附伪造的 `record`，也不写入原账户。
+- `members` 包含 `account_id/name/state/first_date/initial_assets/source_date/from/to/assets/asset_share/profit/modified_dietz/xirr/twr/twr_annualized/carried`。`asset_share` 和各收益率为 ReturnMetric；未参与该区间的账户资产、收益贡献为零，收益率不可用。
+- `entries` 为组合区间的来源资金记录及期初带入，字段 `id/account_id/record_id/date/kind/amount`；`kind=opening` 的 record_id 为空，是分析调整。`cash_flow` 保留真实原账户/记录 ID，可定位原始记录。
+- 同日明确资产包含当日全部现金流。首次带入补足尚未由首日净转入解释的资产；资金转入超过首日资产时保留该日亏损。无更新日采用最近资产加后续净流入。参与沿用时指标标 `reference`，附 `portfolio_carried_assets`。
+- 组合从最早有记录的成员开始，较晚成员在首次财务记录日计入。年度边界和历史区间边界按同一沿用规则补齐；默认期末不超过所有成员最新有效财务日期。
+- 分析在单个数据库事务内捕获所有成员，最多 10,000 条来源记录与 100 个年份；金融求解在事务结束后执行。账户更正、作废及组合成员变化在下次读取时重算。
+
+完整设计与合成验证见 [账户组合说明](../../docs/specs/2026-09-24-ledger-portfolios.md)。

@@ -99,6 +99,10 @@ const errors: Record<string, string> = {
   invalid_import: "导入文件格式或内容不合法，请检查指定行列",
   preview_mismatch: "文件校验不一致，请重新选择文件后导入",
   currency_mismatch: "文件币种与目标账户不一致，不能导入",
+  portfolio_currency_mismatch: "同一个组合内的账户必须使用相同币种",
+  portfolio_member_missing: "组合中有已删除的账户，请调整成员后重新计算",
+  portfolio_basis_missing:
+    "成员的记录无法确定非负资产基准，请检查首次资产、当日出入金或补充更早的总资产",
   import_already_exists: "账户已有不同的导入批次，不支持增量合并",
   initialization_requires_empty_account:
     "导入仅用于初始化，账户已有业务记录，不能追加导入或清空重置",

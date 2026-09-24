@@ -42,15 +42,19 @@ type AnnualReturns struct {
 }
 
 func (s *Store) annualAccountReturns(ctx context.Context, id, code string) (AnnualReturns, error) {
-	definition, err := benchmarkDefinition(code)
-	if err != nil {
-		return AnnualReturns{}, err
-	}
 	b, err := s.AnalysisBasis(ctx, id, "", "", 0)
 	if err != nil {
 		return AnnualReturns{}, err
 	}
-	out := AnnualReturns{AccountID: id, Currency: b.Currency, AsOf: b.To, Revision: b.Revision,
+	return annualBasisReturns(ctx, b, code)
+}
+
+func annualBasisReturns(ctx context.Context, b AnalysisBasis, code string) (AnnualReturns, error) {
+	definition, err := benchmarkDefinition(code)
+	if err != nil {
+		return AnnualReturns{}, err
+	}
+	out := AnnualReturns{AccountID: b.AccountID, Currency: b.Currency, AsOf: b.To, Revision: b.Revision,
 		BenchmarkCode: code, BenchmarkName: definition.Name, BenchmarkCurrency: definition.Currency,
 		BenchmarkSource: definition.Source, Years: []AnnualReturnRow{}}
 	out.Since = AnnualReturnRow{From: b.Returns.EffectiveFrom, To: b.Returns.EffectiveTo,
@@ -123,6 +127,14 @@ func (s *Store) annualAccountReturns(ctx context.Context, id, code string) (Annu
 // Fetch index closes outside the DB transaction. A missing provider cannot hide
 // valid account returns; cancellation of the client request still stops work.
 func (h Handler) annualReturns(w http.ResponseWriter, r *http.Request) {
+	h.writeAnnualReturns(w, r, false)
+}
+
+func (h Handler) portfolioAnnualReturns(w http.ResponseWriter, r *http.Request) {
+	h.writeAnnualReturns(w, r, true)
+}
+
+func (h Handler) writeAnnualReturns(w http.ResponseWriter, r *http.Request, portfolio bool) {
 	if !method(w, r, http.MethodGet, http.MethodHead) {
 		return
 	}
@@ -135,7 +147,20 @@ func (h Handler) annualReturns(w http.ResponseWriter, r *http.Request) {
 	if code == "" {
 		code = "H00300"
 	}
-	out, err := h.Store.annualAccountReturns(r.Context(), r.PathValue("id"), code)
+	if _, err := benchmarkDefinition(code); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	var out AnnualReturns
+	if portfolio {
+		var basis PortfolioBasis
+		basis, err = h.Store.PortfolioAnalysis(r.Context(), r.PathValue("id"), "", "")
+		if err == nil {
+			out, err = annualBasisReturns(r.Context(), basis.AnalysisBasis, code)
+		}
+	} else {
+		out, err = h.Store.annualAccountReturns(r.Context(), r.PathValue("id"), code)
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return

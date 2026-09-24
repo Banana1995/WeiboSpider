@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/database"
@@ -66,7 +67,7 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 3, count)
+		require.Equal(t, 4, count)
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)
@@ -84,12 +85,39 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 	require.Zero(t, count)
 }
 
+func TestSchemaUpgradeAddsBenchmarkHistoryWithoutChangingAccounts(t *testing.T) {
+	root := t.TempDir()
+	db, err := database.Open(t.Context(), root, "ledger")
+	require.NoError(t, err)
+	previous := fstest.MapFS{}
+	for _, name := range []string{"001_init.sql", "002_account_deletion.sql", "003_portfolios.sql"} {
+		contents, err := os.ReadFile(filepath.Join("migrations", name))
+		require.NoError(t, err)
+		previous[name] = &fstest.MapFile{Data: contents}
+	}
+	require.NoError(t, db.Migrate(t.Context(), previous))
+	seedSchemaDB(t, db)
+	require.NoError(t, db.Close())
+	db, err = ledger.Open(t.Context(), root)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM accounts").Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM benchmark_closes").Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
+	require.Equal(t, 4, count)
+}
+
 func TestSchemaFreshInstallShape(t *testing.T) {
 	db, err := ledger.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	expected := []string{"accounts", "instruments", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "portfolios", "schema_migrations"}
+	expected := []string{"accounts", "instruments", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "portfolios", "benchmark_closes", "benchmark_coverage", "benchmark_sync_status", "schema_migrations"}
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&count))

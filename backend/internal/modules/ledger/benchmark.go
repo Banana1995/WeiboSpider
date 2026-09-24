@@ -199,6 +199,38 @@ func (p *BenchmarkService) fetchTencentUS(ctx context.Context, code, from, to st
 	return parseTencentUSBenchmark(body, code, from, to, period, definition)
 }
 
+// Historical sync requests bounded daily windows by date. The interactive
+// provider's latest-N query deliberately uses coarser bars for long spans;
+// those bars must not be stored as if they were daily market closes.
+func (p *BenchmarkService) fetchDailyWindow(ctx context.Context, code, from, to string) (Benchmark, error) {
+	if err := validateBenchmarkRange(code, from, to); err != nil {
+		return Benchmark{}, err
+	}
+	definition, _ := benchmarkDefinition(code)
+	if definition.Upstream == upstreamCSIndex {
+		return p.fetchCSIndex(ctx, code, from, to, definition)
+	}
+	if calendarDays(from, to) > 730 {
+		return Benchmark{}, ErrQuery
+	}
+	// Tencent returns the last count rows through the selected end date. The
+	// margin covers non-trading days at either end of the requested window.
+	count := calendarDays(from, to) + 40
+	params := url.Values{"param": {code + ",day," + from + "," + to + "," + strconv.Itoa(count) + ",qfq"}}
+	body, err := p.get(ctx, "https://web.ifzq.gtimg.cn/appstock/app/usfqkline/get?"+params.Encode(), map[string]string{"User-Agent": "Mozilla/5.0"})
+	if err != nil {
+		return Benchmark{}, benchmarkError(err)
+	}
+	return parseTencentUSBenchmark(body, code, from, to, "day", definition)
+}
+
+func (p *BenchmarkService) FetchWindow(ctx context.Context, code, from, to string) (Benchmark, error) {
+	ctx, cancel := context.WithTimeout(ctx, benchmarkTimeout)
+	defer cancel()
+	value, err := p.fetchDailyWindow(ctx, code, from, to)
+	return value, benchmarkError(err)
+}
+
 // tencentGranularity picks the coarsest period whose row cap still covers the
 // span with a safety margin. Rows are requested as the latest N, so an
 // undersized window fails the coverage check rather than silently truncating.

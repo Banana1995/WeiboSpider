@@ -43,6 +43,7 @@
 | `GET /accounts/{id}/analysis-basis` | 单账户同快照资产、资金流和收益 |
 | `GET /accounts/{id}/annual-returns?benchmark=H00300` | 单账户年度、记账以来及年化收益与同期指数对比，只读；benchmark 可省略，默认 H00300 |
 | `GET /benchmark?code=H00300&from=...&to=...` | 只读历史指数点位，15 年区间上限 |
+| `GET /benchmark/status` | 三个指数的最近同步、最后收盘日和错误状态，只读 |
 | `POST /imports/youzhiyouxing/preview` | XLSX 预览，不写库 |
 | `POST /accounts/{id}/imports/youzhiyouxing` | 原子确认，可同时新建账户 |
 | `GET /accounts/{id}/import-summary`、`GET /accounts/{id}/imported-records` | 原始导入证据，不受后续人工更正影响 |
@@ -154,8 +155,10 @@ returns 含 `revision/requested_from/requested_to/start_mode/effective_from/effe
 
 - 账户逐年复用收益引擎：首年以首个明确资产日终为基准，排除该日所有资金流；后续年份以年初前一日日终为计算边界，取得此前最后有效资产并保留投影来源。期末是该年最后有效资产记录日，不延伸到空白年底或今天；无记录的跨年区间保留不可计算行。最多展示连续 100 个年份。
 - `money_weighted` 为该区间 Modified Dietz，`time_weighted` 为该区间 TWR；annualized 行分别为全区间 XIRR 和 TWR 复利年化。不可由累积收益差或年度收益均值替代。年度页面不额外标注沿用资产的 reference 状态；不可计算仍显示原因。
-- 基准是同期**指数本身**的涨跌幅，不模拟账户投入/转出。查询从首个账户有效起点往前最多 30 个自然日，起止收盘价取各自当日或之前最近的有效点位；太久未更新或找不到基准点位时返回 `missing_benchmark`，不会补零或用未来点。响应带实际交易日期；中证指数按最多 10 年分段，标普500按最多 3 年分段以使用日线，整个来源查询共用 12 秒预算。账户与指数币种不同不做自动汇率折算。
+- 基准是同期**指数本身**的涨跌幅，不模拟账户投入/转出。查询从首个账户有效起点往前最多 30 个自然日，起止收盘价取各自当日或之前最近的有效点位；太久未更新或找不到基准点位时返回 `missing_benchmark`，不会补零或用未来点。响应带实际交易日期；账户与指数币种不同不做自动汇率折算。
 - 收益曲线叠加指数时同样向前读取并以账户计算起点的实际前收盘价重新归零；缺少起点点位时保留空白，不把后来的首个交易日当成零收益。
+- 指数价格按代码与交易日期保存于独立的 `ledger.db` 行情表，三个指数供所有账户共享。`GET/HEAD /benchmark` 与年度收益对比只读本地数据库，不会因页面打开或重试而访问中证/腾讯；请求跨度超过 15 年仍返回 400。未补齐查询起点或历史区间存在未同步缺口时 `/benchmark` 返回 502，前端保留账户曲线并提示后台准备中；已有完整历史而最近更新失败时仍显示旧点位及最后收盘日期。
+- 独立后台任务在服务启动后补齐已有资产记录所需历史（含起点前 30 天），随后按北京时间每日 08:00、20:00 刷新最近 45 天并补齐新输入的更早资产日期。标普500按最长两年的日线窗口同步；单窗口失败不会删除已有数据，5/30 分钟有限重试。此任务与 `LEDGER_WEEKLY_ENABLED` 无关。`GET /benchmark/status` 的 `items` 含 `code/last_attempt_at/last_success_at/last_close_date/error_code`；未同步时日期和时间为空。页面默认选中沪深300全收益和标普500。
 
 ## 11. 周六总资产任务（T05 后端）
 

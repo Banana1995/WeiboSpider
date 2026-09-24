@@ -29,6 +29,7 @@ type Handler struct {
 	Quotes           QuotesProvider
 	InstrumentSearch InstrumentSearchProvider
 	Benchmark        BenchmarkProvider
+	BenchmarkStatus  *StoredBenchmarks
 	Now              func() time.Time
 	Weekly           *WeeklyWorker
 }
@@ -65,6 +66,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/instruments":                                h.instruments,
 		"/instruments/search":                         h.searchInstruments,
 		"/benchmark":                                  h.benchmark,
+		"/benchmark/status":                           h.benchmarkStatus,
 		"":                                            h.notFound, "/": h.notFound,
 	} {
 		mux.HandleFunc(ledgerPrefix+path, func(w http.ResponseWriter, r *http.Request) {
@@ -348,6 +350,28 @@ func (h Handler) benchmark(w http.ResponseWriter, r *http.Request) {
 		result.Items = []BenchmarkItem{}
 	}
 	httpapi.Write(w, 200, result)
+}
+
+func (h Handler) benchmarkStatus(w http.ResponseWriter, r *http.Request) {
+	if !method(w, r, http.MethodGet, http.MethodHead) {
+		return
+	}
+	if _, err := query(r); err != nil || r.URL.ForceQuery {
+		h.fail(w, r, ErrQuery)
+		return
+	}
+	if h.BenchmarkStatus == nil {
+		httpapi.Fail(w, 502, "benchmark_unavailable", "benchmark data is temporarily unavailable")
+		return
+	}
+	items, err := h.BenchmarkStatus.Status(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpapi.Write(w, 200, struct {
+		Items []BenchmarkSyncStatus `json:"items"`
+	}{items})
 }
 func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	status, code, message := 500, "internal_error", "ledger request failed"

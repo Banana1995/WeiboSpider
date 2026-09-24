@@ -16,12 +16,13 @@ import (
 )
 
 type Application struct {
-	Handler      http.Handler
-	db           *database.DB
-	ledgerDB     *database.DB
-	source       *liquor.SinaSource
-	worker       *liquor.Worker
-	ledgerWorker *ledger.WeeklyWorker
+	Handler         http.Handler
+	db              *database.DB
+	ledgerDB        *database.DB
+	source          *liquor.SinaSource
+	worker          *liquor.Worker
+	ledgerWorker    *ledger.WeeklyWorker
+	benchmarkWorker *ledger.BenchmarkWorker
 }
 
 func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
@@ -57,12 +58,13 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		}
 		ledgerMux := http.NewServeMux()
 		ledgerStore, quotes, fx := ledger.NewStore(application.ledgerDB, nil), ledger.NewTencentQuotes(), ledger.NewTencentFX()
-		benchmark := ledger.NewBenchmarkService()
+		benchmark := ledger.NewStoredBenchmarks(application.ledgerDB)
+		application.benchmarkWorker = ledger.NewBenchmarkWorker(benchmark, ledger.NewBenchmarkService(), logger)
 		application.ledgerWorker, err = ledger.NewWeeklyWorker(ledgerStore, quotes, fx, ledger.WeeklyConfig{Enabled: cfg.LedgerWeeklyEnabled, Time: cfg.LedgerWeeklyTime}, logger)
 		if err != nil {
 			return nil, errors.Join(err, application.Close())
 		}
-		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, Weekly: application.ledgerWorker}.Register(ledgerMux)
+		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, BenchmarkStatus: benchmark, Weekly: application.ledgerWorker}.Register(ledgerMux)
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})
@@ -96,6 +98,7 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	webDone := make(chan error, 1)
 	workerDone := make(chan error, 1)
 	ledgerDone := make(chan error, 1)
+	benchmarkDone := make(chan error, 1)
 	go func() { webDone <- server.Serve(listener) }()
 	go func() { workerDone <- a.worker.Run(runCtx) }()
 	go func() {
@@ -106,9 +109,17 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 			ledgerDone <- nil
 		}
 	}()
+	go func() {
+		if a.benchmarkWorker != nil {
+			benchmarkDone <- a.benchmarkWorker.Run(runCtx)
+		} else {
+			<-runCtx.Done()
+			benchmarkDone <- nil
+		}
+	}()
 
-	var webErr, workerErr, ledgerErr error
-	webFinished, workerFinished, ledgerFinished := false, false, false
+	var webErr, workerErr, ledgerErr, benchmarkErr error
+	webFinished, workerFinished, ledgerFinished, benchmarkFinished := false, false, false, false
 	select {
 	case <-ctx.Done():
 	case webErr = <-webDone:
@@ -117,6 +128,8 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 		workerFinished = true
 	case ledgerErr = <-ledgerDone:
 		ledgerFinished = true
+	case benchmarkErr = <-benchmarkDone:
+		benchmarkFinished = true
 	}
 	cancel()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -134,10 +147,13 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	if !ledgerFinished {
 		ledgerErr = <-ledgerDone
 	}
+	if !benchmarkFinished {
+		benchmarkErr = <-benchmarkDone
+	}
 	if errors.Is(webErr, http.ErrServerClosed) {
 		webErr = nil
 	}
-	return errors.Join(webErr, workerErr, ledgerErr, shutdownErr)
+	return errors.Join(webErr, workerErr, ledgerErr, benchmarkErr, shutdownErr)
 }
 
 func (a *Application) Close() error {

@@ -81,7 +81,17 @@ const benchmarkReads = Object.fromEntries(
     reactive(useLedgerRead<Benchmark>()),
   ]),
 ) as unknown as Record<BenchmarkCode, BenchmarkRead>;
-const selectedBenchmarks = ref<BenchmarkCode[]>([]);
+const defaultBenchmarks: BenchmarkCode[] = ["H00300", "usINX"];
+const selectedBenchmarks = ref<BenchmarkCode[]>([...defaultBenchmarks]);
+const benchmarkRanges = new Map<BenchmarkCode, string>();
+interface BenchmarkStatus {
+  code: BenchmarkCode;
+  last_attempt_at: string;
+  last_success_at: string;
+  last_close_date: string;
+  error_code: string;
+}
+const benchmarkStatus = reactive(useLedgerRead<{ items: BenchmarkStatus[] }>());
 const range = ref("all");
 const today = ref(todayShanghai());
 const customFrom = ref("");
@@ -172,6 +182,21 @@ const benchmarkCurrencyNotes = computed(() =>
       (definition) =>
         `${definition.name} 以 ${definition.currency} 计价，与账户 ${props.account.currency} 未做汇率调整，仅比较涨跌幅。`,
     ),
+);
+const benchmarkFreshness = computed(() =>
+  selectedDefinitions.value
+    .map((definition) => {
+      const status = benchmarkStatus.data?.items.find(
+        (item) => item.code === definition.code,
+      );
+      if (!status) return "";
+      if (!status.last_success_at)
+        return `${definition.name}：${status.error_code ? "历史数据尚不可用（最近同步失败）" : "后台正在准备历史数据"}`;
+      if (benchmarkReads[definition.code].error && !status.error_code)
+        return `${definition.name}：历史区间补齐中`;
+      return `${definition.name}：收盘点位截至 ${status.last_close_date || "暂无"}${status.error_code ? "（最近更新失败，显示已有数据）" : ""}`;
+    })
+    .filter(Boolean),
 );
 const warningLabels: Record<string, string> = {
   portfolio_carried_assets: returnWarnings.portfolio_carried_assets!,
@@ -327,12 +352,19 @@ function toggleBenchmark(code: BenchmarkCode) {
 }
 function loadBenchmark(code: BenchmarkCode) {
   const read = benchmarkReads[code];
-  read.clear();
   const r = result.value;
   if (!isBenchmarkSelected(code) || !r?.effective_from || !r.effective_to)
     return;
   const from = benchmarkLookbackFrom(r.effective_from);
   const to = r.effective_to;
+  const key = `${props.account.id}|${from}|${to}`;
+  if (
+    benchmarkRanges.get(code) === key &&
+    (read.data || read.loading || read.error)
+  )
+    return;
+  read.clear();
+  benchmarkRanges.set(code, key);
   void read.load(async (signal) => {
     const data = await request<unknown>(
       `/benchmark${query({ code, from, to })}`,
@@ -343,8 +375,36 @@ function loadBenchmark(code: BenchmarkCode) {
     return data;
   });
 }
+function retryBenchmark(code: BenchmarkCode) {
+  benchmarkRanges.delete(code);
+  loadBenchmark(code);
+}
 function loadBenchmarks() {
   for (const definition of benchmarkDefinitions) loadBenchmark(definition.code);
+}
+function loadBenchmarkStatus() {
+  void benchmarkStatus.load(async (signal) => {
+    const data = await request<{ items: BenchmarkStatus[] }>(
+      "/benchmark/status",
+      { signal },
+    );
+    if (
+      !Array.isArray(data?.items) ||
+      data.items.length !== benchmarkDefinitions.length ||
+      data.items.some(
+        (item) =>
+          !item ||
+          !benchmarkDefinitions.some(
+            (definition) => definition.code === item.code,
+          ) ||
+          typeof item.last_success_at !== "string" ||
+          typeof item.last_close_date !== "string" ||
+          typeof item.error_code !== "string",
+      )
+    )
+      throw new LedgerError("invalid_response");
+    return data;
+  });
 }
 function loadAnalysis() {
   basis.clear();
@@ -399,7 +459,9 @@ watch(
     today.value = todayShanghai();
     customFrom.value = "";
     customTo.value = today.value;
-    selectedBenchmarks.value = [];
+    selectedBenchmarks.value = [...defaultBenchmarks];
+    benchmarkRanges.clear();
+    benchmarkStatus.clear();
     for (const definition of benchmarkDefinitions)
       benchmarkReads[definition.code].clear();
     loadSummary();
@@ -422,6 +484,23 @@ watch(
   ],
   loadBenchmarks,
 );
+watch(
+  () => result.value?.effective_from,
+  (from) => {
+    if (from) loadBenchmarkStatus();
+  },
+);
+watch(benchmarkErrors, (errors, _, onCleanup) => {
+  if (!errors.length) return;
+  loadBenchmarkStatus();
+  // Only an unavailable curve polls locally while the independent worker
+  // warms the DB; ordinary chart reads never contact market sources.
+  const timer = setInterval(() => {
+    loadBenchmarkStatus();
+    for (const item of errors) retryBenchmark(item.code);
+  }, 15000);
+  onCleanup(() => clearInterval(timer));
+});
 watch(
   () => props.refreshKey,
   () => {
@@ -724,6 +803,9 @@ watch(
       >
         {{ benchmarkCurrencyNotes.join(" ") }}
       </p>
+      <p v-if="benchmarkFreshness.length" class="lp-chart-note" role="status">
+        {{ benchmarkFreshness.join("；") }}
+      </p>
       <p
         v-for="item in benchmarkErrors"
         :key="item.code"
@@ -733,7 +815,7 @@ watch(
         {{ item.name }}：{{ errorText(item.error) }}
         <button
           :disabled="locked || benchmarkReads[item.code].loading"
-          @click="loadBenchmark(item.code)"
+          @click="retryBenchmark(item.code)"
         >
           重试读取指数
         </button>

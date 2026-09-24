@@ -299,6 +299,16 @@ beforeEach(() => {
       }
       if (url.pathname.endsWith("/records"))
         return response({ items: [basis.points[4]!.record] });
+      if (url.pathname.endsWith("/benchmark/status"))
+        return response({
+          items: ["H00300", "H00922", "usINX"].map((code) => ({
+            code,
+            last_attempt_at: "2026-09-24T12:00:00Z",
+            last_success_at: "2026-09-24T12:00:00Z",
+            last_close_date: "2021-09-01",
+            error_code: "",
+          })),
+        });
       if (url.pathname.endsWith("/benchmark")) {
         const code = url.searchParams.get("code")!;
         const definitions: Record<
@@ -510,7 +520,7 @@ it("passes numeric samples with exact values and provenance to the chart without
   expect(
     chartProps().samples.find((p) => p.date === "2020-03-01")!.text,
   ).toContain("90,071,992,547,409.03");
-  expect(calls).toHaveLength(3);
+  expect(calls.filter((call) => !call.includes("/benchmark"))).toHaveLength(3);
   expect(styles).not.toContain(".lp-curve");
   expect(styles).not.toContain(".lp-event");
   expect(styles).toMatch(/\.lp-account-tabs\s*\{[^}]*overflow-x: auto/);
@@ -634,7 +644,7 @@ it("separates manager estimate provenance and earlier boundaries from unchanged 
   );
   expect(wrapper.get(".lp-reference").text()).not.toContain("TWR");
   expect(basis).toEqual(original);
-  expect(calls).toHaveLength(3);
+  expect(calls.filter((call) => !call.includes("/benchmark"))).toHaveLength(3);
 });
 
 it.each([
@@ -846,7 +856,7 @@ it("opens the folded record table from a real chart event without resetting over
   }
 });
 
-it("loads each selected benchmark independently and keeps the account curve intact", async () => {
+it("starts with the CSI 300 and S&P 500, and toggles cached curves without reloading", async () => {
   await overview();
   const toggle = (name: string) =>
     wrapper.findAll("button").find((b) => b.text().includes(name))!;
@@ -858,16 +868,17 @@ it("loads each selected benchmark independently and keeps the account curve inta
     )
       .map((b) => b.code)
       .sort();
-  expect(wrapper.findComponent(returnChart).props().benchmarks).toEqual([]);
-  await toggle("沪深300全收益").trigger("click");
-  await flushPromises();
+  expect(benchmarkCodes()).toEqual(["H00300", "usINX"]);
   expect(toggle("沪深300全收益").attributes("aria-pressed")).toBe("true");
+  expect(toggle("标普500").attributes("aria-pressed")).toBe("true");
   expect(
     calls.includes(
       "/api/platform/ledger/benchmark?code=H00300&from=2019-12-02&to=2021-09-01",
     ),
   ).toBe(true);
-  expect(benchmarkCodes()).toEqual(["H00300"]);
+  const firstRequests = calls.filter((call) => call.includes("/benchmark?"));
+  expect(firstRequests).toHaveLength(2);
+  expect(firstRequests.some((call) => call.includes("code=usINX"))).toBe(true);
 
   await toggle("中证红利全收益").trigger("click");
   await flushPromises();
@@ -876,7 +887,7 @@ it("loads each selected benchmark independently and keeps the account curve inta
       "/api/platform/ledger/benchmark?code=H00922&from=2019-12-02&to=2021-09-01",
     ),
   ).toBe(true);
-  expect(benchmarkCodes()).toEqual(["H00300", "H00922"]);
+  expect(benchmarkCodes()).toEqual(["H00300", "H00922", "usINX"]);
   // One legend doubles as the control; account is solid, each index a distinct dash.
   expect(wrapper.find(".lp-account-legend").text()).toContain("账户");
   const swatches = wrapper
@@ -895,16 +906,29 @@ it("loads each selected benchmark independently and keeps the account curve inta
   await toggle("沪深300全收益").trigger("click");
   await flushPromises();
   expect(toggle("沪深300全收益").attributes("aria-pressed")).toBe("false");
-  expect(benchmarkCodes()).toEqual(["H00922"]);
+  expect(benchmarkCodes()).toEqual(["H00922", "usINX"]);
+  await toggle("沪深300全收益").trigger("click");
+  await flushPromises();
+  expect(benchmarkCodes()).toEqual(["H00300", "H00922", "usINX"]);
+  expect(calls.filter((call) => call.includes("/benchmark?"))).toHaveLength(3);
+});
+
+it("restores the two default benchmark curves when switching accounts", async () => {
+  await overview();
+  const pressed = () =>
+    wrapper
+      .findAll(".lp-benchmark")
+      .filter((button) => button.attributes("aria-pressed") === "true")
+      .map((button) => button.text());
+  expect(pressed()).toEqual(["沪深300全收益", "标普500"]);
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  await flushPromises();
+  expect(pressed()).toEqual(["沪深300全收益", "标普500"]);
+  expect(calls.filter((call) => call.includes("/benchmark?"))).toHaveLength(4);
 });
 
 it("notes a benchmark currency that differs from the account without FX adjustment", async () => {
   await overview();
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text().includes("标普500"))!
-    .trigger("click");
-  await flushPromises();
   const note = wrapper.get(".lp-chart-note");
   expect(note.text()).toContain("标普500");
   expect(note.text()).toContain("USD");

@@ -296,6 +296,32 @@ beforeEach(() => {
           latest_asset_date: "2024-01-01",
           latest_asset_count: 1,
         });
+      if (path === "/benchmark/status")
+        return response({
+          items: ["H00300", "H00922", "usINX"].map((code) => ({
+            code,
+            last_attempt_at: "2026-09-24T12:00:00Z",
+            last_success_at: "2026-09-24T12:00:00Z",
+            last_close_date: "2024-01-01",
+            error_code: "",
+          })),
+        });
+      if (path === "/benchmark") {
+        const code = url.searchParams.get("code")!;
+        return response({
+          code,
+          name: {
+            H00300: "沪深300全收益",
+            H00922: "中证红利全收益",
+            usINX: "标普500",
+          }[code as "H00300" | "H00922" | "usINX"],
+          currency: code === "usINX" ? "USD" : "CNY",
+          source: code === "usINX" ? "腾讯" : "中证指数",
+          from: url.searchParams.get("from"),
+          to: url.searchParams.get("to"),
+          items: [],
+        });
+      }
       throw new Error(`Unexpected test request ${path}`);
     }),
   );
@@ -413,7 +439,9 @@ it("shows member contributions on demand and keeps the chosen date range", async
     (wrapper.findAll('input[type="date"]')[0]!.element as HTMLInputElement)
       .value,
   ).toBe("2023-07-01");
-  expect(reads.at(-1)).toContain("from=2023-07-01&to=2024-01-01");
+  expect(
+    reads.filter((path) => path.includes("/analysis-basis?")).at(-1),
+  ).toContain("from=2023-07-01&to=2024-01-01");
 });
 
 it("expands several member contributions at the same time", async () => {

@@ -1,4 +1,4 @@
-import { decimal, LedgerError, type Currency } from "./ledger";
+import { decimal, LedgerError, type Currency, type FXQuote } from "./ledger";
 import { returnReasons, type ReturnMetric } from "./ledgerReturns";
 import {
   opaqueID,
@@ -28,6 +28,7 @@ export interface PortfolioEntry {
 }
 
 export interface PortfolioContribution {
+  currency: Currency;
   account_id: string;
   name: string;
   state: "active" | "not_started" | "empty";
@@ -47,6 +48,7 @@ export interface PortfolioContribution {
 }
 
 export interface PortfolioBasis extends AnalysisBasis {
+  fx: FXQuote[];
   portfolio: Portfolio;
   members: PortfolioContribution[];
   entries: PortfolioEntry[];
@@ -111,6 +113,26 @@ export function validatePortfolioBasis(
     b.portfolio.currency !== portfolio.currency ||
     b.portfolio.account_ids.join(",") !== portfolio.account_ids.join(",") ||
     typeof b.carried !== "boolean" ||
+    !Array.isArray(b.fx) ||
+    b.fx.length > 2 ||
+    new Set(b.fx.map((fx) => fx?.base)).size !== b.fx.length ||
+    b.fx.some(
+      (fx) =>
+        !fx ||
+        !["CNY", "HKD", "USD"].includes(fx.base) ||
+        fx.base === portfolio.currency ||
+        fx.quote !== portfolio.currency ||
+        fx.mode !== "latest" ||
+        typeof fx.rate !== "string" ||
+        !decimal(fx.rate, 8) ||
+        !/[1-9]/.test(fx.rate) ||
+        fx.rate.startsWith("-") ||
+        !validDay(fx.date) ||
+        typeof fx.source !== "string" ||
+        !fx.source ||
+        !Number.isFinite(Date.parse(fx.fetched_at)) ||
+        !Number.isFinite(Date.parse(fx.quoted_at ?? "")),
+    ) ||
     !Array.isArray(b.members) ||
     b.members.length !== portfolio.account_ids.length ||
     b.members.some(
@@ -118,6 +140,9 @@ export function validatePortfolioBasis(
         !m ||
         m.account_id !== portfolio.account_ids[i] ||
         typeof m.name !== "string" ||
+        !["CNY", "HKD", "USD"].includes(m.currency) ||
+        (m.currency !== portfolio.currency &&
+          !b.fx.some((fx) => fx.base === m.currency)) ||
         !["active", "not_started", "empty"].includes(m.state) ||
         ![m.first_date, m.source_date, m.from, m.to].every(
           (d) => d === "" || (validDay(d) && d <= b.to),

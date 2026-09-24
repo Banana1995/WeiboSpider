@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
-import { newID, PendingWrite, type Account } from "./ledger";
+import { newID, PendingWrite, type Account, type Currency } from "./ledger";
 import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
@@ -23,12 +23,10 @@ const original = props.portfolio
   ? { ...props.portfolio, account_ids: [...props.portfolio.account_ids] }
   : undefined;
 const name = ref(original?.name ?? "");
+const currency = ref<Currency>(original?.currency ?? "CNY");
 const selected = ref([...(original?.account_ids ?? [])]);
 const search = ref("");
 const validation = ref("");
-const chosenCurrency = computed(
-  () => props.accounts.find((a) => selected.value.includes(a.id))?.currency,
-);
 const missing = computed(() =>
   selected.value.filter((id) => !props.accounts.some((a) => a.id === id)),
 );
@@ -43,6 +41,7 @@ const dirty = computed(
   () =>
     !props.remove &&
     (name.value !== (original?.name ?? "") ||
+      currency.value !== (original?.currency ?? "CNY") ||
       [...selected.value].sort().join(",") !==
         (original?.account_ids ?? []).join(",")),
 );
@@ -61,19 +60,16 @@ function save() {
     !accountIDs.length ||
     accountIDs.length > 50 ||
     missing.value.length ||
-    new Set(
-      props.accounts
-        .filter((a) => accountIDs.includes(a.id))
-        .map((a) => a.currency),
-    ).size !== 1
+    !["CNY", "HKD", "USD"].includes(currency.value)
   ) {
-    validation.value = "请填写组合名称，并选择 1～50 个仍存在的同币种账户。";
+    validation.value = "请填写组合名称、选择组合币种及 1～50 个仍存在的账户。";
     return;
   }
   validation.value = "";
   const id = original?.id ?? newID();
   const payload = {
     name: name.value.trim(),
+    currency: currency.value,
     account_ids: accountIDs,
     ...(original ? { expected_version: original.version } : { id }),
   };
@@ -89,6 +85,7 @@ function save() {
       validPortfolio(p) &&
       p.id === id &&
       p.name === payload.name &&
+      p.currency === payload.currency &&
       p.version === version &&
       p.account_ids.join(",") === accountIDs.join(","),
     () => {
@@ -150,6 +147,16 @@ function deletePortfolio() {
             placeholder="例如：家庭股票投资"
         /></label>
         <label
+          >组合币种<select v-model="currency" data-test="portfolio-currency">
+            <option value="CNY">人民币 CNY</option>
+            <option value="HKD">港币 HKD</option>
+            <option value="USD">美元 USD</option>
+          </select></label
+        >
+        <p class="lp-field-hint">
+          可选择不同币种的账户。按最新可用汇率统一折算为组合币种；历史资产和资金流使用同一组汇率，不计历史汇率波动收益。
+        </p>
+        <label
           >搜索成员账户<input
             v-model="search"
             type="search"
@@ -161,12 +168,7 @@ function deletePortfolio() {
           aria-label="选择组合成员"
         >
           <label v-for="a in filtered" :key="a.id" class="lp-portfolio-choice">
-            <input
-              v-model="selected"
-              type="checkbox"
-              :value="a.id"
-              :disabled="!!chosenCurrency && a.currency !== chosenCurrency"
-            />
+            <input v-model="selected" type="checkbox" :value="a.id" />
             <span
               ><strong>{{ a.name }}</strong
               ><small>账户开始于 {{ a.opening_date }}</small></span
@@ -182,8 +184,9 @@ function deletePortfolio() {
           </label>
         </div>
         <p class="lp-field-hint">
-          已选 {{ selected.length }} 个账户{{
-            chosenCurrency ? ` · ${chosenCurrency}` : ""
+          已选 {{ selected.length }} 个账户 · 组合币种
+          {{
+            currency
           }}。保存后按所选成员重新计算历史，同一账户可以用于多个组合。
         </p>
         <p v-if="validation" class="lp-error" role="alert">{{ validation }}</p>

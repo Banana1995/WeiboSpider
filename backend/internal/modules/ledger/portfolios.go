@@ -36,6 +36,7 @@ type PortfolioCommand struct {
 	Name            string
 	AccountIDs      []string
 	ExpectedVersion string
+	Currency        Currency `json:",omitempty"`
 }
 
 type PortfolioDeletion struct {
@@ -123,6 +124,9 @@ func (s *Store) WritePortfolio(ctx context.Context, key string, c PortfolioComma
 	if c.Action != "delete" && (!validText(c.Name) || !validPortfolioMembers(c.AccountIDs)) {
 		return nil, ErrOperation
 	}
+	if c.Currency != "" && (!c.Currency.valid() || c.Action == "delete") {
+		return nil, ErrOperation
+	}
 	if c.Action == "delete" && (c.Name != "" || len(c.AccountIDs) != 0) || c.Action == "create" && c.ExpectedVersion != "" {
 		return nil, ErrOperation
 	}
@@ -157,7 +161,7 @@ func (s *Store) WritePortfolio(ctx context.Context, key string, c PortfolioComma
 		}
 		var before any
 		version := int64(1)
-		p := Portfolio{ID: c.ID, Name: c.Name, AccountIDs: c.AccountIDs, CreatedAt: stamp, UpdatedAt: stamp}
+		p := Portfolio{ID: c.ID, Name: c.Name, Currency: c.Currency, AccountIDs: c.AccountIDs, CreatedAt: stamp, UpdatedAt: stamp}
 		if c.Action == "create" {
 			var used bool
 			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log WHERE entity_type='portfolio' AND entity_id=?)`, c.ID).Scan(&used); err != nil {
@@ -189,10 +193,12 @@ func (s *Store) WritePortfolio(ctx context.Context, key string, c PortfolioComma
 				if err != nil {
 					return err
 				}
-				if p.Currency != "" && p.Currency != account.Currency {
+				if c.Currency == "" && p.Currency != "" && p.Currency != account.Currency {
 					return ErrPortfolioCurrency
 				}
-				p.Currency = account.Currency
+				if p.Currency == "" {
+					p.Currency = account.Currency
+				}
 			}
 			if !p.valid() {
 				return ErrOperation
@@ -254,7 +260,7 @@ func validatePortfolioReceipt(ctx context.Context, tx *sql.Tx, c PortfolioComman
 	}
 	var result Portfolio
 	if decodeReceipt(receipt.Response, &result) != nil || !result.valid() || result.ID != c.ID || result.Name != c.Name ||
-		result.Version != strconv.FormatInt(version, 10) || !slices.Equal(result.AccountIDs, c.AccountIDs) {
+		result.Version != strconv.FormatInt(version, 10) || !slices.Equal(result.AccountIDs, c.AccountIDs) || c.Currency != "" && result.Currency != c.Currency {
 		return ErrCorrupt
 	}
 	current, err := scanPortfolio(tx.QueryRowContext(ctx, portfolioSelect+` WHERE id=?`, c.ID))

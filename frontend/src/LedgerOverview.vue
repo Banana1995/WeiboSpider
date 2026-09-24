@@ -465,6 +465,22 @@ watch(
         </button>
       </div>
     </div>
+    <div
+      v-if="portfolioData?.fx.length"
+      class="lp-reference"
+      data-test="portfolio-fx"
+    >
+      <p>
+        金额统一折算为
+        {{
+          account.currency
+        }}；历史资产、资金流使用本次最新可用汇率，不计历史汇率波动收益。
+      </p>
+      <p v-for="fx in portfolioData.fx" :key="fx.base">
+        1 {{ fx.base }} = {{ fx.rate }} {{ fx.quote }} · 汇率日期
+        {{ fx.date }} · {{ fx.source }}
+      </p>
+    </div>
     <div v-if="section === 'overall'" class="lp-overview">
       <div class="lp-assets">
         <span

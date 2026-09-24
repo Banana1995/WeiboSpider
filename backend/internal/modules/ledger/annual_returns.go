@@ -154,7 +154,7 @@ func (h Handler) writeAnnualReturns(w http.ResponseWriter, r *http.Request, port
 	var out AnnualReturns
 	if portfolio {
 		var basis PortfolioBasis
-		basis, err = h.Store.PortfolioAnalysis(r.Context(), r.PathValue("id"), "", "")
+		basis, err = h.Store.PortfolioAnalysis(r.Context(), r.PathValue("id"), "", "", h.FX)
 		if err == nil {
 			out, err = annualBasisReturns(r.Context(), basis.AnalysisBasis, code)
 		}

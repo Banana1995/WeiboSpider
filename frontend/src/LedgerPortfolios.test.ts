@@ -89,6 +89,23 @@ function fixture(
   const growth = closingAssets / openingAssets - 1;
   const profit = closingAssets - openingAssets;
   const b: PortfolioBasis = {
+    fx: [
+      ...new Set(
+        p.account_ids.map((id) => accounts.find((a) => a.id === id)!.currency),
+      ),
+    ]
+      .filter((currency) => currency !== p.currency)
+      .map((currency) => ({
+        base: currency,
+        quote: p.currency,
+        mode: "latest",
+        rate: "1.00000000",
+        date: "2026-09-01",
+        source: "Synthetic",
+        fetched_at: stamp,
+        quoted_at: stamp,
+        requested_date: "2026-09-01",
+      })),
     account_id: p.id,
     currency: p.currency,
     from: from || "0001-01-01",
@@ -121,6 +138,7 @@ function fixture(
       return {
         account_id: id,
         name: accounts.find((a) => a.id === id)!.name,
+        currency: accounts.find((a) => a.id === id)!.currency,
         state: "active",
         first_date: "2023-01-01",
         initial_assets: start.toFixed(2),
@@ -240,6 +258,7 @@ beforeEach(() => {
           ...family,
           id,
           name: body.name,
+          currency: body.currency ?? family.currency,
           account_ids: [...body.account_ids].sort(),
           version:
             method === "POST" ? "1" : String(Number(body.expected_version) + 1),
@@ -397,7 +416,28 @@ it("shows member contributions on demand and keeps the chosen date range", async
   expect(reads.at(-1)).toContain("from=2023-07-01&to=2024-01-01");
 });
 
-it("creates a named selection, prevents mixed currencies, and replays an uncertain write with the same key", async () => {
+it("expands several member contributions at the same time", async () => {
+  render();
+  await flushPromises();
+  await click("账户贡献");
+  const table = wrapper.get('[data-test="portfolio-contributions"]');
+  const names = table.findAll(".lp-contribution-name");
+  expect(names).toHaveLength(2);
+  expect(table.findAll(".lp-contribution-detail")).toHaveLength(0);
+  await names[0]!.trigger("click");
+  expect(table.findAll(".lp-contribution-detail")).toHaveLength(1);
+  await names[1]!.trigger("click");
+  expect(table.findAll(".lp-contribution-detail")).toHaveLength(2);
+  expect(names.every((b) => b.attributes("aria-expanded") === "true")).toBe(
+    true,
+  );
+  await names[0]!.trigger("click");
+  expect(table.findAll(".lp-contribution-detail")).toHaveLength(1);
+  expect(names[0]!.attributes("aria-expanded")).toBe("false");
+  expect(names[1]!.attributes("aria-expanded")).toBe("true");
+});
+
+it("creates a named selection, allows mixed currencies, and replays an uncertain write with the same key", async () => {
   const workspace = render();
   await flushPromises();
   await click("＋ 新建组合");
@@ -408,8 +448,10 @@ it("creates a named selection, prevents mixed currencies, and replays an uncerta
   await dialog.get('input[value="a"]').setValue(true);
   expect(
     (dialog.get('input[value="usd"]').element as HTMLInputElement).disabled,
-  ).toBe(true);
+  ).toBe(false);
   await dialog.get('input[value="b"]').setValue(true);
+  await dialog.get('input[value="usd"]').setValue(true);
+  await dialog.get('[data-test="portfolio-currency"]').setValue("HKD");
   failWrite = true;
   await dialog.get("form").trigger("submit");
   await flushPromises();
@@ -419,10 +461,12 @@ it("creates a named selection, prevents mixed currencies, and replays an uncerta
   expect(writes).toHaveLength(2);
   expect(writes[0]!.key).toBe(writes[1]!.key);
   expect(writes[0]!.body).toEqual(writes[1]!.body);
-  expect(writes[1]!.body.account_ids).toEqual(["a", "b"]);
+  expect(writes[1]!.body.account_ids).toEqual(["a", "b", "usd"]);
+  expect(writes[1]!.body.currency).toBe("HKD");
   expect(workspace.locked.value).toBe(false);
   expect(wrapper.findComponent(LedgerPortfolioDialog).exists()).toBe(false);
   expect(wrapper.get('[aria-selected="true"]').text()).toBe("夫妻股票");
+  expect(wrapper.get('[data-test="portfolio-fx"]').text()).toContain("HKD");
   expect(writes.every((w) => w.path.startsWith("/portfolios"))).toBe(true);
 });
 
@@ -432,6 +476,7 @@ it("updates members with an expected version and deletes only the portfolio", as
   await click("调整成员");
   let dialog = wrapper.findComponent(LedgerPortfolioDialog);
   await dialog.get('input[value="b"]').setValue(false);
+  await dialog.get('[data-test="portfolio-currency"]').setValue("USD");
   await dialog
     .get('input[placeholder="例如：家庭股票投资"]')
     .setValue("家庭股票新版");
@@ -439,6 +484,7 @@ it("updates members with an expected version and deletes only the portfolio", as
   await flushPromises();
   expect(writes[0]!.body).toEqual({
     name: "家庭股票新版",
+    currency: "USD",
     account_ids: ["a"],
     expected_version: "1",
   });
@@ -506,4 +552,52 @@ it("returns from a member account to the retained portfolio and contribution vie
   expect(wrapper.get('[data-test="portfolio-contributions"]').isVisible()).toBe(
     true,
   );
+});
+
+it("closes the portfolio actions menu on an outside click and on Escape", async () => {
+  render();
+  await flushPromises();
+  const menu = wrapper.get<HTMLDetailsElement>("details.lp-portfolio-menu");
+  const details = menu.element;
+  details.open = true;
+  document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await flushPromises();
+  expect(details.open).toBe(false);
+  details.open = true;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  await flushPromises();
+  expect(details.open).toBe(false);
+});
+
+it("auto-dismisses the success notice a few seconds after a write", async () => {
+  vi.useFakeTimers();
+  try {
+    wrapper = mount(Ledger, {
+      attachTo: document.body,
+      global: {
+        stubs: {
+          LedgerReturnChart: Chart,
+          LedgerAnnualReturns: true,
+          LedgerHoldings: true,
+          AccountRecords: true,
+          LedgerManagement: true,
+        },
+      },
+    });
+    await flushPromises();
+    await click("账户组合");
+    await click("＋ 新建组合");
+    const dialog = wrapper.findComponent(LedgerPortfolioDialog);
+    await dialog
+      .get('input[placeholder="例如：家庭股票投资"]')
+      .setValue("夫妻股票");
+    await dialog.get('input[value="a"]').setValue(true);
+    await dialog.get("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get(".lp-notice").text()).toContain("创建组合成功");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(wrapper.find(".lp-notice").exists()).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });

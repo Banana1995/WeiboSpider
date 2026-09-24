@@ -1,10 +1,12 @@
 package ledger
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"math"
 	"math/big"
+	"net/http"
 	"strconv"
 	"testing"
 	"testing/fstest"
@@ -83,7 +85,7 @@ func TestPortfolioHTTPPersistenceReceiptsAndMembership(t *testing.T) {
 	f.request(t, "POST", "/portfolios", "duplicate-members", `{"id":"bad","name":"X","account_ids":["a","a"]}`, 400)
 	f.request(t, "POST", "/portfolios", "empty-members", `{"id":"bad","name":"X","account_ids":[]}`, 400)
 	f.request(t, "POST", "/portfolios", "missing-members", `{"id":"bad","name":"X","account_ids":["missing"]}`, 409)
-	f.request(t, "POST", "/portfolios", "unknown-field", `{"id":"bad","name":"X","account_ids":["a"],"currency":"CNY"}`, 400)
+	f.request(t, "POST", "/portfolios", "unknown-field", `{"id":"bad","name":"X","account_ids":["a"],"unknown":true}`, 400)
 	f.request(t, "GET", "/portfolios/family/analysis-basis?unknown=x", "", "", 400)
 	f.request(t, "POST", "/portfolios", "duplicate-field", `{"id":"bad","id":"other","name":"X","account_ids":["a"]}`, 400)
 	_, err := f.store.CreateReportedAccount(t.Context(), "usd", ReportedAccountInput{ID: "usd", Name: "USD", Currency: USD, OpeningDate: "2020-01-01"})
@@ -258,4 +260,104 @@ func TestPortfolioMigrationPreservesExistingRecordsAndReceipts(t *testing.T) {
 	var violations int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&violations))
 	require.Zero(t, violations)
+}
+
+func TestPortfolioMixedCurrencyConversionAndReceipts(t *testing.T) {
+	f := newHTTPFixture(t)
+	portfolioAccounts(t, f, "a")
+	for id, currency := range map[string]Currency{"usd": USD, "hkd": HKD} {
+		_, err := f.store.CreateReportedAccount(t.Context(), "create-"+id, ReportedAccountInput{ID: id, Name: id, Currency: currency, OpeningDate: "2020-01-01"})
+		require.NoError(t, err)
+	}
+	for _, id := range []string{"a", "usd", "hkd"} {
+		portfolioRecord(t, f, id, "opening", "2024-01-01", "100.00", "")
+	}
+	portfolioRecord(t, f, "usd", "deposit", "2024-06-01", "", "20.00")
+	portfolioRecord(t, f, "usd", "withdraw", "2024-07-01", "", "-10.00")
+	portfolioRecord(t, f, "a", "closing", "2025-01-01", "110.00", "")
+	portfolioRecord(t, f, "usd", "closing", "2025-01-01", "150.00", "")
+	portfolioRecord(t, f, "hkd", "closing", "2025-01-01", "120.00", "")
+	body := `{"id":"mixed","name":"Mixed","currency":"CNY","account_ids":["a","usd","hkd"]}`
+	first := f.request(t, "POST", "/portfolios", "mixed-create", body, 201).Body.String()
+	require.Equal(t, first, f.request(t, "POST", "/portfolios", "mixed-create", body, 201).Body.String())
+	f.request(t, "POST", "/portfolios", "invalid-currency", `{"id":"invalid","name":"X","currency":"EUR","account_ids":["a"]}`, 400)
+	f.request(t, "POST", "/portfolios", "mixed-create", `{"id":"mixed","name":"Mixed","currency":"USD","account_ids":["a","usd","hkd"]}`, 409)
+	httpError(t, f.request(t, "GET", "/portfolios/mixed/analysis-basis", "", "", 502), "fx_unavailable")
+
+	calls := map[Currency]int{}
+	provider := fxStub(func(ctx context.Context, req FXRequest) (FXQuote, error) {
+		// Network provider executes outside the database transaction.
+		_, err := f.store.Portfolio(ctx, "mixed")
+		require.NoError(t, err)
+		calls[req.Base]++
+		require.Equal(t, CNY, req.Quote)
+		require.Equal(t, "latest", req.Mode)
+		rate := Rate(700000000)
+		if req.Base == HKD {
+			rate = 90000000
+		}
+		return FXQuote{Base: req.Base, Quote: req.Quote, Mode: "latest", Rate: rate, Date: httpTestStamp[:10], Source: "Synthetic", QuotedAt: httpTestStamp, FetchedAt: httpTestStamp}, nil
+	})
+	f.mux = http.NewServeMux()
+	Handler{Store: f.store, FX: provider}.Register(f.mux)
+	b := portfolioRead(t, f, "/portfolios/mixed/analysis-basis")
+	require.Equal(t, map[Currency]int{USD: 1, HKD: 1}, calls)
+	require.Len(t, b.FX, 2)
+	require.Equal(t, "1268.00", b.Closing.Assets.String())
+	require.Equal(t, "308.00", *b.Returns.Profit.Value)
+	require.Equal(t, "70.00", b.Returns.NetFlow)
+	require.Equal(t, "10.00", *b.Members[0].Profit.Value)
+	require.Equal(t, "18.00", *b.Members[1].Profit.Value)
+	require.Equal(t, "280.00", *b.Members[2].Profit.Value)
+	require.Equal(t, USD, b.Members[2].Currency)
+	var entries Money
+	for _, e := range b.Entries {
+		if e.Kind == "cash_flow" {
+			entries += e.Amount
+		}
+	}
+	require.Equal(t, Money(7000), entries)
+	// Annual analysis must receive the FX provider too.
+	f.request(t, "GET", "/portfolios/mixed/annual-returns", "", "", 200)
+	single, err := f.store.AnalysisBasis(t.Context(), "usd", "", "", 0)
+	require.NoError(t, err)
+	require.Equal(t, "150.00", single.Closing.Assets.String())
+	edit := `{"name":"Mixed USD","currency":"USD","account_ids":["a","hkd","usd"],"expected_version":"1"}`
+	updated := f.request(t, "PUT", "/portfolios/mixed", "mixed-edit", edit, 200).Body.String()
+	require.Equal(t, updated, f.request(t, "PUT", "/portfolios/mixed", "mixed-edit", edit, 200).Body.String())
+	require.Equal(t, "USD", f.get(t, "/portfolios/mixed")["currency"])
+	f.request(t, "PUT", "/portfolios/mixed", "stale-edit", edit, 409)
+}
+
+func TestPortfolioFXValidationRoundingAndOverflow(t *testing.T) {
+	f := newHTTPFixture(t)
+	portfolioAccounts(t, f, "a", "b")
+	portfolioRecord(t, f, "a", "opening", "2024-01-01", "0.01", "")
+	portfolioRecord(t, f, "a", "deposit", "2024-01-02", "", "0.01")
+	portfolioRecord(t, f, "b", "opening", "2024-01-01", "0.01", "")
+	_, err := f.store.WritePortfolio(t.Context(), "fx-p", PortfolioCommand{Action: "create", ID: "p", Name: "P", Currency: USD, AccountIDs: []string{"a", "b"}})
+	require.NoError(t, err)
+	q := FXQuote{Base: CNY, Quote: USD, Mode: "latest", Rate: 50000000, Date: httpTestStamp[:10], Source: "Synthetic", QuotedAt: httpTestStamp, FetchedAt: httpTestStamp}
+	calls := 0
+	provider := fxStub(func(context.Context, FXRequest) (FXQuote, error) { calls++; return q, nil })
+	b, err := f.store.PortfolioAnalysis(t.Context(), "p", "", "", provider)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.Equal(t, "0.03", b.Closing.Assets.String())
+	require.Equal(t, "0.00", *b.Returns.Profit.Value)
+	for _, mutate := range []func(*FXQuote){
+		func(q *FXQuote) { q.Rate = 0 },
+		func(q *FXQuote) { q.Quote = HKD },
+		func(q *FXQuote) { q.Mode = "historical" },
+		func(q *FXQuote) { q.QuotedAt = "bad" },
+	} {
+		bad := q
+		mutate(&bad)
+		_, err := f.store.PortfolioAnalysis(t.Context(), "p", "", "", fxStub(func(context.Context, FXRequest) (FXQuote, error) { return bad, nil }))
+		require.ErrorIs(t, err, ErrFXUnavailable)
+	}
+	portfolioRecord(t, f, "a", "huge", "2024-01-03", "92233720368547758.07", "")
+	q.Rate = 200000000
+	_, err = f.store.PortfolioAnalysis(t.Context(), "p", "", "", provider)
+	require.ErrorIs(t, err, ErrPrecision)
 }

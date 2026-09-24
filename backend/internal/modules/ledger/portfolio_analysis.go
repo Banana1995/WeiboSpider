@@ -25,6 +25,7 @@ type PortfolioEntry struct {
 }
 
 type PortfolioContribution struct {
+	Currency      Currency     `json:"currency"`
 	AccountID     string       `json:"account_id"`
 	Name          string       `json:"name"`
 	State         string       `json:"state"` // active, not_started, empty
@@ -49,6 +50,7 @@ type PortfolioBasis struct {
 	Members   []PortfolioContribution `json:"members"`
 	Entries   []PortfolioEntry        `json:"entries"`
 	Carried   bool                    `json:"carried"`
+	FX        []FXQuote               `json:"fx"`
 }
 
 type portfolioDay struct {
@@ -218,8 +220,8 @@ func portfolioReference(r *Returns) {
 	r.Warnings = append(r.Warnings, "portfolio_carried_assets")
 }
 
-func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string) (PortfolioBasis, error) {
-	out := PortfolioBasis{Members: []PortfolioContribution{}, Entries: []PortfolioEntry{}}
+func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string, providers ...FXProvider) (PortfolioBasis, error) {
+	out := PortfolioBasis{Members: []PortfolioContribution{}, Entries: []PortfolioEntry{}, FX: []FXQuote{}}
 	today, _, err := s.cutoff()
 	if err != nil {
 		return out, err
@@ -248,9 +250,6 @@ func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string) (Por
 			if err != nil {
 				return err
 			}
-			if info.Currency != p.Currency {
-				return ErrPortfolioCurrency
-			}
 			b, err := s.analysisBasis(ctx, tx, accountID, "", today, 0)
 			if err != nil {
 				return err
@@ -277,6 +276,66 @@ func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string) (Por
 	})
 	if err != nil {
 		return out, err
+	}
+	// Fetch only after releasing the SQLite snapshot. One rate per currency is
+	// used for the entire history; this is a display conversion, not FX returns.
+	var provider FXProvider
+	if len(providers) > 0 {
+		provider = providers[0]
+	}
+	fxCtx, cancel := context.WithTimeout(ctx, fxTimeout)
+	defer cancel()
+	rates := map[Currency]Rate{}
+	for i := range members {
+		member := &members[i]
+		if member.info.Currency == out.Portfolio.Currency {
+			continue
+		}
+		rate, exists := rates[member.info.Currency]
+		if !exists {
+			if provider == nil {
+				return out, ErrFXUnavailable
+			}
+			q, err := provider.Fetch(fxCtx, FXRequest{Base: member.info.Currency, Quote: out.Portfolio.Currency, Mode: "latest"})
+			if err != nil {
+				return out, err
+			}
+			if err := fxCtx.Err(); err != nil {
+				return out, err
+			}
+			quoted, stampErr := time.Parse(time.RFC3339Nano, q.QuotedAt)
+			fetched, fetchedErr := time.Parse(time.RFC3339Nano, q.FetchedAt)
+			if q.Base != member.info.Currency || q.Quote != out.Portfolio.Currency || q.Mode != "latest" || q.Rate <= 0 || q.Source == "" || !validDate(q.Date) || q.Date > today || stampErr != nil || fetchedErr != nil || quoted.After(fetched) || fetched.After(s.now()) || q.Date > quoted.In(fxBeijing).Format(time.DateOnly) {
+				return out, ErrFXUnavailable
+			}
+			rate = q.Rate
+			rates[q.Base] = rate
+			out.FX = append(out.FX, q)
+		}
+		// Convert source totals and individual flows before normalization so carry,
+		// entries, opening adjustments and all totals share the same cent rounding.
+		for j := range member.basis.Points {
+			point := &member.basis.Points[j]
+			convert := func(value *Money) (*Money, error) {
+				if value == nil {
+					return nil, nil
+				}
+				amount, err := ConvertMoney(*value, rate)
+				return &amount, err
+			}
+			point.Flow, err = convert(point.Flow)
+			if err != nil {
+				return out, err
+			}
+			if point.Record != nil {
+				record := *point.Record
+				record.TotalAssets, err = convert(record.TotalAssets)
+				if err != nil {
+					return out, err
+				}
+				point.Record = &record
+			}
+		}
 	}
 	revisions := make([]string, 0, len(members))
 	dateSet := map[string]bool{}
@@ -366,7 +425,8 @@ func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string) (Por
 		Revisions []string
 		From, To  string
 		Version   int
-	}{out.Portfolio, revisions, from, to, 1})
+		FX        []FXQuote
+	}{out.Portfolio, revisions, from, to, 2, out.FX})
 	if err != nil {
 		return out, err
 	}
@@ -398,7 +458,7 @@ func (s *Store) PortfolioAnalysis(ctx context.Context, id, from, to string) (Por
 
 func portfolioContribution(ctx context.Context, member portfolioMember, b PortfolioBasis) (PortfolioContribution, error) {
 	unavailable := returnUnavailable("no_interval")
-	c := PortfolioContribution{AccountID: member.info.ID, Name: member.info.Name, State: "empty",
+	c := PortfolioContribution{AccountID: member.info.ID, Name: member.info.Name, Currency: member.info.Currency, State: "empty",
 		Profit: returnValue(new(big.Rat), 2, "available"), Dietz: unavailable, XIRR: unavailable, TWR: unavailable, TWRAnnualized: unavailable,
 		AssetShare: returnUnavailable("nonpositive_denominator")}
 	end := b.Returns.EffectiveTo

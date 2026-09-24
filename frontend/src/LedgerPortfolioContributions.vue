@@ -9,7 +9,12 @@ import {
 import type { PortfolioBasis } from "./ledgerPortfolios";
 defineProps<{ basis: PortfolioBasis; view: "personal" | "manager" }>();
 const emit = defineEmits<{ account: [id: string] }>();
-const expanded = ref("");
+const expanded = ref<string[]>([]);
+function toggle(id: string) {
+  expanded.value = expanded.value.includes(id)
+    ? expanded.value.filter((value) => value !== id)
+    : [...expanded.value, id];
+}
 const percent = (m: ReturnMetric) =>
   m.value === null ? "—" : returnPercent(m.value, m.percentage);
 const reason = (m: ReturnMetric) =>
@@ -38,18 +43,19 @@ const reason = (m: ReturnMetric) =>
             <th scope="row">
               <button
                 class="lp-text-button lp-contribution-name"
-                :aria-expanded="expanded === m.account_id"
-                @click="
-                  expanded = expanded === m.account_id ? '' : m.account_id
-                "
+                :aria-expanded="expanded.includes(m.account_id)"
+                @click="toggle(m.account_id)"
               >
                 {{ m.name }}
                 <span aria-hidden="true">{{
-                  expanded === m.account_id ? "−" : "＋"
+                  expanded.includes(m.account_id) ? "−" : "＋"
                 }}</span></button
-              ><small>{{
-                m.first_date ? `${m.first_date} 起计入` : "此区间尚无记录"
-              }}</small>
+              ><small
+                >{{ m.currency }} ·
+                {{
+                  m.first_date ? `${m.first_date} 起计入` : "此区间尚无记录"
+                }}</small
+              >
             </th>
             <td>{{ money(m.assets) }}</td>
             <td class="lp-contribution-extra">{{ percent(m.asset_share) }}</td>
@@ -72,7 +78,10 @@ const reason = (m: ReturnMetric) =>
               </button>
             </td>
           </tr>
-          <tr v-if="expanded === m.account_id" class="lp-contribution-detail">
+          <tr
+            v-if="expanded.includes(m.account_id)"
+            class="lp-contribution-detail"
+          >
             <td colspan="6">
               <dl>
                 <div>

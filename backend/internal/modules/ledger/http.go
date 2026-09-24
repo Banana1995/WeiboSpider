@@ -363,6 +363,10 @@ func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = 404, "not_found", "ledger resource not found"
 	case errors.Is(err, ErrPortfolioCurrency):
 		status, code, message = 422, "portfolio_currency_mismatch", "portfolio members must use one currency"
+	case errors.Is(err, ErrFXTimeout):
+		status, code, message = 504, "fx_timeout", "portfolio exchange rate request timed out"
+	case errors.Is(err, ErrFXUnavailable):
+		status, code, message = 502, "fx_unavailable", "portfolio exchange rate unavailable"
 	case errors.Is(err, ErrPortfolioMember):
 		status, code, message = 409, "portfolio_member_missing", "a member was deleted; update portfolio membership"
 	case errors.Is(err, ErrPortfolioBasis):

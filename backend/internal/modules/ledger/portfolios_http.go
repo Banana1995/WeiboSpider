@@ -15,6 +15,7 @@ func (h Handler) portfolios(w http.ResponseWriter, r *http.Request) {
 			ID         string   `json:"id"`
 			Name       string   `json:"name"`
 			AccountIDs []string `json:"account_ids"`
+			Currency   Currency `json:"currency"`
 		}](w, r)
 		if !ok {
 			return
@@ -23,7 +24,7 @@ func (h Handler) portfolios(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		out, err := h.Store.WritePortfolio(r.Context(), key, PortfolioCommand{Action: "create", ID: input.ID, Name: input.Name, AccountIDs: input.AccountIDs})
+		out, err := h.Store.WritePortfolio(r.Context(), key, PortfolioCommand{Action: "create", ID: input.ID, Name: input.Name, AccountIDs: input.AccountIDs, Currency: input.Currency})
 		if err != nil {
 			h.fail(w, r, err)
 			return
@@ -79,11 +80,13 @@ func (h Handler) portfolio(w http.ResponseWriter, r *http.Request) {
 			Name            string   `json:"name"`
 			AccountIDs      []string `json:"account_ids"`
 			ExpectedVersion string   `json:"expected_version"`
+			Currency        Currency `json:"currency"`
 		}](w, r)
 		if !ok {
 			return
 		}
 		c.Action, c.Name, c.AccountIDs, c.ExpectedVersion = "replace", input.Name, input.AccountIDs, input.ExpectedVersion
+		c.Currency = input.Currency
 	}
 	key, ok := writeKey(w, r)
 	if !ok {
@@ -106,7 +109,7 @@ func (h Handler) portfolioAnalysis(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, ErrQuery)
 		return
 	}
-	out, err := h.Store.PortfolioAnalysis(r.Context(), r.PathValue("id"), q.Get("from"), q.Get("to"))
+	out, err := h.Store.PortfolioAnalysis(r.Context(), r.PathValue("id"), q.Get("from"), q.Get("to"), h.FX)
 	if err != nil {
 		h.fail(w, r, err)
 		return

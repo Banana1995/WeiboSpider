@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import { all, errorText, LedgerError, type Account } from "./ledger";
 import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
 import { useLedgerRead } from "./useLedgerRead";
@@ -80,6 +88,25 @@ function open(mode: "create" | "edit" | "delete") {
   if (actions.value) actions.value.open = false;
   modal.value = mode;
 }
+function closeActions(event: Event) {
+  const menu = actions.value;
+  if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
+}
+function actionsEscape(event: KeyboardEvent) {
+  const menu = actions.value;
+  if (event.key !== "Escape" || !menu?.open) return;
+  event.stopPropagation();
+  menu.open = false;
+  menu.querySelector("summary")?.focus();
+}
+onMounted(() => {
+  document.addEventListener("click", closeActions, true);
+  document.addEventListener("keydown", actionsEscape);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", closeActions, true);
+  document.removeEventListener("keydown", actionsEscape);
+});
 function reload() {
   modal.value = "";
   void load();

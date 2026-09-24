@@ -59,6 +59,16 @@ watch(navigationLocked, (value) => emit("locked", value), {
   immediate: true,
   flush: "sync",
 });
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+watch(notice, (value) => {
+  clearTimeout(noticeTimer);
+  noticeTimer = value
+    ? setTimeout(() => {
+        notice.value = "";
+        noticeTimer = undefined;
+      }, 5000)
+    : undefined;
+});
 let accountRequest = 0;
 async function loadAccounts(preferred = selected.value) {
   const generation = ++accountRequest;
@@ -245,6 +255,7 @@ onMounted(() => {
   document.addEventListener("auxclick", guardLink, true);
 });
 onBeforeUnmount(() => {
+  clearTimeout(noticeTimer);
   window.removeEventListener("beforeunload", beforeUnload);
   document.removeEventListener("click", guardLink, true);
   document.removeEventListener("auxclick", guardLink, true);

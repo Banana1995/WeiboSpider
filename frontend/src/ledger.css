@@ -866,6 +866,39 @@
   font-size: 12px;
   color: var(--lp-muted);
 }
+.ledger-page .lp-dropzone {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 20px;
+  border: 1px dashed var(--lp-rule);
+  border-radius: 6px;
+  background: var(--lp-surface);
+  text-align: center;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.ledger-page .lp-dropzone-active {
+  border-color: var(--lp-primary);
+  border-style: solid;
+  background: #edf3e9;
+}
+.ledger-page .lp-dropzone-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--lp-muted);
+}
+.ledger-page .lp-dropzone-picker {
+  align-items: center;
+}
+.ledger-page .lp-dropzone-file {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lp-primary);
+  overflow-wrap: anywhere;
+}
 .ledger-page .lp-dialog-footer {
   display: flex;
   justify-content: flex-end;

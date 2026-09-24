@@ -29,10 +29,12 @@ const loading = ref(false);
 const busy = ref(false);
 const error = ref("");
 const message = ref("");
+const dragging = ref(false);
 const input = ref<HTMLInputElement>();
 let controller: AbortController | undefined;
 let generation = 0;
 const locked = computed(() => loading.value || busy.value || !!pending.value);
+const droppable = computed(() => !locked.value && !props.disabled);
 watch(locked, (value) => emit("locked", value), { flush: "sync" });
 const targetAccount = computed(() =>
   props.accounts.find((a) => a.id === target.value),
@@ -43,7 +45,7 @@ const mismatch = computed(
     !!targetAccount.value &&
     targetAccount.value.currency !== preview.value.metadata.currency,
 );
-function changeFile(event: Event) {
+function selectFile(chosen: File | undefined) {
   if (locked.value || props.disabled) return;
   generation++;
   controller?.abort();
@@ -52,12 +54,32 @@ function changeFile(event: Event) {
   file.value = undefined;
   error.value = "";
   message.value = "";
-  const chosen = (event.target as HTMLInputElement).files?.[0];
+  if (input.value) input.value.value = "";
   if (!chosen) return;
   if (!/\.xlsx$/i.test(chosen.name)) error.value = "仅支持 .xlsx 文件";
   else if (chosen.size > 8 * 1024 * 1024) error.value = "文件超过 8 MiB 限制";
   else if (!chosen.size) error.value = "文件为空";
   else file.value = chosen;
+}
+function changeFile(event: Event) {
+  selectFile((event.target as HTMLInputElement).files?.[0]);
+}
+function dragOver(event: DragEvent) {
+  if (!droppable.value || !event.dataTransfer?.types.includes("Files")) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  dragging.value = true;
+}
+function dragLeave(event: DragEvent) {
+  if (!dragging.value) return;
+  const next = event.relatedTarget as Node | null;
+  if (next && (event.currentTarget as HTMLElement).contains(next)) return;
+  dragging.value = false;
+}
+function drop(event: DragEvent) {
+  dragging.value = false;
+  if (!droppable.value) return;
+  selectFile(event.dataTransfer?.files?.[0]);
 }
 async function loadPreview() {
   if (!file.value || locked.value || props.disabled || loading.value) return;
@@ -173,14 +195,28 @@ onBeforeUnmount(() => {
           </option>
         </select></label
       >
-      <label
-        >选择文件（.xlsx，最多 8 MiB）<input
-          ref="input"
-          type="file"
-          accept=".xlsx"
-          data-test="import-file"
-          @change="changeFile"
-      /></label>
+      <div
+        class="lp-dropzone"
+        :class="{ 'lp-dropzone-active': dragging }"
+        data-test="import-dropzone"
+        @dragenter="dragOver"
+        @dragover="dragOver"
+        @dragleave="dragLeave"
+        @drop.prevent="drop"
+      >
+        <p class="lp-dropzone-hint">拖拽 .xlsx 文件到此处，或</p>
+        <label class="lp-dropzone-picker"
+          >选择文件（.xlsx，最多 8 MiB）<input
+            ref="input"
+            type="file"
+            accept=".xlsx"
+            data-test="import-file"
+            @change="changeFile"
+        /></label>
+        <p v-if="file" class="lp-dropzone-file" data-test="import-file-name">
+          {{ file.name }}
+        </p>
+      </div>
     </fieldset>
     <p class="lp-field-hint">
       仅支持新建或空账户，不支持追加文件。相同文件重试不会重复添加记录。

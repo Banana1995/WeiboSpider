@@ -212,6 +212,17 @@ async function importFile() {
   await flushPromises();
   return file;
 }
+function dataTransfer(files: File[] = [], types = ["Files"]) {
+  return { types, files, dropEffect: "" };
+}
+async function dropFile(file: File) {
+  const zone = wrapper.get('[data-test="import-dropzone"]');
+  await zone.trigger("dragenter", { dataTransfer: dataTransfer() });
+  await zone.trigger("dragover", { dataTransfer: dataTransfer([file]) });
+  await zone.trigger("drop", { dataTransfer: dataTransfer([file]) });
+  await flushPromises();
+  return file;
+}
 async function start(
   component: typeof ImportAccount | typeof Ledger = ImportAccount,
   openImport = true,
@@ -730,4 +741,56 @@ it("retains the original write after an invalid receipt and safely retries it", 
     (first.body as FormData).get("file"),
   );
   expect(wrapper.text()).toContain("已导入 65 笔记录");
+});
+
+it("imports a file dropped onto the page without using the file picker", async () => {
+  await start();
+  const file = await dropFile(new File(["synthetic"], "dropped.xlsx"));
+  expect(wrapper.get('[data-test="import-file-name"]').text()).toBe(
+    "dropped.xlsx",
+  );
+  expect(fetcher).not.toHaveBeenCalled();
+  await wrapper.get('[data-test="import-submit"]').trigger("click");
+  await flushPromises();
+  expect(commits).toHaveLength(1);
+  expect(commits[0]!.body.get("file")).toBe(file);
+  expect(wrapper.text()).toContain("已导入 65 笔记录");
+});
+
+it("highlights the drop zone only while dragging files", async () => {
+  await start();
+  const zone = wrapper.get('[data-test="import-dropzone"]');
+  await zone.trigger("dragover", { dataTransfer: dataTransfer() });
+  expect(zone.classes()).toContain("lp-dropzone-active");
+  await zone.trigger("dragleave", { relatedTarget: null });
+  expect(zone.classes()).not.toContain("lp-dropzone-active");
+  await zone.trigger("dragover", {
+    dataTransfer: dataTransfer([], ["text/plain"]),
+  });
+  expect(zone.classes()).not.toContain("lp-dropzone-active");
+});
+
+it("rejects dropped non-xlsx and oversized files locally without uploading", async () => {
+  await start();
+  await dropFile(new File(["synthetic"], "dropped.csv"));
+  expect(wrapper.text()).toContain("仅支持 .xlsx 文件");
+  const large = new File(["synthetic"], "dropped.xlsx");
+  Object.defineProperty(large, "size", { value: 8 * 1024 * 1024 + 1 });
+  await dropFile(large);
+  expect(wrapper.text()).toContain("8 MiB 限制");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("ignores dropped files while the import is disabled", async () => {
+  await start();
+  await wrapper.setProps({ disabled: true });
+  const zone = wrapper.get('[data-test="import-dropzone"]');
+  await zone.trigger("dragover", { dataTransfer: dataTransfer() });
+  expect(zone.classes()).not.toContain("lp-dropzone-active");
+  await zone.trigger("drop", {
+    dataTransfer: dataTransfer([new File(["synthetic"], "dropped.xlsx")]),
+  });
+  await flushPromises();
+  expect(wrapper.find('[data-test="import-file-name"]').exists()).toBe(false);
+  expect(fetcher).not.toHaveBeenCalled();
 });

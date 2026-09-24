@@ -175,14 +175,6 @@ const benchmarkErrors = computed(() =>
       error: benchmarkReads[definition.code].error,
     })),
 );
-const benchmarkCurrencyNotes = computed(() =>
-  selectedDefinitions.value
-    .filter((definition) => definition.currency !== props.account.currency)
-    .map(
-      (definition) =>
-        `${definition.name} 以 ${definition.currency} 计价，与账户 ${props.account.currency} 未做汇率调整，仅比较涨跌幅。`,
-    ),
-);
 const benchmarkFreshness = computed(() =>
   selectedDefinitions.value
     .map((definition) => {
@@ -796,13 +788,6 @@ watch(
           <span v-else>组合总资产，成员未更新期间按资产与净转入沿用</span>
         </div>
       </div>
-      <p
-        v-if="benchmarkCurrencyNotes.length"
-        class="lp-chart-note"
-        role="status"
-      >
-        {{ benchmarkCurrencyNotes.join(" ") }}
-      </p>
       <p v-if="benchmarkFreshness.length" class="lp-chart-note" role="status">
         {{ benchmarkFreshness.join("；") }}
       </p>

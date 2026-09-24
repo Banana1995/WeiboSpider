@@ -63,7 +63,7 @@ const activeBenchmarks = computed(() =>
   props.mode === "rate" ? props.benchmarks : [],
 );
 const encodingFor = (code: string): BenchmarkEncoding =>
-  benchmarkEncodings[code as BenchmarkCode] ?? { color: "#6f5b8f", dash: [] };
+  benchmarkEncodings[code as BenchmarkCode] ?? { color: "#6b7280", dash: [] };
 
 const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
 

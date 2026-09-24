@@ -120,7 +120,7 @@ it("aligns an optional benchmark with a prior market close", () => {
   expect(option.series).toHaveLength(2);
   expect(option.series[1].lineStyle).toEqual({
     width: 1.5,
-    color: "#2f6fb0",
+    color: "#0072b2",
     type: [6, 3],
   });
   const points = option.series[1].data as Point[];
@@ -193,17 +193,17 @@ it("distinguishes account and every benchmark by dash pattern, not color alone",
   });
   expect(option.series[1].lineStyle).toEqual({
     width: 1.5,
-    color: "#2f6fb0",
+    color: "#0072b2",
     type: [6, 3],
   });
   expect(option.series[2].lineStyle).toEqual({
     width: 1.5,
-    color: "#a8721f",
+    color: "#e69f00",
     type: [1.5, 3],
   });
   expect(option.series[3].lineStyle).toEqual({
     width: 1.5,
-    color: "#6f5b8f",
+    color: "#d55e00",
     type: [8, 3, 2, 3],
   });
   const patterns = option.series

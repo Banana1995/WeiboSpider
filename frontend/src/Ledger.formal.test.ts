@@ -927,15 +927,6 @@ it("restores the two default benchmark curves when switching accounts", async ()
   expect(calls.filter((call) => call.includes("/benchmark?"))).toHaveLength(4);
 });
 
-it("notes a benchmark currency that differs from the account without FX adjustment", async () => {
-  await overview();
-  const note = wrapper.get(".lp-chart-note");
-  expect(note.text()).toContain("标普500");
-  expect(note.text()).toContain("USD");
-  expect(note.text()).toContain("CNY");
-  expect(note.text()).toContain("未做汇率调整");
-});
-
 it("shows a per-index error and retries without breaking the account curve", async () => {
   const original = globalThis.fetch;
   vi.stubGlobal(

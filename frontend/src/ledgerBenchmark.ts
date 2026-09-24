@@ -48,10 +48,12 @@ export const accountEncoding: BenchmarkEncoding = {
   color: "#1f6f5c",
   dash: [],
 };
+// Blue/amber/vermillion stay distinguishable under red-green color vision
+// deficiency, unlike the previous blue/purple pair.
 export const benchmarkEncodings: Record<BenchmarkCode, BenchmarkEncoding> = {
-  H00300: { color: "#2f6fb0", dash: [6, 3] },
-  H00922: { color: "#a8721f", dash: [1.5, 3] },
-  usINX: { color: "#6f5b8f", dash: [8, 3, 2, 3] },
+  H00300: { color: "#0072b2", dash: [6, 3] },
+  H00922: { color: "#e69f00", dash: [1.5, 3] },
+  usINX: { color: "#d55e00", dash: [8, 3, 2, 3] },
 };
 export const benchmarkDash = (code: string) =>
   (benchmarkEncodings[code as BenchmarkCode]?.dash ?? []).join(" ");

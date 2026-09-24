@@ -13,8 +13,10 @@ import {
   type AnnualReturnRow,
   type AnnualReturns,
 } from "./ledgerAnnualReturns";
-import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
+import { useLedgerCachedRead } from "./useLedgerCachedRead";
+import { annualReturnsRequest } from "./ledgerCachedRequests";
+import { todayShanghai } from "./ledgerView";
 import LedgerDialog from "./LedgerDialog.vue";
 
 const props = defineProps<{
@@ -24,8 +26,8 @@ const props = defineProps<{
   view: "personal" | "manager";
 }>();
 const emit = defineEmits<{ view: [value: "personal" | "manager"] }>();
-const { locked } = useLedgerWorkspace();
-const read = reactive(useLedgerRead<AnnualReturns>());
+const { locked, accountCache, cacheEpoch } = useLedgerWorkspace();
+const read = reactive(useLedgerCachedRead<AnnualReturns>(accountCache));
 const code = ref<BenchmarkCode>("H00300");
 const expanded = ref(false);
 const latest = computed(() => read.data?.years.slice(-2) ?? []);
@@ -62,23 +64,35 @@ const period = (row: AnnualReturnRow) =>
 
 function load() {
   read.clear();
+  if (locked.value) return;
   const account = props.account;
   const selected = code.value;
-  void read.load(async (signal) => {
-    const data = await request<AnnualReturns>(
-      `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
-      { signal },
-    );
-    try {
-      return validateAnnualReturns(data, account, selected);
-    } catch {
-      throw new LedgerError("invalid_response");
-    }
+  if (!props.portfolio) {
+    void read.load(annualReturnsRequest(account, selected));
+    return;
+  }
+  void read.load({
+    key: `portfolio-annual|${account.id}|${account.currency}|${props.refreshKey}|${selected}|${todayShanghai()}`,
+    read: async (signal) => {
+      const data = await request<AnnualReturns>(
+        `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
+        { signal },
+      );
+      try {
+        return validateAnnualReturns(data, account, selected);
+      } catch {
+        throw new LedgerError("invalid_response");
+      }
+    },
   });
 }
-watch([() => props.account.id, () => props.refreshKey, code], load, {
-  immediate: true,
-});
+watch(
+  [() => props.account.id, () => props.refreshKey, code, cacheEpoch, locked],
+  load,
+  {
+    immediate: true,
+  },
+);
 </script>
 
 <template>
@@ -136,12 +150,14 @@ watch([() => props.account.id, () => props.refreshKey, code], load, {
         </select>
       </label>
     </div>
-    <p v-if="read.loading" class="lp-empty" role="status">正在计算年度收益…</p>
-    <p v-else-if="read.error" class="lp-error" role="alert">
+    <p v-if="read.loading" class="lp-empty" role="status">
+      {{ read.data ? "已显示上次年度结果，正在核对…" : "正在计算年度收益…" }}
+    </p>
+    <p v-if="read.error" class="lp-error" role="alert">
       {{ errorText(read.error) }}
       <button :disabled="locked || read.loading" @click="load">重新读取</button>
     </p>
-    <template v-else-if="read.data">
+    <template v-if="read.data">
       <p v-if="read.data.benchmark_error" class="lp-annual-note" role="status">
         指数{{
           read.data.benchmark_error === "benchmark_timeout"
@@ -243,11 +259,15 @@ watch([() => props.account.id, () => props.refreshKey, code], load, {
             </select>
           </label>
         </div>
-        <p v-if="read.loading" role="status">正在计算年度收益…</p>
-        <p v-else-if="read.error" class="lp-error" role="alert">
+        <p v-if="read.loading" role="status">
+          {{
+            read.data ? "已显示上次年度结果，正在核对…" : "正在计算年度收益…"
+          }}
+        </p>
+        <p v-if="read.error" class="lp-error" role="alert">
           {{ errorText(read.error) }} <button @click="load">重新读取</button>
         </p>
-        <template v-else-if="read.data">
+        <template v-if="read.data">
           <p
             v-if="read.data.benchmark_error"
             class="lp-annual-note"

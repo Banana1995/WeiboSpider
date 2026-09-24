@@ -351,11 +351,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 async function overview() {
+  workspace = createLedgerWorkspace(() => {});
   wrapper = mount(LedgerOverview, {
     props: { account, refreshKey: 0 },
     global: {
       provide: {
-        [ledgerWorkspaceKey as symbol]: createLedgerWorkspace(() => {}),
+        [ledgerWorkspaceKey as symbol]: workspace,
       },
       stubs: { LedgerReturnChart: returnChart },
     },
@@ -924,7 +925,129 @@ it("restores the two default benchmark curves when switching accounts", async ()
   await wrapper.setProps({ account: { ...account, id: "b" } });
   await flushPromises();
   expect(pressed()).toEqual(["沪深300全收益", "标普500"]);
-  expect(calls.filter((call) => call.includes("/benchmark?"))).toHaveLength(4);
+  expect(calls.filter((call) => call.includes("/benchmark?"))).toHaveLength(2);
+});
+
+it("shows the cached account immediately on return, then replaces it with a verified read", async () => {
+  await overview();
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  await flushPromises();
+  const originalFetch = globalThis.fetch;
+  let finish!: (value: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, options?: RequestInit) =>
+      input.includes("/accounts/a/analysis-basis")
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : originalFetch(input, options),
+    ),
+  );
+  await wrapper.setProps({ account });
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(true);
+  expect(wrapper.get('[data-test="cached-overview"]').text()).toContain(
+    "正在核对",
+  );
+  expect(wrapper.find(".lp-chart-empty").exists()).toBe(false);
+  expect(wrapper.findComponent(returnChart).props("benchmarks")).toHaveLength(
+    2,
+  );
+  expect(wrapper.text()).toContain("26.00%");
+  const updated = fixture();
+  updated.returns.modified_dietz = {
+    ...metric(),
+    value: "0.420000000000",
+    percentage: "42.00",
+  };
+  updated.returns.curve.at(-1)!.modified_dietz = updated.returns.modified_dietz;
+  finish(response(updated));
+  await flushPromises();
+  expect(wrapper.find('[data-test="cached-overview"]').exists()).toBe(false);
+  expect(wrapper.text()).toContain("42.00%");
+});
+
+it("drops a cached chart if its revalidation reports a deleted account", async () => {
+  await overview();
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  await flushPromises();
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, options?: RequestInit) =>
+      input.includes("/accounts/a/analysis-basis")
+        ? Promise.resolve(
+            new Response(JSON.stringify({ code: "not_found" }), {
+              status: 404,
+            }),
+          )
+        : originalFetch(input, options),
+    ),
+  );
+  await wrapper.setProps({ account });
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(false);
+  expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+});
+
+it("keeps a cached chart visibly stale after a transient revalidation failure", async () => {
+  await overview();
+  await wrapper.setProps({ account: { ...account, id: "b" } });
+  await flushPromises();
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, options?: RequestInit) =>
+      input.includes("/accounts/a/analysis-basis")
+        ? Promise.resolve(
+            new Response(JSON.stringify({ code: "storage_busy" }), {
+              status: 503,
+            }),
+          )
+        : originalFetch(input, options),
+    ),
+  );
+  await wrapper.setProps({ account });
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(true);
+  expect(wrapper.get('[role="alert"]').text()).toContain("可能已过期");
+  expect(wrapper.find('[data-test="cached-overview"]').exists()).toBe(false);
+});
+
+it("clears cached finances when a write starts and requires fresh reads after success", async () => {
+  await overview();
+  const originalFetch = globalThis.fetch;
+  let finishWrite!: (value: Response) => void;
+  let finishRead!: (value: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, options?: RequestInit) => {
+      if (options?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          finishWrite = resolve;
+        });
+      if (input.includes("/accounts/a/analysis-basis"))
+        return new Promise<Response>((resolve) => {
+          finishRead = resolve;
+        });
+      return originalFetch(input, options);
+    }),
+  );
+  workspace.send(
+    new PendingWrite("/accounts/a/records", "POST", {}),
+    "保存",
+    () => true,
+  );
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(false);
+  finishWrite(response({}));
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(false);
+  expect(wrapper.find('[data-test="cached-overview"]').exists()).toBe(false);
+  finishRead(response(fixture()));
+  await flushPromises();
+  expect(wrapper.findComponent(returnChart).exists()).toBe(true);
 });
 
 it("shows a per-index error and retries without breaking the account curve", async () => {

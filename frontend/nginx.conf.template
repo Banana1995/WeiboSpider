@@ -23,6 +23,13 @@ server {
     }
 
     location ~ ^/api/platform/ledger(?:/|$) {
+        # Compress JSON responses without changing cache or write semantics.
+        gzip on;
+        gzip_types application/json;
+        gzip_min_length 1024;
+        gzip_comp_level 5;
+        gzip_vary on;
+        gzip_proxied any;
         client_max_body_size 8256k;
         client_body_timeout 15s;
         proxy_pass http://platform:5051;

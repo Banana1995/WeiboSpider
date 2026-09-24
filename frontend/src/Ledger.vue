@@ -29,6 +29,7 @@ import {
   ledgerWorkspaceKey,
 } from "./useLedgerWorkspace";
 import { useLedgerRead } from "./useLedgerRead";
+import { useLedgerPrefetch } from "./useLedgerPrefetch";
 import type { ImportResult } from "./ledgerImport";
 import "./ledger.css";
 
@@ -55,6 +56,36 @@ const workspace = createLedgerWorkspace(() => {
 provide(ledgerWorkspaceKey, workspace);
 const { locked, navigationLocked, pending, busy, error, notice, retry, label } =
   workspace;
+const readyAccount = ref("");
+watch(refreshKey, () => workspace.invalidateReads(), { flush: "sync" });
+watch(
+  [selected, workspace.cacheEpoch],
+  () => {
+    readyAccount.value = "";
+  },
+  { flush: "sync" },
+);
+watch(
+  locked,
+  (value) => {
+    if (value) workspace.invalidateReads();
+  },
+  { flush: "sync" },
+);
+useLedgerPrefetch(
+  () => ({
+    accounts: accounts.data ?? [],
+    selected: selected.value,
+    ready: readyAccount.value,
+    paused:
+      navigationLocked.value ||
+      manage.value ||
+      workspaceView.value !== "accounts",
+    epoch: workspace.cacheEpoch.value,
+  }),
+  workspace.accountCache,
+  workspace.benchmarkCache,
+);
 watch(navigationLocked, (value) => emit("locked", value), {
   immediate: true,
   flush: "sync",
@@ -255,6 +286,8 @@ onMounted(() => {
   document.addEventListener("auxclick", guardLink, true);
 });
 onBeforeUnmount(() => {
+  workspace.accountCache.clear();
+  workspace.benchmarkCache.clear();
   clearTimeout(noticeTimer);
   window.removeEventListener("beforeunload", beforeUnload);
   document.removeEventListener("click", guardLink, true);
@@ -382,6 +415,8 @@ onBeforeUnmount(() => {
             :account="account"
             :refresh-key="refreshKey"
             @locate="locate"
+            @ready="readyAccount = $event"
+            @loading="readyAccount = ''"
           />
           <LedgerHoldings
             :key="account.id"

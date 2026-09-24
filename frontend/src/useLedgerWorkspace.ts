@@ -1,7 +1,16 @@
 import { computed, inject, ref, shallowRef, type InjectionKey } from "vue";
 import { failure, LedgerError, type PendingWrite } from "./ledger";
+import { LedgerReadCache } from "./ledgerReadCache";
 
 export function createLedgerWorkspace(changed: () => void) {
+  const accountCache = new LedgerReadCache();
+  const benchmarkCache = new LedgerReadCache(5 * 60_000, 12, 2 * 1024 * 1024);
+  const cacheEpoch = ref(0);
+  function invalidateReads() {
+    accountCache.clear();
+    benchmarkCache.clear();
+    cacheEpoch.value++;
+  }
   const pending = shallowRef<PendingWrite<unknown>>();
   const externalLock = ref(false);
   const draftLock = ref(false);
@@ -40,6 +49,7 @@ export function createLedgerWorkspace(changed: () => void) {
     const done = completed;
     completed = undefined;
     validate = undefined;
+    invalidateReads();
     done?.();
     changed();
   }
@@ -50,6 +60,7 @@ export function createLedgerWorkspace(changed: () => void) {
     done?: () => void,
   ) {
     if (locked.value) return;
+    invalidateReads();
     pending.value = write;
     label.value = operation;
     notice.value = "";
@@ -64,6 +75,10 @@ export function createLedgerWorkspace(changed: () => void) {
     void retry();
   }
   return {
+    accountCache,
+    benchmarkCache,
+    cacheEpoch,
+    invalidateReads,
     pending,
     busy,
     error,

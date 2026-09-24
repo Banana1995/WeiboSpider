@@ -13,11 +13,17 @@ import {
   money,
   todayShanghai,
   validDay,
-  validSummary,
-  validateBasis,
   type AnalysisBasis,
 } from "./ledgerView";
 import { useLedgerRead } from "./useLedgerRead";
+import { useLedgerCachedRead } from "./useLedgerCachedRead";
+import {
+  accountBasisRequest,
+  accountSummaryRequest,
+  defaultBenchmarks,
+  peekBenchmark,
+  readBenchmark,
+} from "./ledgerCachedRequests";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 import LedgerReturnChart from "./LedgerReturnChart.vue";
 import LedgerAnnualReturns from "./LedgerAnnualReturns.vue";
@@ -33,7 +39,6 @@ import {
   benchmarkDefinitions,
   benchmarkEncodings,
   benchmarkLookbackFrom,
-  validBenchmark,
   type Benchmark,
   type BenchmarkCode,
 } from "./ledgerBenchmark";
@@ -46,6 +51,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   locate: [event: { id: string; date: string; accountId: string }];
   account: [id: string];
+  ready: [id: string];
+  loading: [id: string];
 }>();
 
 type BenchmarkRead = {
@@ -55,9 +62,10 @@ type BenchmarkRead = {
   clear: () => void;
   load: (read: (signal: AbortSignal) => Promise<Benchmark>) => Promise<void>;
 };
-const { locked } = useLedgerWorkspace();
-const summary = reactive(useLedgerRead<EffectiveSummary>());
-const basis = reactive(useLedgerRead<AnalysisBasis>());
+const { locked, accountCache, benchmarkCache, cacheEpoch } =
+  useLedgerWorkspace();
+const summary = reactive(useLedgerCachedRead<EffectiveSummary>(accountCache));
+const basis = reactive(useLedgerCachedRead<AnalysisBasis>(accountCache));
 const portfolioData = computed(() =>
   props.portfolio ? (basis.data as PortfolioBasis | undefined) : undefined,
 );
@@ -81,7 +89,6 @@ const benchmarkReads = Object.fromEntries(
     reactive(useLedgerRead<Benchmark>()),
   ]),
 ) as unknown as Record<BenchmarkCode, BenchmarkRead>;
-const defaultBenchmarks: BenchmarkCode[] = ["H00300", "usINX"];
 const selectedBenchmarks = ref<BenchmarkCode[]>([...defaultBenchmarks]);
 const benchmarkRanges = new Map<BenchmarkCode, string>();
 interface BenchmarkStatus {
@@ -342,14 +349,14 @@ function toggleBenchmark(code: BenchmarkCode) {
     ? selectedBenchmarks.value.filter((selected) => selected !== code)
     : [...selectedBenchmarks.value, code];
 }
-function loadBenchmark(code: BenchmarkCode) {
+function loadBenchmark(code: BenchmarkCode, force = false) {
   const read = benchmarkReads[code];
   const r = result.value;
   if (!isBenchmarkSelected(code) || !r?.effective_from || !r.effective_to)
     return;
   const from = benchmarkLookbackFrom(r.effective_from);
   const to = r.effective_to;
-  const key = `${props.account.id}|${from}|${to}`;
+  const key = `${from}|${to}`;
   if (
     benchmarkRanges.get(code) === key &&
     (read.data || read.loading || read.error)
@@ -357,19 +364,15 @@ function loadBenchmark(code: BenchmarkCode) {
     return;
   read.clear();
   benchmarkRanges.set(code, key);
-  void read.load(async (signal) => {
-    const data = await request<unknown>(
-      `/benchmark${query({ code, from, to })}`,
-      { signal },
+  if (!force) read.data = peekBenchmark(benchmarkCache, code, from, to);
+  if (!read.data)
+    void read.load((signal) =>
+      readBenchmark(benchmarkCache, code, from, to, signal, force),
     );
-    if (!validBenchmark(data, code, from, to))
-      throw new LedgerError("invalid_response");
-    return data;
-  });
 }
 function retryBenchmark(code: BenchmarkCode) {
   benchmarkRanges.delete(code);
-  loadBenchmark(code);
+  loadBenchmark(code, true);
 }
 function loadBenchmarks() {
   for (const definition of benchmarkDefinitions) loadBenchmark(definition.code);
@@ -401,48 +404,43 @@ function loadBenchmarkStatus() {
 function loadAnalysis() {
   basis.clear();
   entryPage.value = 0;
-  if (rangeError.value) return;
+  if (rangeError.value || locked.value) return;
   const a = props.account,
     { from, to } = bounds.value;
+  emit("loading", a.id);
   if (props.portfolio) {
     const portfolio = props.portfolio;
-    void basis.load(async (signal) =>
-      validatePortfolioBasis(
-        await request<PortfolioBasis>(
-          `/portfolios/${encodeURIComponent(a.id)}/analysis-basis${query({ from, to })}`,
-          { signal },
+    void basis.load({
+      key: `portfolio|${portfolio.id}|${portfolio.version}|${portfolio.currency}|${from}|${to}`,
+      read: async (signal) =>
+        validatePortfolioBasis(
+          await request<PortfolioBasis>(
+            `/portfolios/${encodeURIComponent(a.id)}/analysis-basis${query({ from, to })}`,
+            { signal },
+          ),
+          portfolio,
+          from,
+          to,
         ),
-        portfolio,
-        from,
-        to,
-      ),
-    );
+    });
     return;
   }
-  void basis.load(async (signal) =>
-    validateBasis(
-      await request<AnalysisBasis>(
-        `/accounts/${encodeURIComponent(a.id)}/analysis-basis${query({ from, to })}`,
-        { signal },
-      ),
-      a,
-      from,
-      to,
-    ),
-  );
+  void basis.load(accountBasisRequest(a, from, to)).then(() => {
+    if (
+      props.account.id === a.id &&
+      bounds.value.from === from &&
+      bounds.value.to === to &&
+      basis.data &&
+      !basis.loading &&
+      !basis.error
+    )
+      emit("ready", a.id);
+  });
 }
 function loadSummary() {
   summary.clear();
-  if (props.portfolio) return;
-  const id = props.account.id;
-  void summary.load(async (signal) => {
-    const s = await request<EffectiveSummary>(
-      `/accounts/${encodeURIComponent(id)}/effective-summary`,
-      { signal },
-    );
-    if (!validSummary(s)) throw new LedgerError("invalid_response");
-    return s;
-  });
+  if (props.portfolio || locked.value) return;
+  void summary.load(accountSummaryRequest(props.account));
 }
 watch(
   () => props.account.id,
@@ -470,17 +468,20 @@ watch(
 );
 watch(
   [
+    () => props.account.id,
     () => selectedBenchmarks.value.join(","),
     () => result.value?.effective_from,
     () => result.value?.effective_to,
   ],
   loadBenchmarks,
+  { immediate: true },
 );
 watch(
   () => result.value?.effective_from,
   (from) => {
     if (from) loadBenchmarkStatus();
   },
+  { immediate: true },
 );
 watch(benchmarkErrors, (errors, _, onCleanup) => {
   if (!errors.length) return;
@@ -493,14 +494,15 @@ watch(benchmarkErrors, (errors, _, onCleanup) => {
   }, 15000);
   onCleanup(() => clearInterval(timer));
 });
-watch(
-  () => props.refreshKey,
-  () => {
-    today.value = todayShanghai();
-    loadSummary();
-    loadAnalysis();
-  },
-);
+watch([() => props.refreshKey, cacheEpoch, locked], () => {
+  today.value = todayShanghai();
+  benchmarkRanges.clear();
+  for (const definition of benchmarkDefinitions)
+    benchmarkReads[definition.code].clear();
+  loadSummary();
+  loadAnalysis();
+  loadBenchmarks();
+});
 </script>
 
 <template>
@@ -571,7 +573,7 @@ watch(
               : "尚无可计算资产"
         }}</small>
         <small v-else>{{
-          summary.loading
+          summary.loading && !summary.data
             ? "正在读取"
             : summary.data?.latest_asset_date
               ? `以 ${summary.data.latest_asset_date} 明确资产加后续净转入计算`
@@ -622,6 +624,14 @@ watch(
         >
       </div>
     </div>
+    <p
+      v-if="(basis.loading && basis.data) || (summary.loading && summary.data)"
+      class="lp-reference"
+      role="status"
+      data-test="cached-overview"
+    >
+      已显示上次读取的结果，正在核对最新数据…
+    </p>
     <p v-if="summary.error" class="lp-error" role="alert">
       {{ errorText(summary.error) }}
       <button :disabled="locked || summary.loading" @click="loadSummary">
@@ -698,20 +708,21 @@ watch(
       </button>
     </p>
     <div
-      v-else-if="basis.loading"
+      v-if="basis.loading && !basis.data && !rangeError"
       class="lp-empty lp-chart-empty"
       role="status"
     >
       正在读取收益记录…
     </div>
     <LedgerPortfolioContributions
-      v-else-if="portfolioData && section === 'members'"
+      v-else-if="!rangeError && portfolioData && section === 'members'"
       :basis="portfolioData"
       :view="view"
       @account="emit('account', $event)"
     />
     <div
       v-else-if="
+        !rangeError &&
         result &&
         (result.days > 0 || chartMode === 'assets') &&
         plottedSamples.length

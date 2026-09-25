@@ -131,9 +131,10 @@ async function loadAccounts(preferred = selected.value) {
     return items;
   });
   if (generation === accountRequest && accounts.data) {
+    // Default to the first tab in the saved order, not the server's id order.
     selected.value = accounts.data.some((a) => a.id === preferred)
       ? preferred
-      : (accounts.data[0]?.id ?? "");
+      : (orderedAccounts.value[0]?.id ?? "");
     await nextTick();
     if (generation !== accountRequest) return;
     document

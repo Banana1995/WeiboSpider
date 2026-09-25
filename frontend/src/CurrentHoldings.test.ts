@@ -136,7 +136,6 @@ it("adds a queried identity and quantity atomically without standalone registrat
   expect(input).not.toHaveProperty("baseline_date");
   expect(fetcher.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
   expect(wrapper.emitted("saved")).toHaveLength(1);
-  expect(wrapper.text()).toContain("历史记录不变");
   expect(wrapper.find("dialog").exists()).toBe(false);
 });
 it("rejects duplicate market/code on add and edit even with different IDs", async () => {

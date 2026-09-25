@@ -52,7 +52,6 @@ const positions = ref<CurrentPosition[]>([]);
 const pending = shallowRef<PendingWrite<CurrentHoldings>>();
 const busy = ref(false);
 const error = ref("");
-const message = ref("");
 const editing = ref(false);
 const editTarget = ref("cash");
 const removing = ref(false);
@@ -227,7 +226,6 @@ function openEdit(target = "cash", remove = false) {
   editTarget.value = target;
   removing.value = remove;
   discard.value = false;
-  message.value = "";
   void nextTick(() =>
     panel.value?.querySelector<HTMLInputElement>("input")?.focus(),
   );
@@ -285,7 +283,6 @@ watch(
   () => [props.accountId, props.refreshKey],
   () => {
     error.value = "";
-    message.value = "";
     void load();
   },
   { immediate: true },
@@ -383,7 +380,6 @@ async function save() {
   editing.value = false;
   emit("saved");
   await load();
-  message.value = "持仓已保存，历史记录不变。";
   void nextTick(() =>
     (opener?.isConnected
       ? opener
@@ -425,7 +421,6 @@ async function save() {
     <p v-if="read.error || valuationError" class="lp-error" role="alert">
       {{ errorText(read.error || valuationError || "") }}
     </p>
-    <p v-if="message" role="status">{{ message }}</p>
     <div v-if="read.data" class="lp-holdings-totals">
       <div>
         <span>当前现金 · {{ currency }}</span>

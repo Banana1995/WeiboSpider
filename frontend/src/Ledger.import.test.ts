@@ -486,9 +486,6 @@ it("edits current holdings on the imported account, coordinates pending locks an
   await click("刷新行情");
   await flushPromises();
   expect(wrapper.get(".lp-holdings-totals").text()).toContain("0.00");
-  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
-    "历史记录不变",
-  );
   expect(
     fetcher.mock.calls.filter(([, init]) => init.method === "POST"),
   ).toHaveLength(0);

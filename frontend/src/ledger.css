@@ -260,6 +260,59 @@ html.lp-tab-grabbing * {
   justify-content: space-between;
   gap: 16px;
 }
+.ledger-page .lp-title-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.ledger-page .lp-fx-badge {
+  position: relative;
+  display: inline-flex;
+}
+.ledger-page .lp-fx-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid #c3d2bd;
+  border-radius: 10px;
+  background: #edf3e9;
+  color: #52644c;
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+.ledger-page .lp-fx-mark:focus-visible {
+  outline: 2px solid var(--lp-primary);
+  outline-offset: 2px;
+}
+.ledger-page .lp-fx-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: min(420px, 80vw);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  pointer-events: none;
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s;
+}
+.ledger-page .lp-fx-badge:hover .lp-fx-tip,
+.ledger-page .lp-fx-badge:focus-within .lp-fx-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
 .ledger-page .lp-segment {
   display: inline-flex;
   border: 1px solid var(--lp-rule);

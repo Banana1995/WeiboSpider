@@ -23,6 +23,7 @@ type Application struct {
 	worker          *liquor.Worker
 	ledgerWorker    *ledger.WeeklyWorker
 	benchmarkWorker *ledger.BenchmarkWorker
+	dividendWorker  *ledger.DividendWorker
 }
 
 func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
@@ -64,7 +65,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		if err != nil {
 			return nil, errors.Join(err, application.Close())
 		}
-		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, BenchmarkStatus: benchmark, Weekly: application.ledgerWorker}.Register(ledgerMux)
+		application.dividendWorker = ledger.NewDividendWorker(ledgerStore, ledger.NewPublicDividends(), fx, logger)
+		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, BenchmarkStatus: benchmark, Weekly: application.ledgerWorker, Dividends: application.dividendWorker}.Register(ledgerMux)
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})
@@ -99,6 +101,15 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	workerDone := make(chan error, 1)
 	ledgerDone := make(chan error, 1)
 	benchmarkDone := make(chan error, 1)
+	dividendDone := make(chan error, 1)
+	go func() {
+		if a.dividendWorker != nil {
+			dividendDone <- a.dividendWorker.Run(runCtx)
+		} else {
+			<-runCtx.Done()
+			dividendDone <- nil
+		}
+	}()
 	go func() { webDone <- server.Serve(listener) }()
 	go func() { workerDone <- a.worker.Run(runCtx) }()
 	go func() {
@@ -150,10 +161,11 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	if !benchmarkFinished {
 		benchmarkErr = <-benchmarkDone
 	}
+	dividendErr := <-dividendDone
 	if errors.Is(webErr, http.ErrServerClosed) {
 		webErr = nil
 	}
-	return errors.Join(webErr, workerErr, ledgerErr, benchmarkErr, shutdownErr)
+	return errors.Join(webErr, workerErr, ledgerErr, benchmarkErr, dividendErr, shutdownErr)
 }
 
 func (a *Application) Close() error {

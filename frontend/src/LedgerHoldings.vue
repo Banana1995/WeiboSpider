@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
-import CurrentHoldings from "./CurrentHoldings.vue";
-import { errorText, request, type Account, type Instrument } from "./ledger";
-import { validateHoldings, type HoldingsView } from "./holdings";
-import { useLedgerRead } from "./useLedgerRead";
+import StockHoldings from "./StockHoldings.vue";
+import { type Account, type Instrument } from "./ledger";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
-const props = defineProps<{
+defineProps<{
   account?: Account;
   accounts: Account[];
   instruments: Instrument[];
@@ -21,35 +18,6 @@ const emit = defineEmits<{
   changed: [];
 }>();
 const { locked } = useLedgerWorkspace();
-const view = reactive(useLedgerRead<HoldingsView>());
-const current = ref<InstanceType<typeof CurrentHoldings>>();
-let loadedAccount = "";
-function load() {
-  const account = props.account;
-  if (!account) return;
-  void view.load(async (signal) =>
-    validateHoldings(
-      await request<HoldingsView>(
-        `/accounts/${encodeURIComponent(account.id)}/holdings`,
-        { signal },
-      ),
-      account,
-    ),
-  );
-}
-watch(
-  () => [props.account?.id, props.refreshKey],
-  () => {
-    const id = props.account?.id ?? "";
-    // Keep the last valuation visible while refreshing the same account.
-    if (loadedAccount !== id) {
-      view.clear();
-      loadedAccount = id;
-    }
-    load();
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -59,32 +27,15 @@ watch(
     data-test="account-holdings"
   >
     <template v-if="account">
-      <CurrentHoldings
-        ref="current"
-        :account-id="account.id"
-        :currency="account.currency"
-        :instruments="instruments"
-        :disabled="locked || instrumentsLoading || !!instrumentsError"
+      <StockHoldings
+        :key="account.id"
+        :account="account"
         :refresh-key="refreshKey"
-        :valuation="view.data"
-        :valuation-loading="view.loading"
-        :valuation-error="view.error"
-        @refresh="
-          current?.load();
-          load();
-        "
-        @locked="emit('locked', $event)"
-        @saved="
-          load();
+        @changed="
+          emit('changed');
           emit('instruments');
         "
       />
-      <p v-if="instrumentsError" role="alert">
-        {{ errorText(instrumentsError) }}
-        <button :disabled="locked" @click="emit('instruments')">
-          重新读取证券
-        </button>
-      </p>
     </template>
     <div v-else class="lp-empty">
       <p>先创建账户，再添加持仓。</p>

@@ -38,6 +38,9 @@ func (s *Store) DeleteAccount(ctx context.Context, id, key string) (json.RawMess
 		// Delete jobs first (including terminal jobs referencing history). A worker
 		// outside the transaction can no longer pass its claim/completion fence.
 		for _, statement := range []string{
+			`DELETE FROM stock_dividend_status WHERE account_id=?`,
+			`DELETE FROM stock_entries WHERE account_id=?`,
+			`DELETE FROM stock_journals WHERE account_id=?`,
 			`DELETE FROM weekly_jobs WHERE account_id=?`,
 			`DELETE FROM current_holdings WHERE account_id=?`,
 			`DELETE FROM account_records WHERE account_id=?`,

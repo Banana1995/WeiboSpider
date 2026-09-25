@@ -142,6 +142,19 @@ func (s *Store) PutCurrentHoldings(ctx context.Context, id, key string, input Cu
 		if err != nil {
 			return err
 		}
+		var managed bool
+		var hasJournalTable bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_journals')`).Scan(&hasJournalTable); err != nil {
+			return err
+		}
+		if hasJournalTable {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM stock_journals WHERE account_id=?)`, id).Scan(&managed); err != nil {
+				return err
+			}
+		}
+		if managed {
+			return ErrStockManaged
+		}
 		old, err := readCurrentHoldings(ctx, tx, id)
 		if err != nil {
 			return err

@@ -95,6 +95,9 @@ export interface Page<T> {
   next_cursor?: string;
 }
 const errors: Record<string, string> = {
+  stock_quantity: "卖出数量超过该日期的持股数量，请核对买卖记录",
+  stock_cash: "现金余额不足，请先更新现金余额或核对交易日期",
+  stock_managed: "请通过个股交易记录调整持仓，通过现金入口更新余额",
   network_error: "网络连接中断，请重试",
   invalid_import: "导入文件格式或内容不合法，请检查指定行列",
   preview_mismatch: "文件校验不一致，请重新选择文件后导入",

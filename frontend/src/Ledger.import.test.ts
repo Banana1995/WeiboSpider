@@ -6,6 +6,7 @@ import ImportAccount from "./ImportAccount.vue";
 import ImportedRecords from "./ImportedRecords.vue";
 import { errorText, LedgerError, request, type Account } from "./ledger";
 import type { ImportPreview } from "./ledgerImport";
+import { emptyStockBook } from "./stockBook.testHelpers";
 
 const holdings: Account = {
   current_holdings_input: "manual_snapshot",
@@ -128,6 +129,8 @@ beforeEach(() => {
     }
     if (readFailure) return response({ code: "storage_busy" }, 503);
     if (path === "/accounts") return response({ items: accounts });
+    if (path.endsWith("/stock-book"))
+      return response(emptyStockBook(path.split("/")[2]));
     if (path.endsWith("/current-holdings"))
       return response({
         account_id: path.split("/")[2],
@@ -379,25 +382,25 @@ it("keeps success final when account and import reads fail, and never retries th
   ).toBeDefined();
 });
 
-it("accounts without a configured current source do not request valuations or accept transaction inputs", async () => {
+it("accounts without stocks offer the stock notebook without saving account valuations", async () => {
   await start(Ledger, false);
   await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
-  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
-    "尚未设置当前持仓",
+  expect(wrapper.get('[data-test="stock-book"]').text()).toContain(
+    "添加第一只股票",
   );
   expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(false);
   expect(wrapper.find('[name="to_account_id"]').exists()).toBe(false);
   expect(
     wrapper
       .findAll("button")
-      .find((b) => b.text() === "添加持仓")!
+      .find((b) => b.text() === "＋ 添加持仓")!
       .attributes("disabled"),
   ).toBeUndefined();
   await wrapper.findAll('[role="tab"]')[0]!.trigger("click");
   await flushPromises();
-  expect(wrapper.get('[data-test="current-holdings"]').text()).toContain(
-    "尚未设置当前持仓",
+  expect(wrapper.get('[data-test="stock-book"]').text()).toContain(
+    "添加第一只股票",
   );
   expect(
     fetcher.mock.calls.some(([url]) =>
@@ -407,53 +410,39 @@ it("accounts without a configured current source do not request valuations or ac
   expect(commits).toHaveLength(0);
 });
 
-it("edits current holdings on the imported account, coordinates pending locks and only explicitly quotes", async () => {
+it("sets stock cash on an imported account, locks navigation on uncertainty and retries the original command", async () => {
   const original = fetcher.getMockImplementation()!;
-  let snapshot: unknown = null;
+  let saved = false;
   let attempts = 0;
   fetcher.mockImplementation(async (url: string, init: RequestInit = {}) => {
-    if (url.endsWith("/accounts/reported/current-holdings")) {
-      if (init.method === "PUT") {
+    if (url.endsWith("/accounts/reported/stock-book")) {
+      if (init.method === "POST") {
         const input = JSON.parse(init.body as string);
-        snapshot = {
-          version: "1",
-          saved_at: "2026-09-08T00:00:00Z",
-          cash: input.cash,
-          positions: input.positions,
-        };
+        saved = true;
         if (++attempts === 1) throw new TypeError("synthetic lost receipt");
+        return response({
+          account_id: "reported",
+          version: "1",
+          id: input.id,
+          action: input.action,
+        });
       }
       return response({
-        account_id: "reported",
-        audit_id: snapshot ? "5" : "",
-        snapshot,
+        ...emptyStockBook("reported"),
+        version: saved ? "1" : "0",
+        cash: saved ? "100.00" : "0.00",
       });
     }
-    if (url.endsWith("/accounts/reported/holdings") && snapshot)
-      return response({
-        account_id: "reported",
-        currency: "CNY",
-        source: "manual_snapshot",
-        as_of: "2026-09-08",
-        ledger_at: "2026-09-08T00:00:00Z",
-        revision: "a".repeat(64),
-        manual_version: "1",
-        configured: true,
-        cash: "0.00",
-        complete: true,
-        total_assets: "0.00",
-        items: [],
-      });
     return original(url, init);
   });
   await start(Ledger, false);
   await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
-  const panel = wrapper.get('[data-test="current-holdings"]');
-  expect(panel.text()).toContain("尚未设置");
-  await click("设置现金");
-  await panel.get('[name="current_cash"]').setValue("0.00");
-  await panel.get("form").trigger("submit");
+  const panel = wrapper.get('[data-test="stock-book"]');
+  expect(panel.text()).toContain("添加第一只股票");
+  await panel.get(".stock-cash").trigger("click");
+  await wrapper.get('[name="cash"]').setValue("100.00");
+  await wrapper.get(".stock-trade-form").trigger("submit");
   await flushPromises();
   expect(
     wrapper
@@ -467,7 +456,7 @@ it("edits current holdings on the imported account, coordinates pending locks an
       .every((b) => b.attributes("disabled") !== undefined),
   ).toBe(true);
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
-  await panel.get('[data-test="current-retry"]').trigger("click");
+  await click("按原请求重试确认");
   await flushPromises();
   expect(wrapper.find('[data-test="save-valuation"]').exists()).toBe(false);
   expect(
@@ -476,19 +465,19 @@ it("edits current holdings on the imported account, coordinates pending locks an
     ),
   ).toBe(false);
   const writes = fetcher.mock.calls.filter(
-    ([url, init]) => url.endsWith("/current-holdings") && init.method === "PUT",
+    ([url, init]) => url.endsWith("/stock-book") && init.method === "POST",
   );
   expect(writes).toHaveLength(2);
   expect(writes[0]![1].body).toBe(writes[1]![1].body);
   expect(new Headers(writes[0]![1].headers).get("Idempotency-Key")).toBe(
     new Headers(writes[1]![1].headers).get("Idempotency-Key"),
   );
-  await click("刷新行情");
+  await panel
+    .findAll("button")
+    .find((b) => b.text() === "刷新")!
+    .trigger("click");
   await flushPromises();
-  expect(wrapper.get(".lp-holdings-totals").text()).toContain("0.00");
-  expect(
-    fetcher.mock.calls.filter(([, init]) => init.method === "POST"),
-  ).toHaveLength(0);
+  expect(wrapper.get(".stock-cash").text()).toContain("100.00");
   expect(
     fetcher.mock.calls.some(([url]) =>
       /\/accounts\/reported\/(positions|operations)/.test(url),

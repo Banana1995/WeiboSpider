@@ -20,6 +20,7 @@ import {
   useLedgerWorkspace,
 } from "./useLedgerWorkspace";
 const styles = readFileSync("src/ledger.css", "utf8");
+import { emptyStockBook } from "./stockBook.testHelpers";
 
 const account: Account = {
   id: "a",
@@ -208,6 +209,8 @@ beforeEach(() => {
       if (url.pathname.endsWith("/accounts"))
         return response({ items: accountList });
       if (url.pathname.endsWith("/instruments")) return response({ items: [] });
+      if (url.pathname.endsWith("/stock-book"))
+        return response(emptyStockBook(url.pathname.split("/").at(-2)));
       if (url.pathname.endsWith("/current-holdings"))
         return response({
           account_id: url.pathname.split("/").at(-2),
@@ -425,22 +428,17 @@ it("shows account holdings immediately above records without automatically savin
   expect(holdings.element.nextElementSibling).toBe(
     wrapper.get('[data-test="account-records"]').element,
   );
-  expect(holdings.text()).toContain("尚未设置当前持仓");
+  expect(holdings.text()).toContain("添加第一只股票");
   expect(holdings.text()).toContain("添加持仓");
-  expect(calls.filter((path) => path.endsWith("/current-holdings"))).toEqual([
-    "/api/platform/ledger/accounts/a/current-holdings",
-  ]);
-  expect(calls.filter((path) => path.endsWith("/holdings"))).toEqual([
-    "/api/platform/ledger/accounts/a/holdings",
+  expect(calls.filter((path) => path.endsWith("/stock-book"))).toEqual([
+    "/api/platform/ledger/accounts/a/stock-book",
   ]);
   expect(
     calls.some((path) => /\/(valuation|instruments\/search)/.test(path)),
   ).toBe(false);
   await wrapper.get("#account-tab-b").trigger("click");
   await flushPromises();
-  expect(
-    calls.filter((path) => path.endsWith("/current-holdings")),
-  ).toHaveLength(2);
+  expect(calls.filter((path) => path.endsWith("/stock-book"))).toHaveLength(2);
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 

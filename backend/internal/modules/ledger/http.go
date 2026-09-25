@@ -32,6 +32,7 @@ type Handler struct {
 	BenchmarkStatus  *StoredBenchmarks
 	Now              func() time.Time
 	Weekly           *WeeklyWorker
+	Dividends        *DividendWorker
 }
 
 func (h Handler) Register(mux *http.ServeMux) {
@@ -61,6 +62,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}":                              h.account,
 		"/accounts/{id}/current-holdings":             h.currentHoldings,
 		"/accounts/{id}/holdings":                     h.holdings,
+		"/accounts/{id}/stock-book":                   h.stockBook,
 		"/accounts/{id}/valuation":                    h.valuation,
 		"/accounts/{id}/valuations":                   h.valuations,
 		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,
@@ -378,6 +380,12 @@ func (h Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	status, code, message := 500, "internal_error", "ledger request failed"
 	var sqliteError sqlite3.Error
 	switch {
+	case errors.Is(err, ErrStockQuantity):
+		status, code, message = 422, "stock_quantity", "卖出数量超过该交易日期的持股数量，请核对历史记录"
+	case errors.Is(err, ErrStockCash):
+		status, code, message = 422, "stock_cash", "现金余额不足，请先更新现金余额或核对交易日期"
+	case errors.Is(err, ErrStockManaged):
+		status, code, message = 409, "stock_managed", "请通过个股买卖记录调整持仓，通过现金入口更新余额"
 	case errors.Is(err, ErrCorrupt):
 		code, message = "data_integrity", "ledger data requires integrity review"
 	case errors.Is(err, context.DeadlineExceeded):

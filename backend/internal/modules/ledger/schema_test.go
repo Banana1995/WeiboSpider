@@ -67,7 +67,7 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 4, count)
+		require.Equal(t, 5, count)
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)
@@ -109,7 +109,7 @@ func TestSchemaUpgradeAddsBenchmarkHistoryWithoutChangingAccounts(t *testing.T) 
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM benchmark_closes").Scan(&count))
 	require.Zero(t, count)
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-	require.Equal(t, 4, count)
+	require.Equal(t, 5, count)
 }
 
 func TestSchemaFreshInstallShape(t *testing.T) {
@@ -117,7 +117,7 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	expected := []string{"accounts", "instruments", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "portfolios", "benchmark_closes", "benchmark_coverage", "benchmark_sync_status", "schema_migrations"}
+	expected := []string{"accounts", "instruments", "audit_log", "account_records", "idempotency_receipts", "weekly_jobs", "current_holdings", "portfolios", "benchmark_closes", "benchmark_coverage", "benchmark_sync_status", "schema_migrations", "stock_journals", "stock_entries", "stock_dividend_cache", "stock_dividend_status"}
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_schema
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&count))
@@ -136,7 +136,10 @@ func TestSchemaFreshInstallShape(t *testing.T) {
 		require.NoError(t, db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name=?)`, name).Scan(&exists))
 		require.Zero(t, exists, name)
 	}
-	for _, table := range expected[:len(expected)-1] {
+	for _, table := range expected {
+		if table == "schema_migrations" {
+			continue
+		}
 		var strict int
 		require.NoError(t, db.QueryRowContext(t.Context(), `SELECT strict FROM pragma_table_list WHERE name=?`, table).Scan(&strict))
 		require.Equal(t, 1, strict, table)

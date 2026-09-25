@@ -91,13 +91,6 @@ const blocked = computed(
     !!read.error ||
     !read.data,
 );
-watch(
-  editing,
-  (value) => {
-    draftLock.value = value;
-  },
-  { flush: "sync" },
-);
 function closeEdit() {
   if (pending.value || busy.value) return;
   if (dirty.value && !discard.value) {
@@ -126,6 +119,50 @@ function resume() {
     panel.value?.querySelector<HTMLInputElement>("input")?.focus(),
   );
 }
+// The add-position panel is transient: clicking anywhere else cancels it
+// without a discard prompt so the rest of the page stays usable.
+const addingPosition = computed(
+  () =>
+    editing.value &&
+    (selecting.value !== null ||
+      editTarget.value === "add" ||
+      (!read.data?.snapshot?.positions.some(
+        (p) => p.instrument_id === editTarget.value,
+      ) &&
+        editTarget.value !== "cash")),
+);
+function cancelAdd() {
+  if (pending.value || busy.value) return;
+  securityDirty.value = false;
+  discard.value = false;
+  selecting.value = null;
+  editing.value = false;
+  error.value = "";
+}
+function outsideAdd(event: PointerEvent) {
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (panel.value?.querySelector(".lp-add-position")?.contains(target)) return;
+  cancelAdd();
+}
+watch(
+  addingPosition,
+  (open) => {
+    if (open) document.addEventListener("pointerdown", outsideAdd, true);
+    else document.removeEventListener("pointerdown", outsideAdd, true);
+  },
+  { flush: "sync" },
+);
+// Editing cash or an existing position still guards the draft; the transient
+// add flow stays non-blocking so the rest of the page remains clickable.
+const blockingEdit = computed(() => editing.value && !addingPosition.value);
+watch(
+  () => editing.value && !addingPosition.value,
+  (value) => {
+    draftLock.value = value;
+  },
+  { flush: "sync" },
+);
 watch(error, (value) => {
   if (value)
     void nextTick(() =>
@@ -142,6 +179,7 @@ window.addEventListener("beforeunload", beforeUnload);
 onBeforeUnmount(() => {
   draftLock.value = false;
   window.removeEventListener("beforeunload", beforeUnload);
+  document.removeEventListener("pointerdown", outsideAdd, true);
 });
 function selectSecurity(i: Instrument) {
   const index = selecting.value;
@@ -357,7 +395,9 @@ async function save() {
       <h2>当前持仓</h2>
       <div class="lp-actions">
         <button
-          :disabled="disabled || editing || read.loading || valuationLoading"
+          :disabled="
+            disabled || blockingEdit || read.loading || valuationLoading
+          "
           @click="emit('refresh')"
         >
           {{ read.loading || valuationLoading ? "刷新中…" : "刷新行情" }}
@@ -366,7 +406,7 @@ async function save() {
           class="lp-primary"
           :disabled="
             blocked ||
-            editing ||
+            blockingEdit ||
             (read.data?.snapshot?.positions.length ?? 0) >= 200
           "
           @click="addHolding"
@@ -391,7 +431,7 @@ async function save() {
         <button
           v-if="!(editing && editTarget === 'cash')"
           class="lp-text-button lp-cash-edit"
-          :disabled="blocked || editing"
+          :disabled="blocked || blockingEdit"
           @click="openEdit('cash')"
         >
           {{ read.data.snapshot ? "编辑现金" : "设置现金" }}
@@ -502,14 +542,14 @@ async function save() {
               <button
                 class="lp-text-button"
                 :aria-label="`编辑 ${instrumentName(p.instrument_id)}`"
-                :disabled="blocked || editing"
+                :disabled="blocked || blockingEdit"
                 @click="openEdit(p.instrument_id)"
               >
                 编辑</button
               ><button
                 class="lp-text-button"
                 :aria-label="`删除 ${instrumentName(p.instrument_id)}`"
-                :disabled="blocked || editing"
+                :disabled="blocked || blockingEdit"
                 @click="openEdit(p.instrument_id, true)"
               >
                 删除
@@ -570,18 +610,7 @@ async function save() {
           : "尚未设置当前持仓。设置当前现金或添加第一只股票。"
       }}
     </p>
-    <div
-      v-if="
-        editing &&
-        (selecting !== null ||
-          editTarget === 'add' ||
-          (!read.data?.snapshot?.positions.some(
-            (p) => p.instrument_id === editTarget,
-          ) &&
-            editTarget !== 'cash'))
-      "
-      class="lp-add-position"
-    >
+    <div v-if="addingPosition" class="lp-add-position">
       <h3>添加持仓</h3>
       <LedgerSecurityDialog
         v-if="selecting !== null"
@@ -603,14 +632,6 @@ async function save() {
             {{ identity(editTarget)?.currency }}</small
           ></template
         >
-        <label v-if="!read.data?.snapshot && editTarget !== 'add'"
-          >当前现金（{{ currency }}）<input
-            v-model="cash"
-            name="current_cash"
-            inputmode="decimal"
-            required
-            :disabled="blocked"
-        /></label>
         <label v-if="positions.some((p) => p.instrument_id === editTarget)"
           >当前数量<input
             v-model="

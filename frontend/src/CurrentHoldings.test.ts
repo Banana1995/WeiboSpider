@@ -118,7 +118,6 @@ it("adds a queried identity and quantity atomically without standalone registrat
   await wrapper
     .get('[name="current_quantity_0"]')
     .setValue("9007199254.740993");
-  await wrapper.get('[name="current_cash"]').setValue("90071992547409.01");
   await save();
   const writes = fetcher.mock.calls.filter(([, i]) => i?.method === "PUT");
   expect(writes).toHaveLength(1);
@@ -127,6 +126,7 @@ it("adds a queried identity and quantity atomically without standalone registrat
     instrument_id: input.securities[0].id,
     quantity: "9007199254.740993",
   });
+  expect(input.cash).toBe("0.00");
   expect(input.securities[0]).toMatchObject({
     market: "SH",
     code: "600000",
@@ -266,6 +266,20 @@ it("protects a securities search draft without opening any dialog", async () => 
   ).toBe("600000");
 });
 
+it("keeps the page unlocked while adding and cancels the panel on an outside click", async () => {
+  await start();
+  await button("添加持仓");
+  await wrapper.get('[name="security_search"]').setValue("600000");
+  expect(workspace.navigationLocked.value).toBe(false);
+  expect((wrapper.get("button").element as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+  await flushPromises();
+  expect(wrapper.find(".lp-add-position").exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("放弃尚未保存的修改");
+  expect(workspace.navigationLocked.value).toBe(false);
+});
 it("allows a security held elsewhere when this account has no duplicate", async () => {
   await start();
   await button("添加持仓");

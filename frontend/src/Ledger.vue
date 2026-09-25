@@ -30,6 +30,7 @@ import {
 } from "./useLedgerWorkspace";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerPrefetch } from "./useLedgerPrefetch";
+import { applyTabOrder, loadTabOrder, saveTabOrder } from "./ledgerTabOrder";
 import type { ImportResult } from "./ledgerImport";
 import "./ledger.css";
 
@@ -37,6 +38,19 @@ const emit = defineEmits<{ locked: [value: boolean] }>();
 const accounts = reactive(useLedgerRead<Account[]>());
 const instruments = reactive(useLedgerRead<Instrument[]>());
 const selected = ref("");
+const tabOrder = ref<string[]>(loadTabOrder());
+const orderedAccounts = computed(() =>
+  applyTabOrder(accounts.data ?? [], tabOrder.value),
+);
+const tablist = ref<HTMLElement>();
+const draggingId = ref("");
+let suppressTabClick = false;
+let tabDrag: {
+  id: string;
+  pointerId: number;
+  startX: number;
+  moved: boolean;
+} | null = null;
 const workspaceView = ref<"accounts" | "portfolios">("accounts");
 const portfoliosOpened = ref(false);
 const returnPortfolio = ref("");
@@ -62,13 +76,6 @@ watch(
   [selected, workspace.cacheEpoch],
   () => {
     readyAccount.value = "";
-  },
-  { flush: "sync" },
-);
-watch(
-  locked,
-  (value) => {
-    if (value) workspace.invalidateReads();
   },
   { flush: "sync" },
 );
@@ -179,6 +186,78 @@ function selectWorkspace(view: "accounts" | "portfolios") {
   workspaceView.value = view;
   if (view === "portfolios") portfoliosOpened.value = true;
   manage.value = false;
+}
+function tabIndexAt(clientX: number) {
+  const element = tablist.value;
+  if (!element) return -1;
+  let target = -1;
+  let closest = Infinity;
+  element
+    .querySelectorAll<HTMLElement>("[data-account-id]")
+    .forEach((node, index) => {
+      const rect = node.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - clientX);
+      if (distance < closest) {
+        closest = distance;
+        target = index;
+      }
+    });
+  return target;
+}
+function endTabDrag(event: PointerEvent) {
+  if (!tabDrag || event.pointerId !== tabDrag.pointerId) return;
+  const moved = tabDrag.moved;
+  window.removeEventListener("pointermove", moveTabDrag);
+  window.removeEventListener("pointerup", endTabDrag);
+  window.removeEventListener("pointercancel", endTabDrag);
+  tabDrag = null;
+  draggingId.value = "";
+  document.documentElement.classList.remove("lp-tab-grabbing");
+  if (moved) {
+    saveTabOrder(orderedAccounts.value.map((a) => a.id));
+    window.setTimeout(() => {
+      suppressTabClick = false;
+    }, 0);
+  }
+}
+function moveTabDrag(event: PointerEvent) {
+  if (!tabDrag || event.pointerId !== tabDrag.pointerId) return;
+  if (!tabDrag.moved) {
+    if (Math.abs(event.clientX - tabDrag.startX) < 6) return;
+    tabDrag.moved = true;
+    suppressTabClick = true;
+    draggingId.value = tabDrag.id;
+    document.documentElement.classList.add("lp-tab-grabbing");
+  }
+  const ids = orderedAccounts.value.map((a) => a.id);
+  const from = ids.indexOf(tabDrag.id);
+  const to = tabIndexAt(event.clientX);
+  if (from < 0 || to < 0 || to === from) return;
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, tabDrag.id);
+  tabOrder.value = next;
+}
+function startTabDrag(event: PointerEvent, id: string) {
+  if (
+    navigationLocked.value ||
+    event.pointerType !== "mouse" ||
+    event.button !== 0
+  )
+    return;
+  tabDrag = {
+    id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    moved: false,
+  };
+  window.addEventListener("pointermove", moveTabDrag);
+  window.addEventListener("pointerup", endTabDrag);
+  window.addEventListener("pointercancel", endTabDrag);
+}
+function selectAccountTab(id: string) {
+  if (suppressTabClick) return;
+  selectAccount(id);
 }
 function viewPortfolioAccount(event: { id: string; portfolio: string }) {
   if (navigationLocked.value) return;
@@ -292,6 +371,10 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", beforeUnload);
   document.removeEventListener("click", guardLink, true);
   document.removeEventListener("auxclick", guardLink, true);
+  window.removeEventListener("pointermove", moveTabDrag);
+  window.removeEventListener("pointerup", endTabDrag);
+  window.removeEventListener("pointercancel", endTabDrag);
+  document.documentElement.classList.remove("lp-tab-grabbing");
 });
 </script>
 
@@ -367,22 +450,27 @@ onBeforeUnmount(() => {
       </p>
       <div
         v-if="workspaceView === 'accounts' && accounts.data?.length"
-        class="lp-account-tabs"
+        ref="tablist"
+        class="lp-account-tabs lp-reorderable"
         role="tablist"
         aria-label="选择账户"
         @keydown="accountKey"
       >
         <button
-          v-for="a in accounts.data"
+          v-for="a in orderedAccounts"
           :id="`account-tab-${a.id}`"
           :key="a.id"
           role="tab"
+          :data-account-id="a.id"
           :aria-selected="selected === a.id"
           :aria-controls="`account-panel-${a.id}`"
           :tabindex="selected === a.id ? 0 : -1"
           :disabled="navigationLocked"
           :title="a.name"
-          @click="selectAccount(a.id)"
+          draggable="false"
+          :class="{ 'lp-tab-dragging': draggingId === a.id }"
+          @pointerdown="startTabDrag($event, a.id)"
+          @click="selectAccountTab(a.id)"
         >
           {{ a.name }}
         </button>

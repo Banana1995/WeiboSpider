@@ -438,7 +438,7 @@ watch(benchmarkErrors, (errors, _, onCleanup) => {
   }, 15000);
   onCleanup(() => clearInterval(timer));
 });
-watch([() => props.refreshKey, cacheEpoch, locked], () => {
+watch([() => props.refreshKey, cacheEpoch], () => {
   today.value = todayShanghai();
   benchmarkRanges.clear();
   for (const definition of benchmarkDefinitions)

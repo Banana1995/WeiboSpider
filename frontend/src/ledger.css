@@ -219,6 +219,18 @@
   border-bottom-color: var(--lp-primary);
   font-weight: 650;
 }
+.ledger-page .lp-reorderable button {
+  cursor: grab;
+}
+.ledger-page .lp-reorderable button.lp-tab-dragging {
+  cursor: grabbing;
+  opacity: 0.65;
+}
+html.lp-tab-grabbing,
+html.lp-tab-grabbing * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
 .ledger-page .lp-actions {
   display: flex;
   align-items: center;

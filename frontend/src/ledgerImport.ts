@@ -38,6 +38,11 @@ export interface ImportPreview {
   rows: ImportedRow[];
   summary: ImportSummary;
   warnings: string[];
+  channels?: {
+    names: string[];
+    snapshot_count: number;
+    unresolved_rows: number[];
+  };
 }
 export interface ImportedSummary {
   batch_id: string;

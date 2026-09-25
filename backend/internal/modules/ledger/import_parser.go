@@ -61,11 +61,12 @@ type ImportSummary struct {
 }
 
 type ImportPreview struct {
-	Digest   string         `json:"digest"`
-	Metadata ImportMetadata `json:"metadata"`
-	Rows     []ImportedRow  `json:"rows"`
-	Summary  ImportSummary  `json:"summary"`
-	Warnings []string       `json:"warnings"`
+	Digest   string                `json:"digest"`
+	Metadata ImportMetadata        `json:"metadata"`
+	Rows     []ImportedRow         `json:"rows"`
+	Summary  ImportSummary         `json:"summary"`
+	Warnings []string              `json:"warnings"`
+	Channels *ImportChannelSummary `json:"channels,omitempty"`
 }
 
 // Import errors contain only fixed codes and coordinates, never cell contents.
@@ -516,6 +517,7 @@ func ParseAccountImport(ctx context.Context, data []byte) (*ImportPreview, error
 		return nil, invalidImport("summary_overflow", 0, "")
 	}
 	p.Summary.TotalIn, p.Summary.TotalOut = Money(totalIn.Int64()), Money(totalOut.Int64())
+	p.Channels = summarizeImportChannels(p.Rows)
 	canonical, err := json.Marshal(struct {
 		Version  string         `json:"version"`
 		Metadata ImportMetadata `json:"metadata"`

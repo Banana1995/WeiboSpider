@@ -315,6 +315,7 @@ onBeforeUnmount(() => {
               "
               >{{ recordKind(r) }}</span
             >
+            <small v-if="r.flow_channel">{{ r.flow_channel }}</small>
           </td>
           <td data-label="转入" class="lp-money lp-in">
             {{
@@ -326,6 +327,9 @@ onBeforeUnmount(() => {
           </td>
           <td data-label="总资产" class="lp-money lp-record-assets">
             {{ money(r.total_assets) }}
+            <small v-if="r.channel_assets?.length"
+              >{{ r.channel_assets.length }} 个渠道</small
+            >
           </td>
           <td class="lp-record-note">{{ r.note || "—" }}</td>
           <td class="lp-row-actions">

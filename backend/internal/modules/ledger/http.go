@@ -46,6 +46,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}/weekly-jobs":                  h.weeklyJobs,
 		"/accounts/{id}/weekly-jobs/{jobID}":          h.weeklyJob,
 		"/accounts/{id}/records":                      h.accountRecords,
+		"/accounts/{id}/channels":                     h.accountChannels,
 		"/accounts/{id}/records/{recordID}":           h.accountRecord,
 		"/accounts/{id}/records/{recordID}/revisions": h.accountRecordRevisions,
 		"/accounts/{id}/effective-summary":            h.effectiveSummary,

@@ -585,7 +585,6 @@ async function save() {
       <h3>添加持仓</h3>
       <LedgerSecurityDialog
         v-if="selecting !== null"
-        embedded
         @dirty="securityDirty = $event"
         @close="closeEdit"
         @selected="selectSecurity"

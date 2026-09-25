@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
+import LedgerChannelEditor from "./LedgerChannelEditor.vue";
+import { channelAssetsTotal, validChannelName } from "./ledgerChannels";
 import {
   decimal,
   errorText,
@@ -17,6 +19,8 @@ import {
   type AccountEntry,
   type AccountRecord,
   type AccountRecordRevision,
+  type AccountChannels,
+  type ChannelAsset,
 } from "./accountRecords";
 import {
   money,
@@ -24,6 +28,7 @@ import {
   todayShanghai,
   validDay,
   validRecord,
+  opaqueID,
 } from "./ledgerView";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
@@ -42,6 +47,24 @@ const kind = ref("in");
 const date = ref(todayShanghai());
 const amount = ref("");
 const assets = ref("");
+const splitAssets = ref(false);
+const withAssets = ref(false);
+const hasAssets = computed(
+  () =>
+    kind.value === "asset" ||
+    ((kind.value === "in" || kind.value === "out") && withAssets.value),
+);
+const channelAssets = ref<ChannelAsset[]>([]);
+const channelsEdited = ref(false);
+const flowChannel = ref("");
+const channels = reactive(useLedgerRead<AccountChannels>());
+const channelNames = computed(() => [
+  ...new Set([
+    ...(channels.data?.items.map((item) => item.name) ?? []),
+    ...channelAssets.value.map((item) => item.name).filter(Boolean),
+    ...(read.data?.flow_channel ? [read.data.flow_channel] : []),
+  ]),
+]);
 const note = ref("");
 const reason = ref("");
 const validation = ref("");
@@ -56,6 +79,10 @@ const serialize = () =>
     assets.value,
     note.value,
     reason.value,
+    splitAssets.value,
+    withAssets.value,
+    channelAssets.value,
+    flowChannel.value,
   ]);
 original.value = serialize();
 const dirty = computed(
@@ -88,6 +115,11 @@ function populate() {
   date.value = r.date;
   amount.value = r.flow?.replace(/^-/, "") ?? "";
   assets.value = r.total_assets ?? "";
+  channelAssets.value = r.channel_assets?.map((item) => ({ ...item })) ?? [];
+  splitAssets.value = channelAssets.value.length > 0;
+  withAssets.value = r.total_assets !== null;
+  channelsEdited.value = false;
+  flowChannel.value = r.flow_channel ?? channelNames.value[0] ?? "";
   note.value = r.note;
   reason.value = "";
   original.value = serialize();
@@ -119,9 +151,70 @@ function edit() {
   populate();
   mode.value = "edit";
 }
+function addFirstChannel() {
+  channelAssets.value = [{ name: "", amount: assets.value }];
+  channelsEdited.value = true;
+  splitAssets.value = true;
+}
+function updateChannelAssets(items: ChannelAsset[]) {
+  channelAssets.value = items;
+  channelsEdited.value = true;
+}
+function selectKind(value: string) {
+  kind.value = value;
+  if (!props.recordId) splitAssets.value = channelAssets.value.length > 0;
+}
+async function loadChannels() {
+  channels.clear();
+  if (!validDay(date.value)) return;
+  const to = date.value;
+  await channels.load(async (signal) => {
+    const result = await request<AccountChannels>(
+      `/accounts/${encodeURIComponent(props.account.id)}/channels${query({ to })}`,
+      { signal },
+    );
+    if (
+      !result ||
+      result.account_id !== props.account.id ||
+      result.as_of !== to ||
+      !Array.isArray(result.items) ||
+      (result.items.length > 0 &&
+        (channelAssetsTotal(result.items) === null ||
+          !opaqueID(result.source_record_id) ||
+          !validDay(result.source_date) ||
+          result.source_date > to)) ||
+      (result.items.length === 0 &&
+        (result.source_record_id !== "" || result.source_date !== ""))
+    )
+      throw new LedgerError("invalid_response");
+    return result;
+  });
+  if (!channels.data || channels.error || to !== date.value) return;
+  const clean = !dirty.value;
+  if (!props.recordId && !channelsEdited.value) {
+    channelAssets.value = channels.data.items.map((item) => ({
+      name: item.name,
+      amount: "",
+    }));
+    splitAssets.value = channelAssets.value.length > 0;
+  }
+  if (!channelNames.value.includes(flowChannel.value))
+    flowChannel.value = channelNames.value[0] ?? "";
+  if (clean) original.value = serialize();
+}
+watch(
+  [date, mode],
+  () => {
+    if (mode.value === "create" || mode.value === "edit") void loadChannels();
+    else channels.clear();
+  },
+  { immediate: true },
+);
 function save() {
   if (
     locked.value ||
+    channels.loading ||
+    !!channels.error ||
     conflict.value ||
     read.data?.voided ||
     (props.recordId && (!read.data || read.error || read.loading))
@@ -133,6 +226,31 @@ function save() {
     return;
   }
   const cashFlow = kind.value === "in" || kind.value === "out";
+  const channelEntries = channelAssets.value.map((item) => ({
+    ...item,
+    name: item.name.trim(),
+  }));
+  const total = hasAssets.value
+    ? splitAssets.value
+      ? channelAssetsTotal(channelEntries)
+      : assets.value
+    : "";
+  if (hasAssets.value && splitAssets.value && total === null) {
+    validation.value =
+      "请填写不重复的渠道名称和每个渠道的非负金额（最多两位小数），并检查合计是否超出范围。";
+    return;
+  }
+  const selectedChannel = cashFlow
+    ? flowChannel.value || channelNames.value[0] || ""
+    : "";
+  if (
+    selectedChannel &&
+    (!validChannelName(selectedChannel) ||
+      !channelNames.value.includes(selectedChannel))
+  ) {
+    validation.value = "请选择账户已有的资金渠道。";
+    return;
+  }
   if (
     cashFlow &&
     (!decimal(`${kind.value === "out" ? "-" : ""}${amount.value}`, 2) ||
@@ -143,9 +261,8 @@ function save() {
     return;
   }
   if (
-    (kind.value === "asset" && !assets.value) ||
-    (assets.value &&
-      (!decimal(assets.value, 2) || assets.value.startsWith("-")))
+    (hasAssets.value && !total) ||
+    (total && (!decimal(total, 2) || total.startsWith("-")))
   ) {
     validation.value = "总资产请填写非负金额，最多两位小数；留空与零不同。";
     return;
@@ -163,9 +280,12 @@ function save() {
     kind: cashFlow ? "cash_flow" : kind.value === "log" ? "log" : "asset",
     date: date.value,
     flow: cashFlow ? `${kind.value === "out" ? "-" : ""}${amount.value}` : null,
-    total_assets:
-      kind.value === "log" || assets.value === "" ? null : assets.value,
+    total_assets: kind.value === "log" || total === "" ? null : total,
     note: note.value,
+    ...(hasAssets.value && splitAssets.value
+      ? { channel_assets: channelEntries }
+      : {}),
+    ...(selectedChannel ? { flow_channel: selectedChannel } : {}),
   };
   const id = read.data?.id ?? `manual-${newID()}`;
   const path = `/accounts/${encodeURIComponent(props.account.id)}/records`;
@@ -300,6 +420,14 @@ function nextHistory() {
             <dt>备注</dt>
             <dd class="lp-note-text">{{ read.data.note || "—" }}</dd>
           </div>
+          <div v-if="read.data.flow_channel">
+            <dt>资金渠道</dt>
+            <dd>{{ read.data.flow_channel }}</dd>
+          </div>
+          <div v-for="channel in read.data.channel_assets" :key="channel.name">
+            <dt>{{ channel.name }}</dt>
+            <dd>{{ money(channel.amount) }} {{ account.currency }}</dd>
+          </div>
           <div>
             <dt>来源</dt>
             <dd>
@@ -308,6 +436,12 @@ function nextHistory() {
             </dd>
           </div>
         </dl>
+        <p
+          v-if="read.data.original?.detail && !read.data.channel_assets?.length"
+          class="lp-note-text"
+        >
+          原始明细：{{ read.data.original.detail }}
+        </p>
         <div class="lp-actions">
           <template v-if="!read.data.voided"
             ><button :disabled="locked" class="lp-primary" @click="edit">
@@ -363,6 +497,13 @@ function nextHistory() {
                 · 总资产 {{ money(r.record.total_assets) }}
               </p>
               <p class="lp-note-text">{{ r.record.note || "无备注" }}</p>
+              <p v-if="r.record.flow_channel">
+                资金渠道：{{ r.record.flow_channel }}
+              </p>
+              <p v-for="channel in r.record.channel_assets" :key="channel.name">
+                {{ channel.name }}：{{ money(channel.amount) }}
+                {{ account.currency }}
+              </p>
             </li>
           </ol>
           <div class="lp-pagination">
@@ -435,7 +576,7 @@ function nextHistory() {
               type="button"
               :aria-pressed="kind === tab[0]"
               :disabled="quoteManaged && tab[0] !== 'asset'"
-              @click="kind = tab[0]!"
+              @click="selectKind(tab[0]!)"
             >
               {{ tab[1] }}
             </button>
@@ -451,21 +592,63 @@ function nextHistory() {
               placeholder="0.00"
               required
           /></label>
-          <label v-if="kind !== 'log'"
-            >{{ kind === "asset" ? "总资产" : "资金变动后的总资产（选填）" }}
+          <label
+            v-if="(kind === 'in' || kind === 'out') && channelNames.length"
+          >
+            {{ kind === "in" ? "转入渠道" : "转出渠道" }}
+            <select
+              v-model="flowChannel"
+              aria-label="资金渠道"
+              :disabled="channels.loading"
+            >
+              <option v-for="name in channelNames" :key="name" :value="name">
+                {{ name }}
+              </option>
+            </select>
+          </label>
+          <label v-if="kind === 'in' || kind === 'out'" class="lp-check">
+            <input v-model="withAssets" type="checkbox" />同时更新总资产
+          </label>
+          <p v-if="channels.loading" class="lp-field-hint" role="status">
+            正在读取上次渠道…
+          </p>
+          <p v-if="channels.error" class="lp-field-hint">
+            上次渠道读取失败。
+            <button type="button" class="lp-text-button" @click="loadChannels">
+              重新读取渠道
+            </button>
+          </p>
+          <LedgerChannelEditor
+            v-if="hasAssets && splitAssets"
+            :model-value="channelAssets"
+            @update:model-value="updateChannelAssets"
+            :previous="channels.data?.items ?? []"
+            :source-date="channels.data?.source_date ?? ''"
+            :currency="account.currency"
+          />
+          <label v-else-if="hasAssets"
+            >{{ kind === "asset" ? "总资产" : "资金变动后的总资产" }}
             <small>{{ account.currency }}</small>
             <input
               v-model="assets"
               inputmode="decimal"
-              :required="kind === 'asset'"
-              :placeholder="
-                kind === 'asset' ? '0.00' : '留空表示未记录，不是零'
-              "
+              :disabled="channels.loading"
+              required
+              placeholder="0.00"
           /></label>
+          <button
+            v-if="hasAssets && !splitAssets"
+            type="button"
+            class="lp-text-button"
+            :disabled="channels.loading"
+            @click="addFirstChannel"
+          >
+            ＋ 添加渠道
+          </button>
           <p v-if="kind !== 'log'" class="lp-field-hint">
             {{
               kind === "asset"
-                ? "只记录账户总额，不增加资金流水，也不改变持仓。"
+                ? "记录当前资产金额；渠道之间调拨资金时，更新各渠道金额即可。"
                 : "金额填写正数；如填写总资产，请填写转入或转出完成后的账户总额。"
             }}
           </p>
@@ -488,7 +671,11 @@ function nextHistory() {
           </p>
           <div class="lp-dialog-footer">
             <button type="button" @click="requestClose">取消</button
-            ><button type="submit" class="lp-primary" :disabled="conflict">
+            ><button
+              type="submit"
+              class="lp-primary"
+              :disabled="conflict || channels.loading || !!channels.error"
+            >
               {{ read.data ? "保存修改" : "保存记录" }}
             </button>
           </div>

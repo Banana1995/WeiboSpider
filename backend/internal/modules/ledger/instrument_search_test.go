@@ -145,6 +145,53 @@ func TestInstrumentSearchFiltering(t *testing.T) {
 	}
 }
 
+func TestInstrumentSearchFuzzyQuery(t *testing.T) {
+	// Partial codes and names return every allowed identity, in provider order.
+	search := `{"stock":[{"code":"sh600013","name":"one","type":"GP-A"},{"code":"sh600519","name":"two","type":"GP-A"},{"code":"sh510300","name":"etf","type":"JJ"}],"fund":[]}`
+	quotes := searchRow(t, "sh600013", "GP-A", CNY, nil) + searchRow(t, "sh600519", "GP-A", CNY, nil)
+	for _, input := range []string{"600", "6005", "sh60"} {
+		p, requests := searchProvider(t, search, quotes)
+		items, err := p.Search(t.Context(), input)
+		require.NoError(t, err)
+		require.Len(t, items, 2)
+		require.Equal(t, "600013", items[0].Code)
+		require.Equal(t, "600519", items[1].Code)
+		require.Len(t, *requests, 2)
+		u, err := url.Parse((*requests)[0])
+		require.NoError(t, err)
+		require.Equal(t, input, u.Query().Get("query"))
+	}
+	// A name query never resolves a fund or an unparseable symbol.
+	p, requests := searchProvider(t, `{"stock":[{"code":"jj001","name":"fund","type":"JJ"},{"code":"bad","name":"bad","type":"GP-A"},{"code":"sh600519","name":"茅台","type":"GP-A"}],"fund":[]}`, searchRow(t, "sh600519", "GP-A", CNY, nil))
+	items, err := p.Search(t.Context(), "茅台")
+	require.NoError(t, err)
+	require.Equal(t, []InstrumentSearchItem{{Name: "\u8bc1\u5238\u540d\u79f0", Market: "SH", Code: "600519", Currency: CNY}}, items)
+	require.Len(t, *requests, 2)
+	u, err := url.Parse((*requests)[0])
+	require.NoError(t, err)
+	require.Equal(t, "茅台", u.Query().Get("query"))
+	// One malformed symbol candidate invalidates the whole response.
+	p, _ = searchProvider(t, `{"stock":[{"code":"sh600013","name":"one","type":"GP-A"},{"code":"sh6005","name":"bad","type":"GP-A"}],"fund":[]}`, searchRow(t, "sh600013", "GP-A", CNY, nil))
+	items, err = p.Search(t.Context(), "600")
+	require.ErrorIs(t, err, ErrInstrumentSearchUnavailable)
+	require.Nil(t, items)
+	// Results are capped so a broad prefix cannot fan out without bound.
+	rows := []string{}
+	quotes = ""
+	for n := range 12 {
+		symbol := fmt.Sprintf("sh6000%02d", n)
+		rows = append(rows, fmt.Sprintf(`{"code":%q,"name":"n","type":"GP-A"}`, symbol))
+		if n < maxInstrumentSearchResults {
+			quotes += searchRow(t, symbol, "GP-A", CNY, nil)
+		}
+	}
+	p, requests = searchProvider(t, `{"stock":[`+strings.Join(rows, ",")+`],"fund":[]}`, quotes)
+	items, err = p.Search(t.Context(), "6000")
+	require.NoError(t, err)
+	require.Len(t, items, maxInstrumentSearchResults)
+	require.Len(t, *requests, 2)
+}
+
 func TestInstrumentSearchCorruptResponses(t *testing.T) {
 	for _, body := range []string{
 		``, `{}`, `null`, `{"error":"unavailable"}`, `{"stock":[],"fund":[]} alert(1)`,
@@ -195,27 +242,33 @@ func TestInstrumentSearchCorruptResponses(t *testing.T) {
 func TestInstrumentSearchHTTP(t *testing.T) {
 	for _, tc := range []struct {
 		query string
+		input string
 		valid bool
 	}{
-		{"code=600519", true}, {"code=000001", true}, {"code=00700", true},
-		{"code=sh600519", true}, {"code=sz000001", true}, {"code=hk00700", true},
-		{"", false}, {"code=", false}, {"q=600519", false}, {"code=600519&code=600519", false},
-		{"code=600519&market=SH", false}, {"code=600519&extra=", false}, {"code=%zz", false},
-		{"code=600519;x=1", false}, {"code=600519%26q%3Dhk00700", false},
-		{"code=SH600519", false}, {"code=hk600519", false}, {"code=sh00700", false},
-		{"code=6005", false}, {"code=6005190", false}, {"code=700", false},
-		{"code=+600519", false}, {"code=600519%20", false}, {"code=%E8%8C%85%E5%8F%B0", false},
-		{"code=60051%00", false}, {"code=https%3A%2F%2Fevil.example", false},
+		{"code=600519", "600519", true}, {"code=000001", "000001", true}, {"code=00700", "00700", true},
+		{"code=sh600519", "sh600519", true}, {"code=sz000001", "sz000001", true}, {"code=hk00700", "hk00700", true},
+		{"q=600519", "600519", true}, {"q=600", "600", true}, {"q=sh600519", "sh600519", true},
+		{"q=%E8%8C%85%E5%8F%B0", "茅台", true}, {"q=%E8%85%BE%E8%AE%AF", "腾讯", true},
+		{"", "", false}, {"code=", "", false}, {"q=", "", false},
+		{"code=600519&code=600519", "", false}, {"code=600519&q=600519", "", false},
+		{"code=600519&market=SH", "", false}, {"code=600519&extra=", "", false}, {"code=%zz", "", false},
+		{"code=600519;x=1", "", false}, {"code=600519%26q%3Dhk00700", "", false},
+		{"code=SH600519", "", false}, {"code=hk600519", "", false}, {"code=sh00700", "", false},
+		{"code=6005", "", false}, {"code=6005190", "", false}, {"code=700", "", false},
+		{"code=+600519", "", false}, {"code=600519%20", "", false}, {"code=%E8%8C%85%E5%8F%B0", "", false},
+		{"code=60051%00", "", false}, {"code=https%3A%2F%2Fevil.example", "", false},
+		{"q=%00", "", false}, {"q=600519%20", "", false}, {"q=%3Cscript%3E", "", false},
+		{"q=" + strings.Repeat("6", 97), "", false},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			calls := 0
 			mux := http.NewServeMux()
-			Handler{InstrumentSearch: instrumentSearchFunc(func(ctx context.Context, code string) ([]InstrumentSearchItem, error) {
+			Handler{InstrumentSearch: instrumentSearchFunc(func(ctx context.Context, input string) ([]InstrumentSearchItem, error) {
 				calls++
 				deadline, ok := ctx.Deadline()
 				require.True(t, ok)
 				require.WithinDuration(t, time.Now().Add(instrumentSearchTimeout), deadline, time.Second)
-				require.Equal(t, strings.TrimPrefix(tc.query, "code="), code)
+				require.Equal(t, tc.input, input)
 				return nil, nil
 			})}.Register(mux)
 			w := httptest.NewRecorder()
@@ -228,16 +281,18 @@ func TestInstrumentSearchHTTP(t *testing.T) {
 				require.Equal(t, 400, w.Code)
 				require.Contains(t, w.Body.String(), `"code":"invalid_query"`)
 				require.Zero(t, calls)
-				values, err := url.ParseQuery(tc.query)
-				if err == nil && values.Get("code") != "600519" {
-					p, requests := searchProvider(t, "", "")
-					_, err := p.Search(t.Context(), values.Get("code"))
-					require.ErrorIs(t, err, ErrQuery)
-					require.Empty(t, *requests)
-				}
 			}
 		})
 	}
+	// Query syntax is validated before any network access.
+	p, requests := searchProvider(t, "", "")
+	_, err := p.Search(t.Context(), "  600519  ")
+	require.ErrorIs(t, err, ErrQuery)
+	_, err = p.Search(t.Context(), "600519;x=1")
+	require.ErrorIs(t, err, ErrQuery)
+	_, err = p.Search(t.Context(), strings.Repeat("茅", 40))
+	require.ErrorIs(t, err, ErrQuery)
+	require.Empty(t, *requests)
 	for _, tc := range []struct {
 		name, method, code string
 		provider           InstrumentSearchProvider

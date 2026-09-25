@@ -100,9 +100,11 @@ async function button(text: string) {
   await flushPromises();
 }
 async function selectStock() {
-  await wrapper.get('[name="security_search"]').setValue("600000");
-  await button("查询证券");
-  await wrapper.get('[data-test="instrument-form"]').trigger("submit");
+  const input = wrapper.get('[name="security_search"]');
+  await input.setValue("600000");
+  await input.trigger("keydown", { key: "Enter" });
+  await flushPromises();
+  await wrapper.findAll(".lp-search-results button")[0]!.trigger("click");
   await flushPromises();
 }
 async function save() {

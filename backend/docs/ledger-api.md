@@ -28,7 +28,7 @@
 | --- | --- |
 | `POST /accounts` | 幂等创建账户元信息，201 |
 | `GET /accounts`、`GET /accounts/{id}` | 列表 / 元信息与独立当前现金 |
-| `GET /instruments/search?code=...` | 查询沪深港完整证券代码身份，只读 |
+| `GET /instruments/search?code=...` 或 `?q=...` | 查询沪深港证券身份，只读；`code` 为完整代码精确解析，`q` 支持证券名称或代码前缀并返回最多 8 条 |
 | `GET /instruments` | 不可变证券身份目录，按 ID 分页 |
 | `POST /instruments` | 底层不可变目录插入，201；当前 UI 不使用独立登记流程 |
 | `GET/PUT /accounts/{id}/current-holdings` | 当前现金/数量快照；整份 CAS 替换，200 |

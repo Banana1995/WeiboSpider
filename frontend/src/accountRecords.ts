@@ -14,6 +14,19 @@ export interface AccountEntry {
   flow: string | null;
   total_assets: string | null;
   note: string;
+  channel_assets?: ChannelAsset[];
+  flow_channel?: string;
+}
+export interface ChannelAsset {
+  name: string;
+  amount: string;
+}
+export interface AccountChannels {
+  account_id: string;
+  as_of: string;
+  source_record_id: string;
+  source_date: string;
+  items: ChannelAsset[];
 }
 export interface AccountRecordSource {
   id: string;

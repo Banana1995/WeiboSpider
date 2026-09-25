@@ -91,14 +91,6 @@ const benchmarkReads = Object.fromEntries(
 ) as unknown as Record<BenchmarkCode, BenchmarkRead>;
 const selectedBenchmarks = ref<BenchmarkCode[]>([...defaultBenchmarks]);
 const benchmarkRanges = new Map<BenchmarkCode, string>();
-interface BenchmarkStatus {
-  code: BenchmarkCode;
-  last_attempt_at: string;
-  last_success_at: string;
-  last_close_date: string;
-  error_code: string;
-}
-const benchmarkStatus = reactive(useLedgerRead<{ items: BenchmarkStatus[] }>());
 const range = ref("all");
 const today = ref(todayShanghai());
 const customFrom = ref("");
@@ -182,23 +174,7 @@ const benchmarkErrors = computed(() =>
       error: benchmarkReads[definition.code].error,
     })),
 );
-const benchmarkFreshness = computed(() =>
-  selectedDefinitions.value
-    .map((definition) => {
-      const status = benchmarkStatus.data?.items.find(
-        (item) => item.code === definition.code,
-      );
-      if (!status) return "";
-      if (!status.last_success_at)
-        return `${definition.name}：${status.error_code ? "历史数据尚不可用（最近同步失败）" : "后台正在准备历史数据"}`;
-      if (benchmarkReads[definition.code].error && !status.error_code)
-        return `${definition.name}：历史区间补齐中`;
-      return `${definition.name}：收盘点位截至 ${status.last_close_date || "暂无"}${status.error_code ? "（最近更新失败，显示已有数据）" : ""}`;
-    })
-    .filter(Boolean),
-);
 const warningLabels: Record<string, string> = {
-  portfolio_carried_assets: returnWarnings.portfolio_carried_assets!,
   carried_assets_unchanged:
     "部分资产按最近明确总资产加后续净转入推算，仅供参考。",
   twr_estimated_assets: returnWarnings.twr_estimated_assets!,
@@ -212,7 +188,9 @@ const warnings = computed(() => [
       .filter((m) => m?.status === "unavailable")
       .map((m) => returnReasons[m!.reason] ?? "当前指标暂不可计算"),
     ...(result.value?.warnings ?? [])
-      .filter((w) => w !== "twr_estimated_assets")
+      .filter(
+        (w) => w !== "twr_estimated_assets" && w !== "portfolio_carried_assets",
+      )
       .map((w) => warningLabels[w] ?? "当前结果仅供参考"),
   ]),
 ]);
@@ -377,30 +355,6 @@ function retryBenchmark(code: BenchmarkCode) {
 function loadBenchmarks() {
   for (const definition of benchmarkDefinitions) loadBenchmark(definition.code);
 }
-function loadBenchmarkStatus() {
-  void benchmarkStatus.load(async (signal) => {
-    const data = await request<{ items: BenchmarkStatus[] }>(
-      "/benchmark/status",
-      { signal },
-    );
-    if (
-      !Array.isArray(data?.items) ||
-      data.items.length !== benchmarkDefinitions.length ||
-      data.items.some(
-        (item) =>
-          !item ||
-          !benchmarkDefinitions.some(
-            (definition) => definition.code === item.code,
-          ) ||
-          typeof item.last_success_at !== "string" ||
-          typeof item.last_close_date !== "string" ||
-          typeof item.error_code !== "string",
-      )
-    )
-      throw new LedgerError("invalid_response");
-    return data;
-  });
-}
 function loadAnalysis() {
   basis.clear();
   entryPage.value = 0;
@@ -451,7 +405,6 @@ watch(
     customTo.value = today.value;
     selectedBenchmarks.value = [...defaultBenchmarks];
     benchmarkRanges.clear();
-    benchmarkStatus.clear();
     for (const definition of benchmarkDefinitions)
       benchmarkReads[definition.code].clear();
     loadSummary();
@@ -476,20 +429,11 @@ watch(
   loadBenchmarks,
   { immediate: true },
 );
-watch(
-  () => result.value?.effective_from,
-  (from) => {
-    if (from) loadBenchmarkStatus();
-  },
-  { immediate: true },
-);
 watch(benchmarkErrors, (errors, _, onCleanup) => {
   if (!errors.length) return;
-  loadBenchmarkStatus();
   // Only an unavailable curve polls locally while the independent worker
   // warms the DB; ordinary chart reads never contact market sources.
   const timer = setInterval(() => {
-    loadBenchmarkStatus();
     for (const item of errors) retryBenchmark(item.code);
   }, 15000);
   onCleanup(() => clearInterval(timer));
@@ -799,9 +743,6 @@ watch([() => props.refreshKey, cacheEpoch, locked], () => {
           <span v-else>组合总资产，成员未更新期间按资产与净转入沿用</span>
         </div>
       </div>
-      <p v-if="benchmarkFreshness.length" class="lp-chart-note" role="status">
-        {{ benchmarkFreshness.join("；") }}
-      </p>
       <p
         v-for="item in benchmarkErrors"
         :key="item.code"

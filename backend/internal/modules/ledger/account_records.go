@@ -12,11 +12,13 @@ import (
 )
 
 type AccountEntry struct {
-	Kind        string `json:"kind"`
-	Date        string `json:"date"`
-	Flow        *Money `json:"flow"`
-	TotalAssets *Money `json:"total_assets"`
-	Note        string `json:"note"`
+	Kind          string         `json:"kind"`
+	Date          string         `json:"date"`
+	Flow          *Money         `json:"flow"`
+	TotalAssets   *Money         `json:"total_assets"`
+	Note          string         `json:"note"`
+	ChannelAssets []ChannelAsset `json:"channel_assets,omitempty"`
+	FlowChannel   string         `json:"flow_channel,omitempty"`
 }
 type AccountRecord struct {
 	ID        string `json:"id"`
@@ -63,7 +65,7 @@ type ReportedAccountInput struct {
 }
 
 func (e AccountEntry) valid() bool {
-	if !validDate(e.Date) || !utf8.ValidString(e.Note) || len(e.Note) > 16384 || e.TotalAssets != nil && *e.TotalAssets < 0 {
+	if !validDate(e.Date) || !utf8.ValidString(e.Note) || len(e.Note) > 16384 || e.TotalAssets != nil && *e.TotalAssets < 0 || !e.validChannels() {
 		return false
 	}
 	switch e.Kind {
@@ -204,6 +206,7 @@ func (s *Store) WriteAccountRecord(ctx context.Context, key string, c AccountRec
 	if c.Entry != nil {
 		entry := *c.Entry
 		entry.Flow, entry.TotalAssets = copyMoney(entry.Flow), copyMoney(entry.TotalAssets)
+		entry.ChannelAssets = cloneChannelAssets(entry.ChannelAssets)
 		c.Entry = &entry
 	}
 	if !validID(c.AccountID) || !validID(c.ID) || !utf8.ValidString(c.Reason) || len(c.Reason) > 512 {

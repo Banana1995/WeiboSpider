@@ -212,13 +212,6 @@ watch(
           </tbody>
         </table>
       </div>
-      <p class="lp-annual-note">
-        指数为同期涨跌幅，未模拟转入转出。休市日采用当日或之前最近收盘价；缺少数据则不显示收益。
-        <template v-if="read.data.benchmark_currency !== account.currency">
-          指数以 {{ read.data.benchmark_currency }} 计价，未折算为
-          {{ account.currency }}。
-        </template>
-      </p>
     </template>
 
     <LedgerDialog
@@ -324,13 +317,6 @@ watch(
               </tbody>
             </table>
           </div>
-          <p class="lp-annual-note">
-            记账以来：{{ period(read.data.since) }}。指数为
-            {{ read.data.benchmark_source }} 提供的
-            {{ read.data.benchmark_name }}（{{
-              read.data.benchmark_currency
-            }}），未模拟转入转出。账户统计截止于最后一笔有效资产记录日；指数使用不晚于起止日的收盘价。
-          </p>
         </template>
       </div>
     </LedgerDialog>

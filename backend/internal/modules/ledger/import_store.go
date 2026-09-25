@@ -202,7 +202,7 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 				return err
 			}
 			next := AccountRecord{ID: "import-" + recordID, AccountID: id,
-				AccountEntry: AccountEntry{Kind: row.Kind, Date: row.Date, Flow: row.Flow, TotalAssets: row.TotalAssets, Note: row.Note},
+				AccountEntry: AccountEntry{Kind: row.Kind, Date: row.Date, Flow: row.Flow, TotalAssets: row.TotalAssets, Note: row.Note, ChannelAssets: importChannelAssets(row.Detail, row.TotalAssets)},
 				Sequence:     recordID, Origin: "import", Original: &row, Version: "1", CreatedAt: stamp, UpdatedAt: stamp}
 			if _, err := putAccountRecord(ctx, tx, &next, nil, key, "initialization", "human"); err != nil {
 				return err

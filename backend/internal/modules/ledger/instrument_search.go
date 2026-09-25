@@ -19,6 +19,7 @@ import (
 )
 
 const instrumentSearchTimeout = 12 * time.Second
+const maxInstrumentSearchResults = 8
 
 var (
 	ErrInstrumentSearchUnavailable = errors.New("instrument search unavailable")
@@ -57,6 +58,12 @@ func instrumentSearchCode(input string) (market, code string, err error) {
 	return market, code, nil
 }
 
+// Free-text queries accept a security name or a code the caller has not fully
+// typed yet. Reject control/format characters and delimiters before any network I/O.
+func validInstrumentSearchQuery(input string) bool {
+	return input != "" && len(input) <= 96 && strings.TrimSpace(input) == input && validInstrumentSearchName(input)
+}
+
 func instrumentSearchError(err error) error {
 	var timeout net.Error
 	switch {
@@ -73,18 +80,34 @@ func (h Handler) searchInstruments(w http.ResponseWriter, r *http.Request) {
 	if !method(w, r, http.MethodGet, http.MethodHead) {
 		return
 	}
-	values, err := query(r, "code")
+	values, err := query(r, "code", "q")
+	code, text := values.Get("code"), values.Get("q")
 	if err == nil {
-		_, _, err = instrumentSearchCode(values.Get("code"))
+		switch {
+		case code != "" && text != "":
+			err = ErrQuery
+		case code != "":
+			_, _, err = instrumentSearchCode(code)
+		case text != "":
+			if !validInstrumentSearchQuery(text) {
+				err = ErrQuery
+			}
+		default:
+			err = ErrQuery
+		}
 	}
 	items := []InstrumentSearchItem{}
 	if err == nil {
 		if h.InstrumentSearch == nil {
 			err = ErrInstrumentSearchUnavailable
 		} else {
+			input := code
+			if text != "" {
+				input = text
+			}
 			ctx, cancel := context.WithTimeout(r.Context(), instrumentSearchTimeout)
 			defer cancel()
-			items, err = h.InstrumentSearch.Search(ctx, values.Get("code"))
+			items, err = h.InstrumentSearch.Search(ctx, input)
 			if err == nil {
 				err = ctx.Err()
 			}
@@ -129,37 +152,30 @@ func stockSearchType(market, kind string) bool {
 
 func (p *TencentQuotes) Search(ctx context.Context, input string) (items []InstrumentSearchItem, err error) {
 	defer func() { err = instrumentSearchError(err) }()
-	market, code, err := instrumentSearchCode(input)
-	if err != nil {
-		return nil, err
+	if market, code, codeErr := instrumentSearchCode(input); codeErr == nil {
+		return p.searchCode(ctx, market, code)
 	}
+	return p.searchQuery(ctx, input)
+}
+
+func smartboxURL(query string) string {
+	return "https://proxy.finance.qq.com/cgi/cgi-bin/smartbox/search?stockFlag=1&fundFlag=1&app=official_website&c=1&query=" + url.QueryEscape(query)
+}
+
+// searchCode resolves one exact code to its authoritative identity.
+func (p *TencentQuotes) searchCode(ctx context.Context, market, code string) ([]InstrumentSearchItem, error) {
 	ctx, cancel := context.WithTimeout(ctx, instrumentSearchTimeout)
 	defer cancel()
-	data, err := p.get(ctx, "https://proxy.finance.qq.com/cgi/cgi-bin/smartbox/search?stockFlag=1&fundFlag=1&app=official_website&c=1&query="+url.QueryEscape(code), 256<<10)
+	data, err := p.get(ctx, smartboxURL(code), 256<<10)
 	if err != nil {
 		return nil, err
 	}
-	// Reject malformed/duplicate JSON, including error objects masquerading as no matches.
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if !utf8.Valid(data) || uniqueFXJSON(decoder, 0) != nil {
-		return nil, ErrInstrumentSearchUnavailable
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return nil, ErrInstrumentSearchUnavailable
-	}
-	var result struct {
-		Stock []struct {
-			Code string `json:"code"`
-			Name string `json:"name"`
-			Type string `json:"type"`
-		} `json:"stock"`
-		Fund []json.RawMessage `json:"fund"`
-	}
-	if json.Unmarshal(data, &result) != nil || result.Stock == nil || result.Fund == nil {
-		return nil, ErrInstrumentSearchUnavailable
+	result, err := decodeSmartbox(data)
+	if err != nil {
+		return nil, err
 	}
 	symbols := []string{}
-	kinds := make(map[string]string)
+	candidates := make(map[string]searchCandidate)
 	for _, row := range result.Stock {
 		if row.Code == "" || row.Type == "" || !validInstrumentSearchName(row.Name) {
 			return nil, ErrInstrumentSearchUnavailable
@@ -171,77 +187,104 @@ func (p *TencentQuotes) Search(ctx context.Context, input string) (items []Instr
 		if parseErr != nil || m == "" || c != code || market != "" && market != m || !stockSearchType(m, row.Type) {
 			continue
 		}
-		if kind, seen := kinds[row.Code]; seen {
-			if kind != row.Type {
+		if kind, seen := candidates[row.Code]; seen {
+			if kind.kind != row.Type {
 				return nil, ErrInstrumentSearchUnavailable
 			}
 			continue
 		}
-		kinds[row.Code] = row.Type
+		candidates[row.Code] = searchCandidate{code: c, kind: row.Type}
 		symbols = append(symbols, row.Code)
 	}
-	items = []InstrumentSearchItem{}
-	if len(symbols) == 0 {
-		return items, ctx.Err()
+	return p.identities(ctx, symbols, candidates)
+}
+
+// searchQuery resolves a name or partial code to up to maxInstrumentSearchResults
+// authoritative identities, in the provider's relevance order.
+func (p *TencentQuotes) searchQuery(ctx context.Context, input string) ([]InstrumentSearchItem, error) {
+	if !validInstrumentSearchQuery(input) {
+		return nil, ErrQuery
 	}
-	data, err = p.batch(ctx, symbols)
+	ctx, cancel := context.WithTimeout(ctx, instrumentSearchTimeout)
+	defer cancel()
+	data, err := p.get(ctx, smartboxURL(input), 256<<10)
 	if err != nil {
 		return nil, err
 	}
-	// GBK trail bytes may equal '~'; decode before splitting protocol fields.
-	text, decodeErr := simplifiedchinese.GBK.NewDecoder().String(string(data))
-	text = strings.TrimSpace(text)
-	if decodeErr != nil || strings.ContainsRune(text, utf8.RuneError) || !strings.HasSuffix(text, ";") {
-		return nil, ErrInstrumentSearchUnavailable
+	result, err := decodeSmartbox(data)
+	if err != nil {
+		return nil, err
 	}
-	identities := make(map[string]InstrumentSearchItem)
-	for _, record := range strings.Split(text, ";") {
-		record = strings.TrimSpace(record)
-		if record == "" {
+	symbols := []string{}
+	candidates := make(map[string]searchCandidate)
+	for _, row := range result.Stock {
+		raw := strings.ToLower(strings.TrimSpace(row.Code))
+		if raw == "" || row.Type == "" || !validInstrumentSearchName(row.Name) {
+			return nil, ErrInstrumentSearchUnavailable
+		}
+		m, c, parseErr := instrumentSearchCode(raw)
+		if (strings.HasPrefix(raw, "sh") || strings.HasPrefix(raw, "sz") || strings.HasPrefix(raw, "hk")) && parseErr != nil {
+			return nil, ErrInstrumentSearchUnavailable
+		}
+		if parseErr != nil || !stockSearchType(m, row.Type) {
 			continue
 		}
-		key, payload, ok := strings.Cut(record, "=")
-		symbol := strings.TrimPrefix(key, "v_")
-		if !ok || key != "v_"+symbol || kinds[symbol] == "" || len(payload) < 2 || payload[0] != '"' || payload[len(payload)-1] != '"' {
-			return nil, ErrInstrumentSearchUnavailable
+		if _, seen := candidates[raw]; seen {
+			continue
 		}
-		if _, seen := identities[symbol]; seen {
-			return nil, ErrInstrumentSearchUnavailable
+		candidates[raw] = searchCandidate{code: c, kind: row.Type}
+		symbols = append(symbols, raw)
+		if len(symbols) == maxInstrumentSearchResults {
+			break
 		}
-		payload = payload[1 : len(payload)-1]
-		if strings.ContainsAny(payload, "\"\r\n") {
-			return nil, ErrInstrumentSearchUnavailable
-		}
-		fields := strings.Split(payload, "~")
-		typeIndex, currencyIndex := 61, 82
-		m := strings.ToUpper(symbol[:2])
-		if m == "HK" {
-			typeIndex, currencyIndex = 63, 75
-		}
-		if len(fields) <= currencyIndex || fields[2] != code || fields[typeIndex] != kinds[symbol] {
-			return nil, ErrInstrumentSearchUnavailable
-		}
-		currency := Currency(fields[currencyIndex])
-		if !currency.valid() {
-			return nil, ErrInstrumentSearchUnavailable
-		}
-		if m != "HK" {
-			expected := CNY
-			if kinds[symbol] == "GP-B" {
-				expected = USD
-				if m == "SZ" {
-					expected = HKD
-				}
-			}
-			if currency != expected {
-				return nil, ErrInstrumentSearchUnavailable
-			}
-		}
-		name := fields[1]
-		if !validInstrumentSearchName(name) {
-			return nil, ErrInstrumentSearchUnavailable
-		}
-		identities[symbol] = InstrumentSearchItem{Name: name, Market: m, Code: code, Currency: currency}
+	}
+	return p.identities(ctx, symbols, candidates)
+}
+
+type smartboxStock struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type smartboxResult struct {
+	Stock []smartboxStock   `json:"stock"`
+	Fund  []json.RawMessage `json:"fund"`
+}
+
+func decodeSmartbox(data []byte) (smartboxResult, error) {
+	var result smartboxResult
+	// Reject malformed/duplicate JSON, including error objects masquerading as no matches.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if !utf8.Valid(data) || uniqueFXJSON(decoder, 0) != nil {
+		return result, ErrInstrumentSearchUnavailable
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return result, ErrInstrumentSearchUnavailable
+	}
+	if json.Unmarshal(data, &result) != nil || result.Stock == nil || result.Fund == nil {
+		return result, ErrInstrumentSearchUnavailable
+	}
+	return result, nil
+}
+
+type searchCandidate struct {
+	code string
+	kind string
+}
+
+func (p *TencentQuotes) identities(ctx context.Context, symbols []string, candidates map[string]searchCandidate) ([]InstrumentSearchItem, error) {
+	items := []InstrumentSearchItem{}
+	if len(symbols) == 0 {
+		return items, ctx.Err()
+	}
+	data, err := p.batch(ctx, symbols)
+	if err != nil {
+		return nil, err
+	}
+	identities, ok := parseSearchIdentities(data, candidates)
+	if !ok {
+		return nil, ErrInstrumentSearchUnavailable
 	}
 	for _, symbol := range symbols {
 		item, ok := identities[symbol]
@@ -251,4 +294,66 @@ func (p *TencentQuotes) Search(ctx context.Context, input string) (items []Instr
 		items = append(items, item)
 	}
 	return items, ctx.Err()
+}
+
+// GBK trail bytes may equal '~'; decode before splitting protocol fields. Every
+// requested symbol must resolve exactly once, and its code/type/currency must
+// match the provider's own record, never the caller's query text.
+func parseSearchIdentities(data []byte, candidates map[string]searchCandidate) (map[string]InstrumentSearchItem, bool) {
+	text, decodeErr := simplifiedchinese.GBK.NewDecoder().String(string(data))
+	text = strings.TrimSpace(text)
+	if decodeErr != nil || strings.ContainsRune(text, utf8.RuneError) || !strings.HasSuffix(text, ";") {
+		return nil, false
+	}
+	identities := make(map[string]InstrumentSearchItem)
+	for _, record := range strings.Split(text, ";") {
+		record = strings.TrimSpace(record)
+		if record == "" {
+			continue
+		}
+		key, payload, ok := strings.Cut(record, "=")
+		symbol := strings.TrimPrefix(key, "v_")
+		candidate, wanted := candidates[symbol]
+		if !ok || key != "v_"+symbol || !wanted || len(payload) < 2 || payload[0] != '"' || payload[len(payload)-1] != '"' {
+			return nil, false
+		}
+		if _, seen := identities[symbol]; seen {
+			return nil, false
+		}
+		payload = payload[1 : len(payload)-1]
+		if strings.ContainsAny(payload, "\"\r\n") {
+			return nil, false
+		}
+		fields := strings.Split(payload, "~")
+		typeIndex, currencyIndex := 61, 82
+		m := strings.ToUpper(symbol[:2])
+		if m == "HK" {
+			typeIndex, currencyIndex = 63, 75
+		}
+		if len(fields) <= currencyIndex || fields[2] != candidate.code || fields[typeIndex] != candidate.kind {
+			return nil, false
+		}
+		currency := Currency(fields[currencyIndex])
+		if !currency.valid() {
+			return nil, false
+		}
+		if m != "HK" {
+			expected := CNY
+			if candidate.kind == "GP-B" {
+				expected = USD
+				if m == "SZ" {
+					expected = HKD
+				}
+			}
+			if currency != expected {
+				return nil, false
+			}
+		}
+		name := fields[1]
+		if !validInstrumentSearchName(name) {
+			return nil, false
+		}
+		identities[symbol] = InstrumentSearchItem{Name: name, Market: m, Code: candidate.code, Currency: currency}
+	}
+	return identities, true
 }

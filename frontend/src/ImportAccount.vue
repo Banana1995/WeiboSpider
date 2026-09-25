@@ -15,6 +15,7 @@ import {
   type ImportResult,
 } from "./ledgerImport";
 import { validDay } from "./ledgerView";
+import { validChannelName } from "./ledgerChannels";
 
 const props = defineProps<{ accounts: Account[]; disabled: boolean }>();
 const emit = defineEmits<{
@@ -107,6 +108,20 @@ async function loadPreview() {
       result.rows.length > 10000 ||
       !Array.isArray(result.warnings) ||
       result.warnings.some((w) => typeof w !== "string") ||
+      (result.channels !== undefined &&
+        (!result.channels ||
+          !Array.isArray(result.channels.names) ||
+          result.channels.names.some((name) => !validChannelName(name)) ||
+          new Set(result.channels.names).size !==
+            result.channels.names.length ||
+          !Number.isInteger(result.channels.snapshot_count) ||
+          result.channels.snapshot_count < 0 ||
+          result.channels.snapshot_count > result.rows.length ||
+          !Array.isArray(result.channels.unresolved_rows) ||
+          result.channels.unresolved_rows.length > result.rows.length ||
+          result.channels.unresolved_rows.some(
+            (row) => !Number.isInteger(row) || row < 5 || row > 10004,
+          ))) ||
       !result.summary ||
       result.summary.row_count !== result.rows.length ||
       result.rows.some(
@@ -184,7 +199,8 @@ onBeforeUnmount(() => {
 <template>
   <section class="ledger-panel" data-test="import-account">
     <p>
-      支持有知有行导出的 Excel 账本。导入历史资金变动和总资产，不改变当前持仓。
+      支持有知有行导出的 Excel
+      账本，保留资金变动、总资产和渠道明细，不改变当前持仓。
     </p>
     <fieldset :disabled="locked || disabled">
       <label
@@ -220,6 +236,11 @@ onBeforeUnmount(() => {
     </fieldset>
     <p class="lp-field-hint">
       仅支持新建或空账户，不支持追加文件。相同文件重试不会重复添加记录。
+    </p>
+    <p v-if="preview?.channels?.unresolved_rows.length" class="lp-field-hint">
+      第
+      {{ preview.channels.unresolved_rows.join("、") }}
+      行的明细无法完整识别为渠道资产，已保留原文，请在记录详情中核对。
     </p>
     <p v-if="error" role="alert" class="ledger-error">{{ errorText(error) }}</p>
     <p v-if="message" role="status" class="ledger-success">{{ message }}</p>

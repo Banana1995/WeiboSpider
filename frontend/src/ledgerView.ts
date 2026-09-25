@@ -7,6 +7,7 @@ import {
 } from "./accountRecords";
 import { pointLabels, type BasisPoint } from "./ledgerChart";
 import { validReturns, type LedgerReturns } from "./ledgerReturns";
+import { validRecordChannels } from "./ledgerChannels";
 
 export const todayShanghai = () =>
   new Intl.DateTimeFormat("sv-SE", {
@@ -64,6 +65,12 @@ export function validRecord(r: AccountRecord, accountID: string) {
     typeof r.note === "string" &&
     nullableMoney(r.flow) &&
     nullableMoney(r.total_assets) &&
+    validRecordChannels(
+      r.channel_assets,
+      r.total_assets,
+      r.flow_channel,
+      r.flow,
+    ) &&
     (r.total_assets === null || !r.total_assets.startsWith("-")) &&
     (r.kind === "asset"
       ? r.total_assets !== null && r.flow === null

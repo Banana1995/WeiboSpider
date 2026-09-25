@@ -136,7 +136,7 @@ func (h Handler) accountRecords(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			result.Items = append(result.Items, record)
+			result.Items = append(result.Items, withRecordChannels(record))
 		}
 		return rows.Err()
 	})
@@ -176,7 +176,7 @@ func (h Handler) accountRecord(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpapi.Write(w, 200, record)
+	httpapi.Write(w, 200, withRecordChannels(record))
 }
 func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) {
 	if !method(w, r, "GET", "HEAD") {
@@ -241,6 +241,7 @@ func (h Handler) accountRecordRevisions(w http.ResponseWriter, r *http.Request) 
 				return ErrCorrupt
 			}
 			revision.Reason = detail.Reason
+			revision.Record = withRecordChannels(revision.Record)
 			previous = version
 			result.Items = append(result.Items, revision)
 		}

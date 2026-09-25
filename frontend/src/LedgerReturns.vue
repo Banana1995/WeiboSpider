@@ -87,7 +87,9 @@ const states = {
     </dl>
     <p
       v-for="warning in result.warnings.filter(
-        (w) => w !== 'twr_estimated_assets' || manager,
+        (w) =>
+          w !== 'portfolio_carried_assets' &&
+          (w !== 'twr_estimated_assets' || manager),
       )"
       :key="warning"
       role="status"

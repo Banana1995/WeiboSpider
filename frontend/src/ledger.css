@@ -102,6 +102,43 @@
   background: transparent;
   color: var(--lp-primary);
 }
+.ledger-page .lp-channel-editor {
+  border: 1px solid var(--lp-rule);
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 0;
+}
+.ledger-page .lp-channel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ledger-page .lp-channel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  margin: 12px 0;
+}
+.ledger-page .lp-channel-row input {
+  width: 100%;
+}
+.ledger-page .lp-channel-row input[inputmode="decimal"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-page .lp-channel-total {
+  padding-top: 10px;
+  border-top: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-channel-total output {
+  margin: 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .ledger-page .lp-banner {
   display: flex;
   justify-content: center;
@@ -623,7 +660,9 @@
   display: block;
   text-align: left;
 }
-.ledger-page .lp-record-date small {
+.ledger-page .lp-record-date small,
+.ledger-page .lp-record-kind small,
+.ledger-page .lp-record-assets small {
   display: block;
 }
 .ledger-page .lp-kind {
@@ -985,31 +1024,47 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
 }
-.ledger-page .lp-security-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.ledger-page .lp-security-search input {
-  min-width: 0;
-  flex: 1;
-}
-.ledger-page .lp-security-search button {
-  flex: none;
-}
-.ledger-page .lp-search-results {
+.ledger-page .lp-security-picker {
   display: grid;
   gap: 8px;
+  max-width: 560px;
 }
-.ledger-page .lp-security-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
+.ledger-page .lp-security-picker input {
+  width: 100%;
+}
+.ledger-page .lp-search-results {
+  display: block;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--lp-rule);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ledger-page .lp-search-results li {
+  margin: 0;
 }
 .ledger-page .lp-search-results button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--lp-surface);
+  padding: 8px 12px;
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+.ledger-page .lp-search-results li + li button {
+  border-top: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-search-results button span {
+  color: var(--lp-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .ledger-page .lp-holdings-title {
   flex-wrap: wrap;

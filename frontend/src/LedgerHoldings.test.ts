@@ -113,6 +113,56 @@ it("opens each stock with its costs and profits, preserving a visibly stale list
       .attributes("disabled"),
   ).toBeDefined();
 });
+it("shows total funds and position weight, and sorts by weight on header click", async () => {
+  const base = stockItem();
+  const low = {
+    ...base,
+    instrument: {
+      ...base.instrument,
+      id: "low",
+      code: "000001",
+      name: "合成低仓",
+    },
+    weight: "10.00",
+    market_value: "10000.00",
+  };
+  const high = {
+    ...base,
+    instrument: {
+      ...base.instrument,
+      id: "high",
+      code: "600519",
+      name: "合成高仓",
+    },
+    weight: "90.00",
+    market_value: "90000.00",
+  };
+  const book = {
+    ...emptyStockBook(),
+    version: "1",
+    positions_value: "100000.00",
+    total_assets: "100000.00",
+    items: [low, high],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(book))),
+  );
+  start();
+  await flushPromises();
+  expect(wrapper.text()).toContain("总资金");
+  expect(wrapper.text()).toContain("100,000.00");
+  expect(wrapper.text()).toContain("90.00%");
+  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成低仓");
+  const header = wrapper
+    .findAll(".stock-list-labels button")
+    .find((b) => b.text().includes("持仓比例"))!;
+  expect(header).toBeTruthy();
+  await header.trigger("click");
+  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成高仓");
+  await header.trigger("click");
+  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成低仓");
+});
 it("offers account creation when no account exists", () => {
   wrapper = mount(Panel, {
     props: { ...props, account: undefined, accounts: [] },

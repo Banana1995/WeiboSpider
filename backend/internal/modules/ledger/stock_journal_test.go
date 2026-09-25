@@ -113,6 +113,30 @@ func TestStockBookCashAnchorTradingCorrectionsAndReceipts(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestStockBookExposesTotalAssetsPositionsValueAndWeight(t *testing.T) {
+	s, _ := stockFixture(t)
+	buy := buyCommand("b", "0", "2026-01-01", 100, 10)
+	buy.Security = stockSecurity(CNY)
+	stockWrite(t, s, "b", buy)
+	cash := Money(10000)
+	stockWrite(t, s, "cash", StockCommand{Action: "cash", ExpectedVersion: "1", Cash: &cash})
+	h := Handler{Store: s, Quotes: valuationQuotes(func(_ context.Context, instruments []Instrument) map[string]QuoteResult {
+		rows := map[string]QuoteResult{}
+		for _, i := range instruments {
+			symbol, _ := quoteSymbol(i)
+			rows[i.ID] = QuoteResult{Quote: &Quote{Symbol: symbol, Price: 12000000, Currency: i.Currency, Source: "Tencent", Date: "2026-09-06", QuotedAt: "2026-09-06T15:00:00+08:00", FetchedAt: "2026-09-06T07:00:00Z"}}
+		}
+		return rows
+	})}
+	book, err := h.stockBookView(t.Context(), "a")
+	require.NoError(t, err)
+	require.True(t, book.Complete)
+	require.Equal(t, Money(120000), *book.PositionsValue)
+	require.Equal(t, Money(130000), *book.TotalAssets)
+	require.Len(t, book.Items, 1)
+	require.Equal(t, "92.31", *book.Items[0].Weight)
+}
+
 func TestStockCostFormulaCyclesAndNegativeDilution(t *testing.T) {
 	j := StockJournal{Openings: []CurrentPosition{}}
 	entries := []StockEntry{

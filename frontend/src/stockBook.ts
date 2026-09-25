@@ -73,6 +73,9 @@ export interface StockBook {
   cash: string;
   cash_date: string;
   as_of: string;
+  positions_value: string | null;
+  total_assets: string | null;
+  complete: boolean;
   items: StockItem[];
   entries: StockEntry[];
   sync_checked_at: string;
@@ -105,6 +108,10 @@ export function validateStockBook(
     !number(b.cash, 2) ||
     !validDay(b.as_of) ||
     !(b.cash_date === "" || validDay(b.cash_date)) ||
+    !nullable(b.positions_value, 2) ||
+    !nullable(b.total_assets, 2) ||
+    typeof b.complete !== "boolean" ||
+    b.complete !== (b.total_assets !== null) ||
     !Array.isArray(b.items) ||
     b.items.length > 200 ||
     !Array.isArray(b.entries) ||

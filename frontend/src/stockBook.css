@@ -27,16 +27,39 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.ledger-page .stock-cash {
-  border: 0;
-  padding: 5px 0;
-  background: transparent;
+.stock-totals {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 28px;
   font-size: 13px;
 }
-.stock-cash strong {
-  margin-left: 8px;
-  font-size: 17px;
+.stock-total {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.stock-total > small {
+  color: var(--lp-muted);
+  font-size: 12px;
+}
+.stock-total > strong,
+.stock-total-cash > strong {
+  font-size: 19px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.stock-total-note {
+  align-self: center;
+}
+.ledger-page .stock-cash {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 13px;
 }
 .stock-list-toolbar {
   margin: 16px 0 8px;
@@ -46,15 +69,41 @@
 .ledger-page .stock-list-toolbar label {
   flex-direction: row;
   align-items: center;
+  white-space: nowrap;
+}
+.stock-sort-mobile {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 .stock-list-labels,
 .ledger-page .stock-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1.35fr) repeat(3, minmax(0, 1fr)) 15px;
-  column-gap: 20px;
+  grid-template-columns:
+    minmax(150px, 1.3fr) repeat(4, minmax(0, 1fr))
+    15px;
+  column-gap: 18px;
   align-items: center;
   width: 100%;
   text-align: right;
+}
+.ledger-page .stock-sort {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+.ledger-page .stock-sort:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--lp-primary);
+}
+.ledger-page .stock-sort[aria-pressed="true"] {
+  color: var(--lp-primary);
+  font-weight: 600;
 }
 .stock-list-labels {
   color: var(--lp-muted);
@@ -279,38 +328,64 @@
   }
   .stock-heading {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
   .stock-heading-title {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 5px;
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .stock-heading .stock-actions {
     gap: 5px;
+    white-space: nowrap;
   }
   .ledger-page .stock-heading button {
     font-size: 12px;
     padding: 6px 8px;
+    white-space: nowrap;
+  }
+  .ledger-page .stock-list-toolbar {
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .ledger-page .stock-list-toolbar label,
+  .stock-sort-mobile,
+  .stock-sort-mobile > span {
+    white-space: nowrap;
   }
   .stock-list-labels {
     display: none;
   }
-  .stock-list-toolbar > span {
+  .stock-list-hint {
     display: none;
   }
+  .stock-sort-mobile {
+    display: flex;
+  }
+  .ledger-page .stock-sort-mobile button {
+    padding: 4px 9px;
+    font-size: 12px;
+    border-radius: 999px;
+  }
+  .stock-totals {
+    gap: 4px 18px;
+  }
+  .stock-total > strong,
+  .stock-total-cash > strong {
+    font-size: 16px;
+  }
   .ledger-page .stock-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px 8px;
-    text-align: right;
+    text-align: left;
     position: relative;
   }
   .stock-row .stock-identity {
     grid-column: 1/-1;
     padding-right: 20px;
-  }
-  .stock-row > span:nth-child(2) {
-    text-align: left;
   }
   .stock-row > .stock-chevron {
     position: absolute;

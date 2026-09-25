@@ -26,12 +26,56 @@ const showVoided = ref(false);
 const detail = computed(() =>
   read.data?.items.find((row) => row.instrument.id === selected.value),
 );
-const rows = computed(
-  () =>
+type SortKey = "value" | "weight" | "profit";
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: "value", label: "市值" },
+  { key: "weight", label: "持仓比例" },
+  { key: "profit", label: "持仓盈亏" },
+];
+const sortKey = ref<SortKey | "">("");
+const sortDir = ref<1 | -1>(-1);
+const rows = computed(() => {
+  const list =
     read.data?.items.filter(
       (row) => filter.value === "all" || /[1-9]/.test(row.quantity),
-    ) ?? [],
-);
+    ) ?? [];
+  const key = sortKey.value;
+  if (!key) return list;
+  const amount = (row: StockItem) =>
+    magnitude(
+      key === "value"
+        ? row.market_value
+        : key === "weight"
+          ? row.weight
+          : row.metrics.profit,
+    );
+  return [...list].sort((a, b) => {
+    const left = amount(a);
+    const right = amount(b);
+    if (left === null && right === null) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    if (left === right) return 0;
+    return (left < right ? -1 : 1) * sortDir.value;
+  });
+});
+// Scale every numeric column to the same six decimals so BigInt ordering is exact.
+function magnitude(value: string | null): bigint | null {
+  if (value == null) return null;
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = value.replace("-", "").split(".");
+  const scaled = BigInt(whole! + fraction.padEnd(6, "0"));
+  return negative ? -scaled : scaled;
+}
+function sort(key: SortKey) {
+  if (sortKey.value === key) sortDir.value = sortDir.value === -1 ? 1 : -1;
+  else {
+    sortKey.value = key;
+    sortDir.value = -1;
+  }
+}
+const sortMark = (key: SortKey) =>
+  sortKey.value === key ? (sortDir.value === -1 ? " ↓" : " ↑") : "";
 const entries = computed(() =>
   [...(read.data?.entries ?? [])]
     .filter(
@@ -127,17 +171,35 @@ defineExpose({ load });
           ‹ 返回持仓
         </button>
         <h2 v-else>我的持仓</h2>
-        <template v-if="!selected"
-          ><button
+        <div v-if="!selected" class="stock-totals">
+          <span class="stock-total">
+            <small>总资金</small>
+            <strong>{{ holdingNumber(read.data?.total_assets, 2) }}</strong>
+            <small v-if="read.data?.total_assets !== null">{{
+              account.currency
+            }}</small>
+          </span>
+          <span class="stock-total">
+            <small>持仓市值</small>
+            <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
+          </span>
+          <button
             class="stock-cash"
             :disabled="locked || read.loading || !!read.error || !read.data"
             @click="open('cash')"
+            :aria-label="`修改现金余额，当前 ${holdingNumber(read.data?.cash ?? '0', 2)} ${account.currency}`"
           >
-            现金 <strong>{{ holdingNumber(read.data?.cash ?? "0", 2) }}</strong>
+            <small>现金</small>
+            <strong>{{ holdingNumber(read.data?.cash ?? "0", 2) }}</strong>
             <small>{{ account.currency }}</small
             ><span aria-hidden="true"> ✎</span>
-          </button></template
-        >
+          </button>
+          <small
+            v-if="read.data && !read.data.complete"
+            class="stock-total-note"
+            >部分行情不可用，总资金暂缺</small
+          >
+        </div>
       </div>
       <div class="stock-actions">
         <button :disabled="locked || read.loading" @click="load">
@@ -164,12 +226,50 @@ defineExpose({ load });
               <option value="open">当前持仓</option>
               <option value="all">全部（含已清仓）</option>
             </select></label
-          ><span>点击股票查看买卖与分红</span>
+          >
+          <div class="stock-sort-mobile" role="group" aria-label="持仓排序">
+            <span>排序</span>
+            <button
+              v-for="option in sortOptions"
+              :key="option.key"
+              type="button"
+              :aria-pressed="sortKey === option.key"
+              @click="sort(option.key)"
+            >
+              {{ option.label }}{{ sortMark(option.key) }}
+            </button>
+          </div>
+          <span class="stock-list-hint">点击股票查看买卖与分红</span>
         </div>
         <div v-if="rows.length" class="stock-list">
-          <div class="stock-list-labels" aria-hidden="true">
-            <span>股票</span><span>市值 / 数量</span><span>现价 / 成本</span
-            ><span>持仓盈亏 / 盈亏率</span><span />
+          <div class="stock-list-labels">
+            <span>股票</span>
+            <button
+              type="button"
+              class="stock-sort"
+              :aria-pressed="sortKey === 'value'"
+              @click="sort('value')"
+            >
+              市值 / 数量{{ sortMark("value") }}
+            </button>
+            <button
+              type="button"
+              class="stock-sort"
+              :aria-pressed="sortKey === 'weight'"
+              @click="sort('weight')"
+            >
+              持仓比例{{ sortMark("weight") }}
+            </button>
+            <span>现价 / 成本</span>
+            <button
+              type="button"
+              class="stock-sort"
+              :aria-pressed="sortKey === 'profit'"
+              @click="sort('profit')"
+            >
+              持仓盈亏 / 盈亏率{{ sortMark("profit") }}
+            </button>
+            <span />
           </div>
           <button
             v-for="row in rows"
@@ -193,6 +293,12 @@ defineExpose({ load });
                 >{{ holdingNumber(row.quantity) }} 股 ·
                 {{ row.instrument.currency }}</small
               ></span
+            >
+            <span
+              ><strong>{{
+                row.weight === null ? "—" : `${row.weight}%`
+              }}</strong
+              ><small>仓位</small></span
             >
             <span
               ><strong>{{ holdingNumber(row.price) }}</strong
@@ -242,7 +348,10 @@ defineExpose({ load });
             :disabled="locked || read.loading || !!read.error"
             @click="open('cash')"
           >
-            现金 {{ holdingNumber(read.data.cash, 2) }} {{ account.currency }} ✎
+            <small>现金</small>
+            <strong>{{ holdingNumber(read.data.cash, 2) }}</strong>
+            <small>{{ account.currency }}</small
+            ><span aria-hidden="true"> ✎</span>
           </button>
         </header>
         <div class="stock-metrics">

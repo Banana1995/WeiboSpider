@@ -551,16 +551,19 @@ type StockItem struct {
 	Opening bool         `json:"opening"`
 }
 type StockBook struct {
-	AccountID     string       `json:"account_id"`
-	Currency      Currency     `json:"currency"`
-	Version       string       `json:"version"`
-	Cash          Money        `json:"cash"`
-	CashDate      string       `json:"cash_date"`
-	AsOf          string       `json:"as_of"`
-	Items         []StockItem  `json:"items"`
-	Entries       []StockEntry `json:"entries"`
-	SyncCheckedAt string       `json:"sync_checked_at"`
-	SyncMessage   string       `json:"sync_message"`
+	AccountID      string       `json:"account_id"`
+	Currency       Currency     `json:"currency"`
+	Version        string       `json:"version"`
+	Cash           Money        `json:"cash"`
+	CashDate       string       `json:"cash_date"`
+	AsOf           string       `json:"as_of"`
+	PositionsValue *Money       `json:"positions_value"`
+	TotalAssets    *Money       `json:"total_assets"`
+	Complete       bool         `json:"complete"`
+	Items          []StockItem  `json:"items"`
+	Entries        []StockEntry `json:"entries"`
+	SyncCheckedAt  string       `json:"sync_checked_at"`
+	SyncMessage    string       `json:"sync_message"`
 }
 
 func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error) {
@@ -614,10 +617,17 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 	if err = h.valueHoldings(ctx, &view, instruments); err != nil {
 		return out, err
 	}
+	out.Complete, out.TotalAssets = view.Complete, copyMoney(view.TotalAssets)
+	known := Money(0)
 	for n, item := range view.Items {
 		if item.Quantity == 0 {
 			z := Money(0)
 			item.MarketValue = &z
+		}
+		if item.AccountMarketValue != nil {
+			if known, err = AddMoney(known, *item.AccountMarketValue); err != nil {
+				return out, err
+			}
 		}
 		m, err := metricsFor(positions[ids[n]], item.MarketValue)
 		if err != nil {
@@ -626,6 +636,7 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 		opening := slices.ContainsFunc(st.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == ids[n] })
 		out.Items = append(out.Items, StockItem{item, m, opening})
 	}
+	out.PositionsValue = &known
 	return out, nil
 }
 

@@ -495,6 +495,30 @@ html.lp-tab-grabbing * {
   display: grid;
   gap: 3px;
 }
+.ledger-page .lp-annual-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 18px;
+  margin: 20px 0 16px;
+}
+.ledger-page .lp-annual-toolbar > .lp-annual-heading,
+.ledger-page .lp-annual-toolbar > .lp-annual-controls {
+  flex: 1 1 100%;
+}
+.ledger-page .lp-annual-toolbar > .lp-annual-controls {
+  margin: 0;
+}
+.ledger-page .lp-annual-toolbar-embedded > .lp-annual-controls {
+  order: 1;
+  flex: 1 1 auto;
+}
+.ledger-page .lp-annual-toolbar-embedded > .lp-annual-heading {
+  order: 2;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 .ledger-page .lp-annual-controls {
   display: flex;
   flex-wrap: wrap;

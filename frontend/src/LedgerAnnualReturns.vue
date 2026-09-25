@@ -24,6 +24,7 @@ const props = defineProps<{
   portfolio?: boolean;
   refreshKey: number;
   view: "personal" | "manager";
+  hideHeading?: boolean;
 }>();
 const emit = defineEmits<{ view: [value: "personal" | "manager"] }>();
 const { locked, accountCache, cacheEpoch } = useLedgerWorkspace();
@@ -104,10 +105,11 @@ watch(
       <div>
         <h2
           :id="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
+          :class="{ 'sr-only': hideHeading }"
         >
           年度收益对比
         </h2>
-        <small>按每年的资产与资金记录独立计算</small>
+        <small v-if="!hideHeading">按每年的资产与资金记录独立计算</small>
       </div>
       <button
         type="button"

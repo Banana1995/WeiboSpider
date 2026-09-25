@@ -795,6 +795,7 @@ watch([() => props.refreshKey, cacheEpoch], () => {
         :key="portfolio.version"
         :account="account"
         portfolio
+        hide-heading
         :refresh-key="refreshKey"
         :view="view"
         @view="view = $event"

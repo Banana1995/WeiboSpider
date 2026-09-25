@@ -192,3 +192,20 @@ it("keeps account values when a benchmark is missing, and rejects mismatched res
     }),
   ).toBe("暂无有效区间");
 });
+
+it("keeps an accessible heading but hides the duplicated title when embedded", async () => {
+  wrapper = mount(LedgerAnnualReturns, {
+    props: { account, refreshKey: 0, view: "personal", hideHeading: true },
+    global: {
+      provide: {
+        [ledgerWorkspaceKey as symbol]: createLedgerWorkspace(() => {}),
+      },
+    },
+  });
+  await flushPromises();
+  expect(wrapper.get(".lp-annual-heading h2").classes()).toContain("sr-only");
+  expect(wrapper.find(".lp-annual-heading small").exists()).toBe(false);
+  expect(wrapper.get(".lp-annual-heading button").text()).toContain(
+    "查看全部年份",
+  );
+});

@@ -1180,9 +1180,32 @@ html.lp-tab-grabbing * {
   padding: 20px 0;
   border-bottom: 1px solid var(--lp-rule);
 }
-.ledger-page .lp-add-position .lp-form {
-  padding: 16px 0 0;
-  max-width: 560px;
+.ledger-page .lp-holdings-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  color: var(--lp-muted);
+  font-size: 13px;
+}
+.ledger-page .lp-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--lp-rule);
+  border-top-color: var(--lp-primary);
+  border-radius: 50%;
+  animation: lp-spin 0.8s linear infinite;
+}
+@keyframes lp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ledger-page .lp-spinner {
+    animation-duration: 2.4s;
+  }
 }
 @media (max-width: 720px) {
   .ledger-page .lp-positions-table,

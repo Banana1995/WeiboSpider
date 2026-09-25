@@ -250,12 +250,16 @@ function reloadDraft() {
   }
 }
 let generation = 0;
+let loadedAccount = "";
 async function load() {
   if (pending.value) return;
   const current = ++generation;
   const id = props.accountId;
-  read.clear();
-  emit("configured", false, "");
+  // Keep the current list visible while refreshing; only drop it on account change.
+  if (loadedAccount !== id) {
+    read.clear();
+    loadedAccount = id;
+  }
   await read.load(async (signal) =>
     validateCurrentHoldings(
       await request<CurrentHoldings>(`/accounts/${id}/current-holdings`, {
@@ -415,7 +419,7 @@ async function save() {
         </button>
       </div>
     </div>
-    <p v-if="read.loading || valuationLoading" role="status">
+    <p v-if="(read.loading || valuationLoading) && !read.data" role="status">
       正在读取持仓与参考行情…
     </p>
     <p v-if="read.error || valuationError" class="lp-error" role="alert">
@@ -608,6 +612,20 @@ async function save() {
         read.data.snapshot
           ? "暂无证券持仓，可添加股票；现金也可以为零。"
           : "尚未设置当前持仓。设置当前现金或添加第一只股票。"
+      }}
+    </p>
+    <p
+      v-if="(read.loading || valuationLoading || busy) && read.data"
+      class="lp-holdings-status"
+      role="status"
+    >
+      <span class="lp-spinner" aria-hidden="true" />
+      {{
+        busy
+          ? "正在保存持仓…"
+          : read.loading
+            ? "正在刷新持仓…"
+            : "正在刷新行情…"
       }}
     </p>
     <div v-if="addingPosition" class="lp-add-position">

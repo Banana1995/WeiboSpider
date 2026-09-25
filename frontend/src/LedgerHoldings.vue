@@ -23,10 +23,10 @@ const emit = defineEmits<{
 const { locked } = useLedgerWorkspace();
 const view = reactive(useLedgerRead<HoldingsView>());
 const current = ref<InstanceType<typeof CurrentHoldings>>();
+let loadedAccount = "";
 function load() {
   const account = props.account;
   if (!account) return;
-  view.clear();
   void view.load(async (signal) =>
     validateHoldings(
       await request<HoldingsView>(
@@ -40,7 +40,12 @@ function load() {
 watch(
   () => [props.account?.id, props.refreshKey],
   () => {
-    view.clear();
+    const id = props.account?.id ?? "";
+    // Keep the last valuation visible while refreshing the same account.
+    if (loadedAccount !== id) {
+      view.clear();
+      loadedAccount = id;
+    }
     load();
   },
   { immediate: true },

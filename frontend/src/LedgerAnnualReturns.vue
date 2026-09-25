@@ -109,56 +109,61 @@ watch(code, () => load({ preserve: true }));
     class="lp-annual"
     :aria-labelledby="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
   >
-    <div class="lp-section-title lp-annual-heading">
-      <div>
-        <h2
-          :id="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
-          :class="{ 'sr-only': hideHeading }"
-        >
-          年度收益对比
-        </h2>
-        <small v-if="!hideHeading">按每年的资产与资金记录独立计算</small>
-      </div>
-      <button
-        type="button"
-        class="lp-text-button"
-        :disabled="locked || !read.data"
-        @click="expanded = true"
-      >
-        查看全部年份 ›
-      </button>
-    </div>
-
-    <div class="lp-annual-controls">
-      <label>
-        收益视角
-        <select
-          :value="view"
-          :disabled="locked"
-          @change="
-            emit(
-              'view',
-              ($event.target as HTMLSelectElement).value as
-                'personal' | 'manager',
-            )
-          "
-        >
-          <option value="personal">资金加权收益率</option>
-          <option value="manager">时间加权收益率</option>
-        </select>
-      </label>
-      <label>
-        对比指数
-        <select v-model="code" :disabled="locked">
-          <option
-            v-for="definition in benchmarkDefinitions"
-            :key="definition.code"
-            :value="definition.code"
+    <div
+      class="lp-annual-toolbar"
+      :class="{ 'lp-annual-toolbar-embedded': hideHeading }"
+    >
+      <div class="lp-section-title lp-annual-heading">
+        <div>
+          <h2
+            :id="`lp-${portfolio ? 'portfolio' : 'account'}-annual-${account.id}`"
+            :class="{ 'sr-only': hideHeading }"
           >
-            {{ definition.name }}
-          </option>
-        </select>
-      </label>
+            年度收益对比
+          </h2>
+          <small v-if="!hideHeading">按每年的资产与资金记录独立计算</small>
+        </div>
+        <button
+          type="button"
+          class="lp-text-button"
+          :disabled="locked || !read.data"
+          @click="expanded = true"
+        >
+          查看全部年份 ›
+        </button>
+      </div>
+
+      <div class="lp-annual-controls">
+        <label>
+          收益视角
+          <select
+            :value="view"
+            :disabled="locked"
+            @change="
+              emit(
+                'view',
+                ($event.target as HTMLSelectElement).value as
+                  'personal' | 'manager',
+              )
+            "
+          >
+            <option value="personal">资金加权收益率</option>
+            <option value="manager">时间加权收益率</option>
+          </select>
+        </label>
+        <label>
+          对比指数
+          <select v-model="code" :disabled="locked">
+            <option
+              v-for="definition in benchmarkDefinitions"
+              :key="definition.code"
+              :value="definition.code"
+            >
+              {{ definition.name }}
+            </option>
+          </select>
+        </label>
+      </div>
     </div>
     <p v-if="read.loading" class="lp-annual-status" role="status">
       <span class="lp-spinner" aria-hidden="true" />

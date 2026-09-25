@@ -169,6 +169,10 @@
 .ledger-page .lp-portfolio-details > .lp-annual {
   border: 0;
   margin-bottom: 0;
+  padding-top: 0;
+}
+.ledger-page .lp-portfolio-details > .lp-annual > .lp-annual-toolbar {
+  margin-top: 14px;
 }
 .ledger-page .lp-portfolio-entry {
   display: flex;

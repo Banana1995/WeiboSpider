@@ -457,6 +457,14 @@ html.lp-tab-grabbing * {
   font-size: 13px;
   color: #263b32;
 }
+.ledger-page .lp-annual-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: var(--lp-muted);
+  font-size: 13px;
+}
 .ledger-page .lp-annual-scroll {
   overflow-x: auto;
 }

@@ -193,6 +193,39 @@ it("keeps account values when a benchmark is missing, and rejects mismatched res
   ).toBe("暂无有效区间");
 });
 
+it("keeps the table visible with a spinner while switching the benchmark", async () => {
+  await setup();
+  await wrapper.get("button.lp-text-button").trigger("click");
+  expect(wrapper.findAll(".lp-annual-full tbody tr")).toHaveLength(5);
+
+  let settle: (value: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          settle = resolve;
+        }),
+    ),
+  );
+  const dialogSelect = wrapper.findAll("dialog select")[1]!;
+  await dialogSelect.setValue("H00922");
+  await flushPromises();
+  expect(wrapper.find(".lp-spinner").exists()).toBe(true);
+  expect(wrapper.find(".lp-annual-full").text()).toContain("正在切换指数");
+  expect(wrapper.findAll(".lp-annual-full tbody tr")).toHaveLength(5);
+
+  settle(
+    new Response(JSON.stringify(annual("H00922")), {
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  await flushPromises();
+  expect(wrapper.find(".lp-spinner").exists()).toBe(false);
+  expect(wrapper.find(".lp-annual-full").text()).toContain("中证红利全收益");
+  expect(wrapper.findAll(".lp-annual-full tbody tr")).toHaveLength(5);
+});
+
 it("keeps an accessible heading but hides the duplicated title when embedded", async () => {
   wrapper = mount(LedgerAnnualReturns, {
     props: { account, refreshKey: 0, view: "personal", hideHeading: true },

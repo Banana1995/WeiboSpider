@@ -9,9 +9,17 @@ export interface CachedLedgerRequest<T> {
 
 export function useLedgerCachedRead<T>(cache: LedgerReadCache) {
   const state = useLedgerRead<T>();
-  function load(request: CachedLedgerRequest<T>, revalidate = true) {
-    state.clear();
-    state.data.value = cache.peek<T>(request.key);
+  function load(
+    request: CachedLedgerRequest<T>,
+    revalidate = true,
+    preserve = false,
+  ) {
+    // Preserve keeps the last-known snapshot on screen while a variant of the
+    // same read (e.g. another benchmark) is fetched, avoiding a full re-render.
+    if (!preserve) {
+      state.clear();
+      state.data.value = cache.peek<T>(request.key);
+    }
     return state.load(async (signal) => {
       try {
         return await cache.fetch(request.key, request.read, signal, revalidate);

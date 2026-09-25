@@ -14,7 +14,10 @@ import {
   type AnnualReturns,
 } from "./ledgerAnnualReturns";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
-import { useLedgerCachedRead } from "./useLedgerCachedRead";
+import {
+  useLedgerCachedRead,
+  type CachedLedgerRequest,
+} from "./useLedgerCachedRead";
 import { annualReturnsRequest } from "./ledgerCachedRequests";
 import { todayShanghai } from "./ledgerView";
 import LedgerDialog from "./LedgerDialog.vue";
@@ -31,6 +34,7 @@ const { locked, accountCache, cacheEpoch } = useLedgerWorkspace();
 const read = reactive(useLedgerCachedRead<AnnualReturns>(accountCache));
 const code = ref<BenchmarkCode>("H00300");
 const expanded = ref(false);
+const switching = ref(false);
 const latest = computed(() => read.data?.years.slice(-2) ?? []);
 const shortRows = computed(() =>
   read.data ? [read.data.annualized, ...latest.value, read.data.since] : [],
@@ -63,37 +67,41 @@ const period = (row: AnnualReturnRow) =>
       ? `${row.from} 至 ${row.to}`
       : "暂无有效区间";
 
-function load() {
-  read.clear();
+function load(options: { preserve?: boolean } = {}) {
+  const preserve = options.preserve === true && Boolean(read.data);
+  if (!preserve) read.clear();
   if (locked.value) return;
+  switching.value = preserve;
   const account = props.account;
   const selected = code.value;
-  if (!props.portfolio) {
-    void read.load(annualReturnsRequest(account, selected));
-    return;
-  }
-  void read.load({
-    key: `portfolio-annual|${account.id}|${account.currency}|${props.refreshKey}|${selected}|${todayShanghai()}`,
-    read: async (signal) => {
-      const data = await request<AnnualReturns>(
-        `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
-        { signal },
-      );
-      try {
-        return validateAnnualReturns(data, account, selected);
-      } catch {
-        throw new LedgerError("invalid_response");
+  const cachedRequest: CachedLedgerRequest<AnnualReturns> = props.portfolio
+    ? {
+        key: `portfolio-annual|${account.id}|${account.currency}|${props.refreshKey}|${selected}|${todayShanghai()}`,
+        read: async (signal: AbortSignal) => {
+          const data = await request<AnnualReturns>(
+            `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
+            { signal },
+          );
+          try {
+            return validateAnnualReturns(data, account, selected);
+          } catch {
+            throw new LedgerError("invalid_response");
+          }
+        },
       }
-    },
+    : annualReturnsRequest(account, selected);
+  void read.load(cachedRequest, true, preserve).finally(() => {
+    if (switching.value) switching.value = false;
   });
 }
 watch(
-  [() => props.account.id, () => props.refreshKey, code, cacheEpoch, locked],
-  load,
+  [() => props.account.id, () => props.refreshKey, cacheEpoch, locked],
+  () => load(),
   {
     immediate: true,
   },
 );
+watch(code, () => load({ preserve: true }));
 </script>
 
 <template>
@@ -152,12 +160,21 @@ watch(
         </select>
       </label>
     </div>
-    <p v-if="read.loading" class="lp-empty" role="status">
-      {{ read.data ? "已显示上次年度结果，正在核对…" : "正在计算年度收益…" }}
+    <p v-if="read.loading" class="lp-annual-status" role="status">
+      <span class="lp-spinner" aria-hidden="true" />
+      {{
+        switching
+          ? "正在切换指数…"
+          : read.data
+            ? "已显示上次年度结果，正在核对…"
+            : "正在计算年度收益…"
+      }}
     </p>
     <p v-if="read.error" class="lp-error" role="alert">
       {{ errorText(read.error) }}
-      <button :disabled="locked || read.loading" @click="load">重新读取</button>
+      <button :disabled="locked || read.loading" @click="load()">
+        重新读取
+      </button>
     </p>
     <template v-if="read.data">
       <p v-if="read.data.benchmark_error" class="lp-annual-note" role="status">
@@ -166,7 +183,7 @@ watch(
             ? "读取超时"
             : "暂不可用"
         }}，账户收益仍可查看。
-        <button :disabled="locked" @click="load">重试指数</button>
+        <button :disabled="locked" @click="load()">重试指数</button>
       </p>
       <div v-if="!read.data.years.length" class="lp-empty">
         记录两天及以上的总资产后，即可查看年度收益。
@@ -254,13 +271,18 @@ watch(
             </select>
           </label>
         </div>
-        <p v-if="read.loading" role="status">
+        <p v-if="read.loading" class="lp-annual-status" role="status">
+          <span class="lp-spinner" aria-hidden="true" />
           {{
-            read.data ? "已显示上次年度结果，正在核对…" : "正在计算年度收益…"
+            switching
+              ? "正在切换指数…"
+              : read.data
+                ? "已显示上次年度结果，正在核对…"
+                : "正在计算年度收益…"
           }}
         </p>
         <p v-if="read.error" class="lp-error" role="alert">
-          {{ errorText(read.error) }} <button @click="load">重新读取</button>
+          {{ errorText(read.error) }} <button @click="load()">重新读取</button>
         </p>
         <template v-if="read.data">
           <p

@@ -214,19 +214,30 @@ func calculateReturns(ctx context.Context, b AnalysisBasis, from, to string) (Re
 		} else if d.point != nil && d.point.Status == "carried" && twrReason == "" {
 			twrReason = "missing_flow_boundary"
 		}
-		if twrReason == "" && boundaryAssets.Sign() == 0 {
-			twrReason = "zero_twr_base"
-		}
 		growth := new(big.Rat)
 		if twrReason == "" {
 			preFlow := new(big.Int).Sub(assets, d.flow)
-			if preFlow.Sign() < 0 || assets.Sign() < 0 || boundaryAssets.Sign() < 0 {
+			if assets.Sign() < 0 || boundaryAssets.Sign() < 0 {
+				twrReason = "negative_twr_factor"
+			} else if boundaryAssets.Sign() == 0 {
+				// There is no capital on which to earn a return while empty.
+				// With post-flow daily observations, assets == net inflow proves
+				// a neutral idle/reentry step. Keep the prior chain (even a -100%
+				// loss) and let this flow establish the next funded boundary.
+				// Any difference needs an intraday valuation/timing convention;
+				// do not hide it as zero profit or divide by the new contribution.
+				if preFlow.Sign() != 0 {
+					twrReason = "zero_twr_base"
+				} else {
+					growth.Set(chain)
+				}
+			} else if preFlow.Sign() < 0 {
 				twrReason = "negative_twr_factor"
 			} else {
 				growth.Mul(chain, new(big.Rat).SetFrac(preFlow, boundaryAssets))
-				if !boundedGrowth(growth) {
-					twrReason = "twr_product_limit"
-				}
+			}
+			if twrReason == "" && !boundedGrowth(growth) {
+				twrReason = "twr_product_limit"
 			}
 		}
 		twrStatus := chainStatus

@@ -270,7 +270,7 @@ func TestTWREstimateZeroNegativeAndLargeAssets(t *testing.T) {
 	}{
 		{10000, -10001, "negative_twr_factor"},
 		{10000, -10000, "zero_twr_base"},
-		{0, 10000, "zero_twr_base"},
+		{0, 10000, ""}, // a pure deposit establishes the first funded boundary
 		{math.MaxInt64, math.MaxInt64, ""},
 	} {
 		o, m, c := returnPoint("2024-01-01", tt.base), returnPoint("2024-09-01", tt.base), returnPoint("2025-05-03", 11000)
@@ -281,6 +281,10 @@ func TestTWREstimateZeroNegativeAndLargeAssets(t *testing.T) {
 		if tt.base == math.MaxInt64 {
 			require.Equal(t, "184467440737095516.14", r.Curve[1].TWREstimate.Assets)
 			require.Equal(t, "0.000000000000", *r.Curve[1].TWR.Value)
+		}
+		if tt.base == 0 {
+			require.Equal(t, "reference", r.TWR.Status)
+			require.Equal(t, "10.00", *r.TWR.Percentage)
 		}
 	}
 }

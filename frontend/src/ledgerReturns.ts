@@ -67,7 +67,7 @@ export const returnReasons: Record<string, string> = {
   not_converged: "求解未达到残差与精度要求",
   precision_unresolved: "数值不确定性跨越舍入边界，不能确认展示精度",
   missing_flow_boundary: "外部资金流边界缺少总资产，不能计算真实 TWR",
-  zero_twr_base: "资金边界资产为零，不能作为下一段 TWR 分母",
+  zero_twr_base: "零资产后的余额与净转入不一致，无法确定新一段 TWR 基准",
   negative_twr_factor: "扣除当日资金流后资产为负，TWR 因子无效",
   twr_product_limit: "精确复利乘积超过计算或展示范围，不用近似值替代",
 };

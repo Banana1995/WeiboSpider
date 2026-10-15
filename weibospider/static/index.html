@@ -1132,7 +1132,7 @@ async function triggerCrawl(user_id) {
   btn.textContent = '立即抓取';
 }
 
-async function triggerIncremental() {
+async function triggerIncremental(cookieSaved = false) {
   const btn = $('btn-incremental');
   btn.disabled = true;
   btn.textContent = '同步中...';
@@ -1145,11 +1145,18 @@ async function triggerIncremental() {
       headers: {'Content-Type': 'application/json'},
     });
     const data = await resp.json();
-    if (data.status === 'started') {
-      toast('增量同步已启动');
+    if (resp.ok && data.status === 'started') {
+      toast(cookieSaved ? 'Cookie 已保存，增量同步已启动' : '增量同步已启动');
       $('crawl-log-body').textContent = '等待日志...';
-    } else toast(data.message, true);
-  } catch(e) { toast('请求失败', true); }
+    } else {
+      const message = data.message || data.error || '增量同步启动失败';
+      toast((cookieSaved ? 'Cookie 已保存，但未启动重试：' : '') + message, true);
+      $('crawl-log-body').textContent = message;
+    }
+  } catch(e) {
+    toast(cookieSaved ? 'Cookie 已保存，但重试请求失败，请手动点击增量同步' : '请求失败', true);
+    $('crawl-log-body').textContent = '启动请求失败，请检查抓取状态后重试';
+  }
   btn.disabled = false;
   btn.textContent = '增量同步';
 }
@@ -1272,8 +1279,10 @@ async function pollCrawlStatus() {
 }
 
 let cookieModalDismissed = false;
+let cookieSavePending = false;
 
 function showCookieModal() {
+  if (cookieSavePending || $('cookie-modal').classList.contains('show')) return;
   $('cookie-modal').classList.add('show');
   $('cookie-modal-input').value = '';
   setTimeout(() => { try { $('cookie-modal-input').focus(); } catch(e) {} }, 100);
@@ -1285,8 +1294,13 @@ function dismissCookieModal() {
 }
 
 async function saveCookieFromModal() {
+  if (cookieSavePending) return;
   const cookie = $('cookie-modal-input').value.trim();
   if (!cookie) { toast('请输入 Cookie', true); return; }
+  cookieSavePending = true;
+  const btn = document.querySelector('#cookie-modal .btn-confirm');
+  btn.disabled = true;
+  btn.textContent = '保存并启动中...';
   try {
     const resp = await fetch('/api/config', {
       method: 'POST',
@@ -1299,11 +1313,16 @@ async function saveCookieFromModal() {
       $('cookie-modal').classList.remove('show');
       lastCrawlResult = null;
       loadConfig();
-      toast('Cookie 已保存');
+      await triggerIncremental(true);
     } else {
       toast(data.error || '保存失败', true);
     }
   } catch(e) { toast('保存失败', true); }
+  finally {
+    cookieSavePending = false;
+    btn.disabled = false;
+    btn.textContent = '保存并重试';
+  }
 }
 
 async function cancelCrawl() {

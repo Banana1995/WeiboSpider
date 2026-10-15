@@ -84,7 +84,7 @@ def test_schedule_config_inputs_exist():
 
 
 def test_trigger_incremental_function_exists():
-    assert "async function triggerIncremental()" in INDEX_HTML
+    assert "async function triggerIncremental(cookieSaved = false)" in INDEX_HTML
     assert "fetch('/api/crawl/incremental'" in INDEX_HTML
 
 

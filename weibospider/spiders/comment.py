@@ -4,7 +4,7 @@
 微博评论数据采集（改造版）
 """
 import json
-from scrapy import Spider
+from scrapy import Spider, signals
 from scrapy.http import Request
 from spiders.common import parse_user_info, parse_time, url_to_mid
 
@@ -17,6 +17,8 @@ class CommentSpider(Spider):
         'RANDOMIZE_DOWNLOAD_DELAY': True,
         'AUTOTHROTTLE_ENABLED': False,
         'CONCURRENT_REQUESTS': 8,
+        # Scrapy 2.5 otherwise leaves the JSON feed empty when there are no items.
+        'FEED_STORE_EMPTY': True,
     }
 
     def __init__(self, tweet_ids=None, flow='0', max_pages=None, *args, **kwargs):
@@ -26,6 +28,38 @@ class CommentSpider(Spider):
             self.tweet_ids = self.tweet_ids.split(',')
         self.flow = flow  # 0=热度排序, 1=时间排序
         self.max_pages = int(max_pages) if max_pages else None  # limit pages per tweet
+        self._completed_tweets = set()
+        self._crawl_errors = set()
+        self._item_count = 0
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        crawler.signals.connect(spider._processing_error, signal=signals.spider_error)
+        crawler.signals.connect(spider._processing_error, signal=signals.item_error)
+        return spider
+
+    def _processing_error(self, **kwargs):
+        self._crawl_errors.add('processing_error')
+
+    def request_failed(self, failure):
+        self._crawl_errors.add('request_failed')
+        self.logger.error('Comment request failed; no empty-result success will be reported')
+
+    def closed(self, reason):
+        # Scrapy can exit with code 0 after HTTP, callback, or pipeline failures.
+        # Report an explicit outcome so the caller can distinguish those from zero comments.
+        if reason != 'finished' or len(self._completed_tweets) != len(set(self.tweet_ids)):
+            self._crawl_errors.add('incomplete')
+        error = ('cookie_expired' if 'cookie_expired' in self._crawl_errors
+                 else next(iter(sorted(self._crawl_errors - {'incomplete'})), None))
+        if error is None and self._crawl_errors:
+            error = 'incomplete'
+        self.logger.info('COMMENT_CRAWL_RESULT %s', json.dumps({
+            'status': 'failed' if error else 'completed',
+            'error': error,
+            'item_count': self._item_count,
+        }))
 
     def start_requests(self):
         self.logger.info("Starting comments crawl for %d tweets", len(self.tweet_ids))
@@ -35,7 +69,8 @@ class CommentSpider(Spider):
                 f"https://weibo.com/ajax/statuses/buildComments?"
                 f"flow={self.flow}&is_reload=1&id={mid}&is_show_bulletin=2&is_mix=1&count=50"
             )
-            yield Request(base_url, callback=self.parse, headers={'Referer': 'https://weibo.com/'}, meta={
+            yield Request(base_url, callback=self.parse, errback=self.request_failed,
+                          headers={'Referer': 'https://weibo.com/'}, meta={
                 'base_url': base_url, 'tweet_id': str(mid),
                 'tweet_index': idx + 1, 'tweet_total': len(self.tweet_ids),
                 'sort_offset': 0, 'comment_count': 0, 'top_count': 0,
@@ -51,20 +86,25 @@ class CommentSpider(Spider):
         try:
             data = json.loads(response.text)
         except json.JSONDecodeError:
+            self._crawl_errors.add('non_json')
             self.logger.error("[%d/%d] tweet %s: non-JSON response",
                               tweet_idx, tweet_total, tweet_id)
             return
 
+        if not isinstance(data, dict):
+            self._crawl_errors.add('invalid_response')
+            return
         if data.get('ok') == -100:
+            self._crawl_errors.add('cookie_expired')
             self.logger.critical(
                 "Weibo API returned ok=-100 (not logged in / cookie expired). "
                 "Please update your cookie in the web UI config."
             )
             return
         if data.get('ok') != 1:
-            self.logger.warning("[%d/%d] tweet %s: ok=%s msg=%s",
-                                tweet_idx, tweet_total, tweet_id,
-                                data.get('ok'), data.get('msg', ''))
+            self._crawl_errors.add('api_error')
+            self.logger.warning("[%d/%d] tweet %s: API rejected comments request",
+                                tweet_idx, tweet_total, tweet_id)
             return
 
         comment_count = response.meta.get('comment_count', 0)
@@ -72,7 +112,10 @@ class CommentSpider(Spider):
         MAX_TOP = 100
         MAX_SUB = 10
 
-        comments = data.get('data', [])
+        comments = data.get('data')
+        if not isinstance(comments, list):
+            self._crawl_errors.add('invalid_response')
+            return
         seq = sort_offset
         sub_count = 0
         actual_top_yielded = 0
@@ -87,6 +130,7 @@ class CommentSpider(Spider):
             seq += 1
             top_count += 1
             actual_top_yielded += 1
+            self._item_count += 1
             yield item
 
             subs = comment_info.get('comments', [])
@@ -100,6 +144,7 @@ class CommentSpider(Spider):
                     seq += 1
                     if 'parent_comment_id' not in s_item:
                         s_item['parent_comment_id'] = str(comment_info.get('id', ''))
+                    self._item_count += 1
                     yield s_item
                     sub_count += 1
 
@@ -120,7 +165,7 @@ class CommentSpider(Spider):
         reached_max_pages = self.max_pages is not None and current_page >= self.max_pages
         if not reached_limit and not reached_max_pages and data.get('max_id', 0) != 0 and len(comments) > 0:
             url = response.meta['base_url'] + '&max_id=' + str(data['max_id'])
-            yield Request(url, callback=self.parse,
+            yield Request(url, callback=self.parse, errback=self.request_failed,
                           headers={'Referer': 'https://weibo.com/',
                                    'X-Requested-With': 'XMLHttpRequest'},
                           meta={'base_url': response.meta['base_url'],
@@ -131,11 +176,13 @@ class CommentSpider(Spider):
                                 'comment_count': comment_count + len(comments),
                                 'top_count': top_count,
                                 'page_num': current_page + 1})
-        elif total_count > 0:
-            limit_msg = f" (limited to {MAX_TOP} top + {MAX_SUB} sub/ea)" if reached_limit else ""
-            pages_msg = f" (max_pages={self.max_pages})" if reached_max_pages else ""
-            self.logger.info("[%d/%d] tweet %s: done, %d comments total%s%s",
-                             tweet_idx, tweet_total, tweet_id, total_count, limit_msg, pages_msg)
+        else:
+            self._completed_tweets.add(tweet_id)
+            if total_count > 0:
+                limit_msg = f" (limited to {MAX_TOP} top + {MAX_SUB} sub/ea)" if reached_limit else ""
+                pages_msg = f" (max_pages={self.max_pages})" if reached_max_pages else ""
+                self.logger.info("[%d/%d] tweet %s: done, %d comments total%s%s",
+                                 tweet_idx, tweet_total, tweet_id, total_count, limit_msg, pages_msg)
 
     @staticmethod
     def parse_comment(data):

@@ -284,9 +284,9 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
       <h1>微博管理器</h1>
       <span class="stats" id="stats-text">加载中...</span>
       <div class="toolbar-actions">
-        <button class="btn btn-primary" id="btn-crawl">立即抓取</button>
-        <button class="btn btn-primary" id="btn-incremental" style="background:#27ae60;">增量同步</button>
-        <button class="btn btn-primary" id="btn-xueqiu" style="background:#3377aa;">雪球同步</button>
+        <button class="btn btn-primary" id="btn-crawl">微博抓取</button>
+        <button class="btn btn-primary" id="btn-incremental" style="background:#27ae60;">微博同步</button>
+        <button class="btn btn-primary" id="btn-xueqiu" style="background:#3377aa;">雪球抓取</button>
         <button class="btn btn-primary" id="btn-xueqiu-inc" style="background:#5a9bd5;">雪球增量</button>
         <button class="btn btn-primary" id="btn-xueqiu-comments" style="background:#7a3d9e;">雪球评论</button>
         <input id="search-input" class="search-input" type="search"
@@ -555,7 +555,7 @@ async function loadConfig() {
       $('xq-cookie-status').textContent = '已保存雪球 Cookie: ' + data.xq_cookie_masked;
       $('xq-cookie-status').style.color = '#27ae60';
     } else {
-      $('xq-cookie-status').textContent = '未设置雪球 Cookie（雪球同步将失败）';
+      $('xq-cookie-status').textContent = '未设置雪球 Cookie（雪球抓取将失败）';
       $('xq-cookie-status').style.color = '#e74c3c';
     }
     $('oss-access-key-id').value = data.oss_access_key_id || '';
@@ -884,7 +884,7 @@ async function crawlComments(tweetId, btn) {
       const toggle = document.querySelector(`.card[data-id="${tweetId}"] .comments-toggle`);
       if (toggle) toggle.textContent = `评论 ${comments.length}`;
       box.classList.add('open');
-      toast(`已抓取 ${data.new_count || 0} 条新评论，共 ${data.count} 条`);
+      toast(data.count === 0 ? '暂无可抓取的评论' : `已抓取 ${data.new_count || 0} 条新评论，共 ${data.count} 条`);
     } else {
       toast(data.error || '抓取失败', true);
     }
@@ -1129,7 +1129,7 @@ async function triggerCrawl(user_id) {
     } else toast(data.message, true);
   } catch(e) { toast('请求失败', true); }
   btn.disabled = false;
-  btn.textContent = '立即抓取';
+  btn.textContent = '微博抓取';
 }
 
 async function triggerIncremental(cookieSaved = false) {
@@ -1154,11 +1154,11 @@ async function triggerIncremental(cookieSaved = false) {
       $('crawl-log-body').textContent = message;
     }
   } catch(e) {
-    toast(cookieSaved ? 'Cookie 已保存，但重试请求失败，请手动点击增量同步' : '请求失败', true);
+    toast(cookieSaved ? 'Cookie 已保存，但重试请求失败，请手动点击微博同步' : '请求失败', true);
     $('crawl-log-body').textContent = '启动请求失败，请检查抓取状态后重试';
   }
   btn.disabled = false;
-  btn.textContent = '增量同步';
+  btn.textContent = '微博同步';
 }
 
 async function triggerXueqiu(mode) {
@@ -1167,7 +1167,7 @@ async function triggerXueqiu(mode) {
   btn.textContent = mode === 'full' ? '同步中...' : '增量中...';
   $('crawl-log').classList.remove('collapsed', 'error');
   $('crawl-log-toggle').textContent = '收起 ▲';
-  $('crawl-log-body').textContent = '正在启动雪球同步...';
+  $('crawl-log-body').textContent = '正在启动雪球抓取...';
   try {
     const resp = await fetch('/api/crawl/xueqiu', {
       method: 'POST',
@@ -1176,12 +1176,12 @@ async function triggerXueqiu(mode) {
     });
     const data = await resp.json();
     if (data.status === 'started') {
-      toast('雪球同步已启动');
+      toast('雪球抓取已启动');
       $('crawl-log-body').textContent = '等待日志...';
     } else toast(data.message || data.error, true);
   } catch(e) { toast('请求失败', true); }
   btn.disabled = false;
-  btn.textContent = mode === 'full' ? '雪球同步' : '雪球增量';
+  btn.textContent = mode === 'full' ? '雪球抓取' : '雪球增量';
 }
 
 async function triggerXueqiuComments(mode) {
@@ -1235,9 +1235,9 @@ async function pollCrawlStatus() {
   } else {
     $('crawl-banner').classList.remove('show');
     $('btn-crawl').disabled = false;
-    $('btn-crawl').textContent = '立即抓取';
+    $('btn-crawl').textContent = '微博抓取';
     $('btn-incremental').disabled = false;
-    $('btn-incremental').textContent = '增量同步';
+    $('btn-incremental').textContent = '微博同步';
     $('btn-xueqiu').disabled = false;
     $('btn-xueqiu-inc').disabled = false;
     $('btn-xueqiu-comments').disabled = false;
@@ -1332,9 +1332,9 @@ async function cancelCrawl() {
     toast(data.message || '已取消');
     $('crawl-banner').classList.remove('show');
     $('btn-crawl').disabled = false;
-    $('btn-crawl').textContent = '立即抓取';
+    $('btn-crawl').textContent = '微博抓取';
     $('btn-incremental').disabled = false;
-    $('btn-incremental').textContent = '增量同步';
+    $('btn-incremental').textContent = '微博同步';
     $('btn-xueqiu').disabled = false;
     $('btn-xueqiu-inc').disabled = false;
     $('btn-xueqiu-comments').disabled = false;

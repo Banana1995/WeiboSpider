@@ -78,6 +78,51 @@ def _safe_remove(path):
         pass
 
 
+class _CommentCrawlError(Exception):
+    def __init__(self, code):
+        messages = {
+            'cookie_expired': 'Cookie 已过期，请更新 Cookie',
+            'request_failed': '微博评论请求失败，可能是网络异常或站点限流，请稍后重试',
+            'non_json': '微博评论接口返回了非 JSON 内容，请稍后重试',
+            'api_error': '微博评论接口拒绝了请求，请稍后重试',
+            'invalid_response': '微博评论接口返回的数据格式异常，请稍后重试',
+            'processing_error': '评论处理失败，请查看服务端日志后重试',
+            'incomplete': '评论抓取未完整结束，请稍后重试',
+            'invalid_output': '评论抓取结果为空或格式异常，请重试',
+        }
+        self.code = code if isinstance(code, str) and code in messages else 'incomplete'
+        super().__init__(messages[self.code])
+
+
+def _read_comment_items(path, spider_output):
+    """Accept an empty feed only when the spider explicitly completed successfully."""
+    marker = 'COMMENT_CRAWL_RESULT '
+    result = None
+    for line in reversed(spider_output.splitlines()):
+        if marker in line:
+            try:
+                result = json.loads(line.split(marker, 1)[1])
+            except (ValueError, TypeError):
+                pass
+            break
+    if not isinstance(result, dict) or result.get('status') not in ('completed', 'failed'):
+        raise _CommentCrawlError('incomplete')
+    if result['status'] == 'failed':
+        raise _CommentCrawlError(result.get('error'))
+    count = result.get('item_count')
+    if type(count) is not int or count < 0:
+        raise _CommentCrawlError('invalid_output')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            items = json.load(f)
+    except (ValueError, OSError):
+        raise _CommentCrawlError('invalid_output') from None
+    if (not isinstance(items, list) or len(items) != count
+            or any(not isinstance(item, dict) for item in items)):
+        raise _CommentCrawlError('invalid_output')
+    return items
+
+
 def _get_schedule_config():
     """Read schedule config from DB with proper type coercion."""
     se = DB.get_config('schedule_enabled', False)
@@ -325,6 +370,8 @@ def _crawl_comments(scheduler=None, mode='full'):
             return {'status': 'cancelled'}
         time.sleep(1)
 
+    # Drain the subprocess output, including the final crawl outcome, before reading it.
+    _t.join(timeout=5)
     spider_output = '\n'.join(captured)
     if 'ok=-100' in spider_output or 'not logged in' in spider_output.lower():
         _log("失败: Cookie 已过期")
@@ -338,12 +385,11 @@ def _crawl_comments(scheduler=None, mode='full'):
         return {'status': 'failed', 'error': f'returncode={proc.returncode}', 'stats': DB.stats()}
 
     try:
-        with open(items_path, 'r', encoding='utf-8') as f:
-            items = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        _log(f"失败: 读取 scrapy 输出出错 {e}")
+        items = _read_comment_items(items_path, spider_output)
+    except _CommentCrawlError as e:
+        _log(f"失败: {e}")
         _safe_remove(items_path)
-        return {'status': 'failed', 'error': f'items read failed: {e}', 'stats': DB.stats()}
+        return {'status': 'failed', 'error': str(e), 'code': e.code, 'stats': DB.stats()}
 
     try:
         DB.batch_insert_comments(items)
@@ -1201,8 +1247,14 @@ def api_crawl_comments(tweet_id):
         return jsonify({'error': f'scrapy failed (returncode={proc.returncode})', 'output': tail}), 500
 
     try:
-        with open(items_path, 'r', encoding='utf-8') as f:
-            items = json.load(f)
+        items = _read_comment_items(items_path, spider_output)
+    except _CommentCrawlError as e:
+        _safe_remove(items_path)
+        DB.insert_log('crawl', 'single_comment_crawl',
+                      detail=f'tweet={tweet_id} code={e.code}', status='failed', user='web')
+        return jsonify({'error': str(e), 'code': e.code}), 400 if e.code == 'cookie_expired' else 502
+
+    try:
         DB.batch_insert_comments(items)
     except Exception as e:
         _safe_remove(items_path)
@@ -1214,11 +1266,6 @@ def api_crawl_comments(tweet_id):
     _safe_remove(items_path)
     comments = DB.get_comments(tweet_id, sort='hot')
     new_count = len(comments) - comments_before
-    if new_count == 0 and len(comments) == 0:
-        DB.insert_log('crawl', 'single_comment_crawl',
-                       detail=f'tweet={tweet_id} no_comments', status='failed', user='web')
-        return jsonify({'error': '未抓取到评论（可能 Cookie 过期或该微博无评论）', 'output': spider_output[-500:]}), 500
-
     DB.insert_log('crawl', 'single_comment_crawl',
                    detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
                    status='success', user='web')

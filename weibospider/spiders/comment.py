@@ -163,7 +163,8 @@ class CommentSpider(Spider):
         # Paginate to next page of comments (stop if limit reached)
         current_page = response.meta.get('page_num', 1)
         reached_max_pages = self.max_pages is not None and current_page >= self.max_pages
-        if not reached_limit and not reached_max_pages and data.get('max_id', 0) != 0 and len(comments) > 0:
+        has_next = data.get('max_id', 0) != 0 and len(comments) > 0
+        if not reached_limit and not reached_max_pages and has_next:
             url = response.meta['base_url'] + '&max_id=' + str(data['max_id'])
             yield Request(url, callback=self.parse, errback=self.request_failed,
                           headers={'Referer': 'https://weibo.com/',
@@ -173,16 +174,19 @@ class CommentSpider(Spider):
                                 'tweet_index': tweet_idx,
                                 'tweet_total': tweet_total,
                                 'sort_offset': seq,
-                                'comment_count': comment_count + len(comments),
+                                'comment_count': total_count,
                                 'top_count': top_count,
                                 'page_num': current_page + 1})
         else:
             self._completed_tweets.add(tweet_id)
-            if total_count > 0:
-                limit_msg = f" (limited to {MAX_TOP} top + {MAX_SUB} sub/ea)" if reached_limit else ""
-                pages_msg = f" (max_pages={self.max_pages})" if reached_max_pages else ""
-                self.logger.info("[%d/%d] tweet %s: done, %d comments total%s%s",
-                                 tweet_idx, tweet_total, tweet_id, total_count, limit_msg, pages_msg)
+            stop_reason = 'top_limit' if reached_limit else 'exhausted'
+            if has_next and reached_max_pages and not reached_limit:
+                stop_reason = 'page_limit'
+                self._crawl_errors.add('page_limit')
+            self.logger.info(
+                "[%d/%d] tweet %s: %d comments total (%d top + %d sub), pages=%d, stop=%s",
+                tweet_idx, tweet_total, tweet_id, total_count,
+                top_count, total_count - top_count, current_page, stop_reason)
 
     @staticmethod
     def parse_comment(data):

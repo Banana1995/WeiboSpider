@@ -688,6 +688,37 @@ class TweetDB:
             d['deleted'] = bool(d.get('deleted'))
             return d
 
+    def get_comment_ids(self, tweet_id):
+        """Snapshot stored IDs before a crawl, including replies."""
+        with self._lock:
+            return {r[0] for r in self.conn.execute(
+                "SELECT id FROM comments WHERE tweet_id=?", (tweet_id,))}
+
+    def get_comment_counts(self, tweet_ids):
+        """Batch counts for cards and crawl responses, independent of source metadata."""
+        counts = {tid: {'total': 0, 'top_level': 0, 'replies': 0} for tid in tweet_ids}
+        if not counts:
+            return counts
+        ids = list(counts)
+        with self._lock:
+            rows = []
+            # Notes/PS lists are unpaginated; stay below SQLite's parameter limit.
+            for start in range(0, len(ids), 500):
+                batch = ids[start:start + 500]
+                placeholders = ','.join('?' for _ in batch)
+                rows.extend(self.conn.execute(
+                    "SELECT tweet_id, COUNT(*) AS total, "
+                    "SUM(CASE WHEN COALESCE(parent_comment_id, '')='' THEN 1 ELSE 0 END) AS top_level "
+                    f"FROM comments WHERE tweet_id IN ({placeholders}) GROUP BY tweet_id",
+                    batch,
+                ).fetchall())
+        for row in rows:
+            counts[row['tweet_id']] = {
+                'total': row['total'], 'top_level': row['top_level'],
+                'replies': row['total'] - row['top_level'],
+            }
+        return counts
+
     def get_comments(self, tweet_id, sort='time'):
         with self._lock:
             if sort == 'hot':
@@ -765,12 +796,14 @@ class TweetDB:
             return [r[0] for r in rows]
 
     def get_tweet_ids_with_enough_comments(self, min_count, start_date=None, end_date=None):
+        """Tweets with enough top-level comments; replies do not consume the quota."""
         with self._lock:
             if start_date and end_date:
                 rows = self.conn.execute(
                     "SELECT t.mblogid FROM tweets t "
                     "JOIN comments c ON c.tweet_id = t.id "
                     "WHERE t.deleted = 0 AND t.created_at >= ? AND t.created_at <= ? "
+                    "AND COALESCE(c.parent_comment_id, '')='' "
                     "GROUP BY t.mblogid "
                     "HAVING COUNT(c.id) >= ?", (start_date, end_date + ' 23:59:59', min_count)
                 ).fetchall()
@@ -779,6 +812,7 @@ class TweetDB:
                     "SELECT t.mblogid FROM tweets t "
                     "JOIN comments c ON c.tweet_id = t.id "
                     "WHERE t.deleted = 0 "
+                    "AND COALESCE(c.parent_comment_id, '')='' "
                     "GROUP BY t.mblogid "
                     "HAVING COUNT(c.id) >= ?", (min_count,)
                 ).fetchall()
@@ -805,15 +839,17 @@ class TweetDB:
 
     def get_tweets_for_comment_crawl(self, hours=8):
         """Return (id, mblogid) tuples for tweets eligible for comment crawl:
-        non-deleted, within the last `hours` hours, and with <100 comments.
+        non-deleted, within the last `hours` Beijing hours, and <100 top-level comments.
         """
         with self._lock:
             rows = self.conn.execute(
                 "SELECT id, mblogid FROM tweets "
                 "WHERE deleted=0 "
-                "  AND created_at > datetime('now', 'localtime', ?) "
+                # Source created_at is stored as Beijing wall time, even in UTC containers.
+                "  AND created_at > datetime('now', '+8 hours', ?) "
                 "  AND id NOT IN ("
                 "    SELECT tweet_id FROM comments "
+                "    WHERE COALESCE(parent_comment_id, '')='' "
                 "    GROUP BY tweet_id HAVING COUNT(*) >= 100"
                 "  ) "
                 "ORDER BY created_at DESC",

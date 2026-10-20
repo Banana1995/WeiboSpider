@@ -532,9 +532,10 @@ class TestTweetDB:
         assert db.get_latest_tweet_id('u1') is None
 
     def test_get_tweets_for_comment_crawl(self, db):
-        from datetime import datetime, timedelta
-        recent = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
-        old = (datetime.now() - timedelta(hours=20)).strftime('%Y-%m-%d %H:%M:%S')
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone(timedelta(hours=8)))
+        recent = (now - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+        old = (now - timedelta(hours=20)).strftime('%Y-%m-%d %H:%M:%S')
         # recent tweet, no comments → should be included
         db.insert_tweet({
             '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
@@ -544,7 +545,7 @@ class TestTweetDB:
             'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
         })
         # 10h-old tweet → should be excluded (outside 8h window)
-        tenh = (datetime.now() - timedelta(hours=10)).strftime('%Y-%m-%d %H:%M:%S')
+        tenh = (now - timedelta(hours=10)).strftime('%Y-%m-%d %H:%M:%S')
         db.insert_tweet({
             '_id': '5', 'mblogid': 'Mb5', 'user_id': 'u1',
             'content': '10h old', 'created_at': tenh,
@@ -591,6 +592,50 @@ class TestTweetDB:
         assert '3' not in ids
         assert '4' not in ids
         assert '5' not in ids
+
+    @pytest.mark.parametrize('tz', ['UTC', 'Asia/Shanghai', 'America/New_York'])
+    def test_comment_window_is_beijing_time_in_any_container_timezone(self, db, monkeypatch, tz):
+        from datetime import datetime, timedelta, timezone
+        import time
+        try:
+            with monkeypatch.context() as clock:
+                clock.setenv('TZ', tz)
+                time.tzset()
+                now = datetime.now(timezone(timedelta(hours=8)))
+                for tid, age in [('inside', timedelta(hours=7, minutes=59)),
+                                 ('outside', timedelta(hours=8, minutes=1)),
+                                 ('old', timedelta(hours=10))]:
+                    db.insert_tweet({'_id': tid, 'mblogid': tid, 'content': tid,
+                                     'created_at': (now - age).strftime('%Y-%m-%d %H:%M:%S')})
+                assert db.get_tweets_for_comment_crawl() == [('inside', 'inside')]
+        finally:
+            time.tzset()
+
+    def test_replies_do_not_freeze_comment_crawling(self, db):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone(timedelta(hours=8)))
+        db.insert_tweet({'_id': '1', 'mblogid': 'Mb1', 'content': 'fixture',
+                         'created_at': now.strftime('%Y-%m-%d %H:%M:%S')})
+        db.insert_comment({'_id': 'top', 'tweet_id': '1', 'content': 'parent'})
+        db.batch_insert_comments([
+            {'_id': f'reply-{i}', 'tweet_id': '1', 'content': 'reply', 'parent_comment_id': 'top'}
+            for i in range(100)
+        ])
+        assert db.get_tweets_for_comment_crawl() == [('1', 'Mb1')]
+        day = now.strftime('%Y-%m-%d')
+        assert db.get_tweet_ids_with_enough_comments(100) == []
+        assert db.get_tweet_ids_with_enough_comments(100, day, day) == []
+        assert db.get_comment_counts(['1', 'empty']) == {
+            '1': {'total': 101, 'top_level': 1, 'replies': 100},
+            'empty': {'total': 0, 'top_level': 0, 'replies': 0},
+        }
+        db.batch_insert_comments([
+            {'_id': f'top-{i}', 'tweet_id': '1', 'content': 'parent', 'parent_comment_id': ''}
+            for i in range(99)
+        ])
+        assert db.get_tweets_for_comment_crawl() == []
+        assert db.get_tweet_ids_with_enough_comments(100) == ['Mb1']
+        assert db.get_tweet_ids_with_enough_comments(100, day, day) == ['Mb1']
 
 
 class TestAnnotations:

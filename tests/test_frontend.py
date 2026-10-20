@@ -37,7 +37,7 @@ def test_load_ps_function_exists():
 
 def test_xueqiu_tab_exists():
     assert 'data-tab="xueqiu"' in INDEX_HTML
-    assert '雪球同步' in INDEX_HTML
+    assert '雪球抓取' in INDEX_HTML
     assert 'platform-badge' in INDEX_HTML
 
 
@@ -195,8 +195,9 @@ def test_pending_highlight_preserves_existing_highlights():
     assert "clearExisting" not in INDEX_HTML
 
 
-def test_render_card_uses_comments_count_field():
-    assert "t.comments_count" in INDEX_HTML
+def test_render_card_uses_stored_comment_counts():
+    assert "commentCountLabel(t.comment_counts)" in INDEX_HTML
+    assert "t.comments_count" not in INDEX_HTML
 
 
 def test_render_card_does_not_embed_comments_inline():

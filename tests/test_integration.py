@@ -200,21 +200,20 @@ class TestSpiderCommandConstruction:
     """Verify that _crawl_tweets and _crawl_comments construct correct scrapy commands."""
 
     @pytest.fixture
-    def app_env(self):
+    def app_env(self, tmp_path, monkeypatch):
         """Set up a test DB and app module."""
-        fd, path = tempfile.mkstemp(suffix='.db')
-        os.close(fd)
-        os.environ['SCRAPY_SETTINGS_MODULE'] = 'settings'
+        monkeypatch.setenv('SCRAPY_SETTINGS_MODULE', 'settings')
         from db import TweetDB
         import app as app_module
-        app_module.DB = TweetDB(path)
-        app_module.app.config['TESTING'] = True
-        app_module.app.config['SCHEDULER_DISABLED'] = True
+        db = TweetDB(str(tmp_path / 'test.db'))
+        monkeypatch.setattr(app_module, 'DB', db)
+        monkeypatch.setattr(app_module, '__file__', str(tmp_path / 'app.py'))
+        monkeypatch.setitem(app_module.app.config, 'TESTING', True)
+        monkeypatch.setitem(app_module.app.config, 'SCHEDULER_DISABLED', True)
         app_module.DB.set_config('cookie', 'test_cookie=1')
         app_module.DB.set_config('user_ids', ['uid1'])
         yield app_module
-        app_module.DB.close()
-        os.unlink(path)
+        db.close()
 
     def test_incremental_tweet_command_has_stop_after_id(self, app_env):
         """Incremental mode should pass stop_after_id to spider."""
@@ -272,10 +271,10 @@ class TestSpiderCommandConstruction:
         assert any('start_time=' in str(a) for a in cmd)
         assert any('end_time=' in str(a) for a in cmd)
 
-    def test_incremental_comment_command_has_max_pages(self, app_env):
-        """Incremental comment crawl should pass max_pages=2."""
-        from datetime import datetime, timedelta
-        recent = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    def test_incremental_comment_command_no_page_truncation(self, app_env):
+        """Incremental comments use the same top-level quota as single/full crawls."""
+        from datetime import datetime, timedelta, timezone
+        recent = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
         app_env.DB.insert_tweet({
             '_id': '1', 'mblogid': 'Mb1', 'user_id': 'uid1',
             'content': 'recent', 'created_at': recent,
@@ -297,7 +296,7 @@ class TestSpiderCommandConstruction:
 
         assert len(captured_cmds) == 1
         cmd = captured_cmds[0]
-        assert 'max_pages=2' in cmd, f"max_pages=2 not found in {cmd}"
+        assert not any(arg.startswith('max_pages=') for arg in cmd)
         assert 'flow=0' in cmd
 
     def test_full_comment_command_no_max_pages(self, app_env):

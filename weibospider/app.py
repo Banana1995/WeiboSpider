@@ -88,6 +88,7 @@ class _CommentCrawlError(Exception):
             'invalid_response': '微博评论接口返回的数据格式异常，请稍后重试',
             'processing_error': '评论处理失败，请查看服务端日志后重试',
             'incomplete': '评论抓取未完整结束，请稍后重试',
+            'page_limit': '评论抓取达到页数限制，仍有后续评论未抓取',
             'invalid_output': '评论抓取结果为空或格式异常，请重试',
         }
         self.code = code if isinstance(code, str) and code in messages else 'incomplete'
@@ -304,7 +305,7 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
 
 
 def _crawl_comments(scheduler=None, mode='full'):
-    """Crawl comments. mode='incremental' uses 8h window + 2 pages; 'full' uses date range."""
+    """Crawl up to 100 top-level comments per tweet; incremental uses an 8h window."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_file = os.path.join(script_dir, 'crawl.log')
     unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
@@ -325,7 +326,7 @@ def _crawl_comments(scheduler=None, mode='full'):
     if mode == 'incremental':
         tweet_pairs = DB.get_tweets_for_comment_crawl(hours=8)
         tweet_ids = [mblogid for _, mblogid in tweet_pairs]
-        _log(f"增量模式: {len(tweet_ids)} 条微博待补齐评论 (8h 内, <100 评论)")
+        _log(f"增量模式: {len(tweet_ids)} 条微博待补齐评论 (北京时间 8h 内, <100 条一级评论)")
     else:
         start_time = DB.get_config('start_date', '')
         end_time = DB.get_config('end_date', '')
@@ -335,7 +336,7 @@ def _crawl_comments(scheduler=None, mode='full'):
         total_ids = DB.get_tweet_ids(start_date=start_time, end_date=end_time)
         skip_ids = DB.get_tweet_ids_with_enough_comments(100, start_date=start_time, end_date=end_time)
         tweet_ids = [tid for tid in total_ids if tid not in skip_ids]
-        _log(f"全量模式: 共 {len(total_ids)} 条, 跳过 {len(skip_ids)} 条(≥100评论), 抓取 {len(tweet_ids)} 条")
+        _log(f"全量模式: 共 {len(total_ids)} 条, 跳过 {len(skip_ids)} 条(≥100条一级评论), 抓取 {len(tweet_ids)} 条")
 
     if not tweet_ids:
         _log("没有微博需要抓评论")
@@ -356,9 +357,6 @@ def _crawl_comments(scheduler=None, mode='full'):
         '-s', 'LOG_LEVEL=INFO',
         '-o', items_path,
     ]
-    if mode == 'incremental':
-        cmd.extend(['-a', 'max_pages=2'])
-
     proc, _t, captured = _run_scrapy_with_log(cmd)
     while proc.poll() is None:
         if _check_cancel():
@@ -910,9 +908,11 @@ def index():
 
 
 def _attach_annotations(tweets):
-    """Attach annotation lists to a list of tweet dicts (comments are lazy-loaded)."""
+    """Attach annotations and stored comment counts; comment bodies stay lazy-loaded."""
+    counts = DB.get_comment_counts([t['id'] for t in tweets])
     for t in tweets:
         t['annotations_list'] = DB.get_annotations(t['id'])
+        t['comment_counts'] = counts[t['id']]
 
 
 @app.route('/api/tweets')
@@ -1002,7 +1002,8 @@ def api_get_tweet(tweet_id):
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
     comments = DB.get_comments(tweet_id)
-    return jsonify({'tweet': tweet, 'comments': comments})
+    counts = DB.get_comment_counts([tweet_id])[tweet_id]
+    return jsonify({'tweet': tweet, 'comments': comments, 'comment_counts': counts})
 
 
 @app.route('/api/tweets/<tweet_id>', methods=['DELETE'])
@@ -1161,6 +1162,7 @@ def _crawl_single_xueqiu_comments(tweet_id):
         'Accept-Language': 'zh-CN,zh;q=0.9',
     }
 
+    comments_before = DB.get_comment_ids(tweet_id)
     all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
     for cm in all_comments:
         declared = int(cm.get('comment_reply_count') or 0)
@@ -1175,11 +1177,14 @@ def _crawl_single_xueqiu_comments(tweet_id):
         DB.delete_xueqiu_comments(tweet_id)
         DB.batch_insert_comments(items)
     comments = DB.get_comments(tweet_id, sort='hot')
-    new_count = len(comments)
+    counts = DB.get_comment_counts([tweet_id])[tweet_id]
+    new_count = len({str(item['_id']) for item in items} - comments_before)
     DB.insert_log('crawl', 'single_xueqiu_comment_crawl',
-                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)} pages={pages}',
+                   detail=f'tweet={tweet_id} new={new_count} total={counts["total"]} '
+                          f'top={counts["top_level"]} replies={counts["replies"]} pages={pages}',
                    status='success', user='web')
-    return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
+    return jsonify({'count': len(comments), 'new_count': new_count,
+                    'comment_counts': counts, 'comments': comments})
 
 
 @app.route('/api/tweets/<tweet_id>/crawl-comments', methods=['POST'])
@@ -1208,9 +1213,7 @@ def api_crawl_comments(tweet_id):
     with open(cookie_path, 'w') as f:
         f.write(cookie.strip())
 
-    comments_before = DB.conn.execute(
-        "SELECT COUNT(*) FROM comments WHERE tweet_id=?", (tweet_id,)
-    ).fetchone()[0]
+    comments_before = DB.get_comment_ids(tweet_id)
 
     items_file = tempfile.NamedTemporaryFile(
         suffix='.json', mode='w', delete=False, dir=script_dir)
@@ -1265,11 +1268,14 @@ def api_crawl_comments(tweet_id):
 
     _safe_remove(items_path)
     comments = DB.get_comments(tweet_id, sort='hot')
-    new_count = len(comments) - comments_before
+    counts = DB.get_comment_counts([tweet_id])[tweet_id]
+    new_count = len({str(item['_id']) for item in items} - comments_before)
     DB.insert_log('crawl', 'single_comment_crawl',
-                   detail=f'tweet={tweet_id} new={new_count} total={len(comments)}',
+                   detail=f'tweet={tweet_id} new={new_count} total={counts["total"]} '
+                          f'top={counts["top_level"]} replies={counts["replies"]}',
                    status='success', user='web')
-    return jsonify({'count': len(comments), 'new_count': new_count, 'comments': comments})
+    return jsonify({'count': len(comments), 'new_count': new_count,
+                    'comment_counts': counts, 'comments': comments})
 
 
 @app.route('/api/crawl', methods=['POST'])

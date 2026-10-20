@@ -788,6 +788,11 @@ function jumpToPage() {
   goToPage(p);
 }
 
+function commentCountLabel(counts) {
+  if (!counts) return '已抓评论 —';
+  return `已抓评论 ${counts.top_level} · 回复 ${counts.replies}`;
+}
+
 function renderCard(t, container) {
   container = container || $('cards-container');
   const row = document.createElement('div');
@@ -799,7 +804,7 @@ function renderCard(t, container) {
   card.dataset.id = t.id;
 
   const pics = (typeof t.pic_urls === 'string' ? JSON.parse(t.pic_urls || '[]') : (t.pic_urls || []));
-  const commentCount = t.comments_count || 0;
+  const commentCount = commentCountLabel(t.comment_counts);
 
   card.innerHTML = `
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
@@ -816,7 +821,7 @@ function renderCard(t, container) {
       <div class="card-actions">
         <span>转发 ${t.reposts_count}</span>
         <span>赞 ${t.attitudes_count}</span>
-        <span class="comments-toggle" onclick="toggleComments(this, '${t.id}')">评论 ${commentCount}</span>
+        <span class="comments-toggle" onclick="toggleComments(this, '${t.id}')">${commentCount}</span>
         <span class="crawl-comments-btn" onclick="crawlComments('${t.id}', this)">抓取评论</span>
       </div>
       <div class="comments-box" id="comments-${t.id}">
@@ -855,7 +860,7 @@ async function toggleComments(el, id) {
         ? '<div class="comment" style="color:#aaa">暂无评论</div>'
         : comments.map(c => renderComment(c)).join('');
       const toggle = document.querySelector(`.card[data-id="${id}"] .comments-toggle`);
-      if (toggle) toggle.textContent = `评论 ${comments.length}`;
+      if (toggle) toggle.textContent = commentCountLabel(data.comment_counts);
     } catch(e) {
       delete inner.dataset.loaded;
       inner.innerHTML = '<div class="comment" style="color:#aaa">加载失败</div>';
@@ -882,9 +887,9 @@ async function crawlComments(tweetId, btn) {
           : comments.map(c => renderComment(c)).join('');
       }
       const toggle = document.querySelector(`.card[data-id="${tweetId}"] .comments-toggle`);
-      if (toggle) toggle.textContent = `评论 ${comments.length}`;
+      if (toggle) toggle.textContent = commentCountLabel(data.comment_counts);
       box.classList.add('open');
-      toast(data.count === 0 ? '暂无可抓取的评论' : `已抓取 ${data.new_count || 0} 条新评论，共 ${data.count} 条`);
+      toast(data.comment_counts.total === 0 ? '暂无可抓取的评论' : `新增 ${data.new_count || 0} 条（含回复），${commentCountLabel(data.comment_counts)}`);
     } else {
       toast(data.error || '抓取失败', true);
     }

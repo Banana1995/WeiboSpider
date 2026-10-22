@@ -245,6 +245,18 @@ def test_manual_new_count_includes_replies_and_ignores_duplicates(client, monkey
     assert card['comment_counts'] == expected
 
 
+def test_expanding_comments_keeps_heat_order(client):
+    import app
+    app.DB.batch_insert_comments([
+        {'_id': 'late', 'tweet_id': '1', 'content': 'newer but colder',
+         'created_at': '2026-10-22 11:00:00', 'like_counts': 0, 'sort_order': 1},
+        {'_id': 'early', 'tweet_id': '1', 'content': 'older but hotter',
+         'created_at': '2026-10-22 08:00:00', 'like_counts': 50, 'sort_order': 0},
+    ])
+    data = client.get('/api/tweets/1').get_json()
+    assert [c['id'] for c in data['comments']] == ['early', 'late']
+
+
 def test_button_reports_source_failure_instead_of_json_error(client, monkeypatch, crawl_output):
     mock_crawl(monkeypatch, crawl_output, 'html')
     response = client.post('/api/tweets/1/crawl-comments')

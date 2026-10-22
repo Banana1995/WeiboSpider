@@ -200,6 +200,15 @@ def test_render_card_uses_stored_comment_counts():
     assert "t.comments_count" not in INDEX_HTML
 
 
+def test_comment_count_label_does_not_split_comments_and_replies():
+    start = INDEX_HTML.index("function commentCountLabel(")
+    end = INDEX_HTML.index("\n}", start)
+    body = INDEX_HTML[start:end]
+    assert "counts.total" in body
+    assert "replies" not in body
+    assert "回复" not in body
+
+
 def test_render_card_does_not_embed_comments_inline():
     card_start = INDEX_HTML.index("function renderCard(t, container)")
     card_end = INDEX_HTML.index("function toggleComments", card_start)

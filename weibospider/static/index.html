@@ -790,7 +790,7 @@ function jumpToPage() {
 
 function commentCountLabel(counts) {
   if (!counts) return '已抓评论 —';
-  return `已抓评论 ${counts.top_level} · 回复 ${counts.replies}`;
+  return `已抓评论 ${counts.total}`;
 }
 
 function renderCard(t, container) {
@@ -889,7 +889,7 @@ async function crawlComments(tweetId, btn) {
       const toggle = document.querySelector(`.card[data-id="${tweetId}"] .comments-toggle`);
       if (toggle) toggle.textContent = commentCountLabel(data.comment_counts);
       box.classList.add('open');
-      toast(data.comment_counts.total === 0 ? '暂无可抓取的评论' : `新增 ${data.new_count || 0} 条（含回复），${commentCountLabel(data.comment_counts)}`);
+      toast(data.comment_counts.total === 0 ? '暂无可抓取的评论' : `新增 ${data.new_count || 0} 条，${commentCountLabel(data.comment_counts)}`);
     } else {
       toast(data.error || '抓取失败', true);
     }

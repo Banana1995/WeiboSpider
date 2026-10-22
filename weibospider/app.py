@@ -1001,7 +1001,9 @@ def api_get_tweet(tweet_id):
     tweet = DB.get_tweet(tweet_id)
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
-    comments = DB.get_comments(tweet_id)
+    # Match the crawl response: expanding a card must not silently switch from
+    # heat order to chronological order just because the comments came from the DB.
+    comments = DB.get_comments(tweet_id, sort='hot')
     counts = DB.get_comment_counts([tweet_id])[tweet_id]
     return jsonify({'tweet': tweet, 'comments': comments, 'comment_counts': counts})
 

@@ -8,7 +8,7 @@
 - **定位**：原微博/雪球内容管理服务，加上独立 Go 白酒行情后端和 Vue 单品趋势页；逐步演进为多数据源平台。
 - **技术栈**：微博使用 Python 3.9 / Scrapy 2.5 / Flask 2.3 / Waitress / APScheduler / SQLite / Headless Chrome（PDF）；白酒使用 Go 1.26 / CGO SQLite / Vue 3 / TypeScript / Vite / ECharts / Nginx。
 - **状态更新**：微博前端每 3s 普通轮询 `/api/crawl/status`（**不用 SSE 或长轮询**）；白酒页面仅在加载、手动刷新时读取同步状态，刷新不触发采集。
-- **微博评论**：定时增量按北京时间最近 8 小时筛选，已有 100 条一级评论才跳过（回复不计入额度）；与单条手动抓取一致，按游标翻页至 100 条一级评论或接口结束，不再固定两页。页面显示本地已抓一级评论/回复数，新增按 ID 去重统计。详见 [评论同步规则](docs/specs/2026-10-20-comment-sync.md)。
+- **微博评论**：定时增量按北京时间最近 8 小时筛选，已有 100 条一级评论才跳过（回复不计入额度）；与单条手动抓取一致，按游标翻页至 100 条一级评论或接口结束，不再固定两页。页面只显示本地已抓评论总数（不区分一级评论和回复），展开与手动抓取后均按热度排序，新增按 ID 去重统计。详见 [评论同步规则](docs/specs/2026-10-20-comment-sync.md)。
 - **License**：MIT
 - **仓库**：https://github.com/Banana1995/WeiboSpider（公有仓库，master 分支）
 - **前端**：原微博 `weibospider/static/index.html` 由 Flask 提供；新增 `frontend/` 由 Nginx 提供构建产物。暂未统一导航或迁移微博到 Vue。

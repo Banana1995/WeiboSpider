@@ -24,6 +24,11 @@ fi
 echo "→ 重建镜像并重启容器..."
 docker compose up -d --build
 
+# Nginx 在启动时解析 upstream 并缓存地址；platform 重建后 IP 变化时，
+# 未重建的 market-entry 仍指向旧 IP，导致 /api/platform 502。
+echo "→ 刷新入口反向代理的上游地址..."
+docker compose restart market-entry >/dev/null
+
 # 2. 健康检查
 echo "→ 健康检查微博服务..."
 for i in $(seq 1 30); do

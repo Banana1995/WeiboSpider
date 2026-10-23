@@ -11,6 +11,17 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       ...ledger.proxy,
+      "/api/platform/tax/": {
+        target: process.env.BACKEND_PROXY_URL || "http://127.0.0.1:5051",
+        changeOrigin: false,
+        ...(process.env.BACKEND_API_TOKEN
+          ? {
+              headers: {
+                Authorization: `Bearer ${process.env.BACKEND_API_TOKEN}`,
+              },
+            }
+          : {}),
+      },
       "/api/platform/liquor/": {
         target: process.env.BACKEND_PROXY_URL || "http://127.0.0.1:5051",
         changeOrigin: false,

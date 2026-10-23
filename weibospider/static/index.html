@@ -282,6 +282,19 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
   <div class="sticky-header">
     <div class="toolbar">
       <h1>微博管理器</h1>
+      <nav aria-label="模块导航" style="display:flex;gap:12px;font-size:13px;white-space:nowrap;">
+        <a href="/" aria-current="page">微博管理</a>
+        <a href="/liquor" data-platform-path="/liquor">白酒行情</a>
+        <a href="/ledger" data-platform-path="/ledger">投资账本</a>
+        <a href="/tax" data-platform-path="/tax">税务计算</a>
+      </nav>
+      <script>
+        document.querySelectorAll('[data-platform-path]').forEach(link => {
+          const target = new URL(link.dataset.platformPath, location.href);
+          target.port = '5052';
+          link.href = target.href;
+        });
+      </script>
       <span class="stats" id="stats-text">加载中...</span>
       <div class="toolbar-actions">
         <button class="btn btn-primary" id="btn-crawl">微博抓取</button>

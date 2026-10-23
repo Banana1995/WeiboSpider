@@ -1,0 +1,454 @@
+.tax-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  color: #263445;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+.tax-page button,
+.tax-page input,
+.tax-page select {
+  font: inherit;
+  border: 1px solid #ccd7e2;
+  border-radius: 5px;
+  background: #fff;
+  color: #263445;
+  padding: 7px 12px;
+  min-height: 36px;
+}
+.tax-page button:hover:not(:disabled) {
+  border-color: #1766b6;
+  color: #1766b6;
+  background: #f5f9ff;
+}
+.tax-page :is(button, input, select, a):focus-visible {
+  outline: 3px solid #8bb6e5;
+  outline-offset: 2px;
+}
+.tax-page .tax-primary {
+  background: #1766b6;
+  color: #fff;
+  border-color: #1766b6;
+}
+.tax-page .tax-primary:hover:not(:disabled) {
+  background: #105594;
+  color: white;
+}
+.tax-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 28px;
+  background: #fff;
+  border-bottom: 1px solid #dce4ec;
+}
+.tax-brand {
+  font-size: 20px;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.tax-brand > span {
+  background: #1766b6;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: serif;
+}
+.tax-brand b {
+  font-weight: 400;
+  color: #9cabbc;
+}
+.tax-brand small {
+  font-weight: 400;
+  font-size: 14px;
+}
+.tax-header nav {
+  display: flex;
+  gap: 24px;
+  font-size: 13px;
+  color: #62748b;
+  flex-wrap: wrap;
+}
+.tax-header nav [aria-current] {
+  color: #1766b6;
+  font-weight: 650;
+}
+.tax-main {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 28px;
+}
+.tax-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.tax-heading h1 {
+  font-size: 25px;
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.tax-heading p {
+  margin: 4px 0 0;
+  color: #62748b;
+}
+.tax-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tax-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.tax-panel {
+  padding: 20px;
+  background: white;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.tax-panel h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+.tax-page p {
+  margin: 8px 0;
+}
+.tax-page small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: #62748b;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.tax-page .tax-muted {
+  color: #62748b;
+  font-size: 12px;
+}
+.tax-import-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tax-import-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf0f4;
+  overflow-wrap: anywhere;
+}
+.tax-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 18px 20px;
+  background: white;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+}
+.tax-filters label,
+.tax-rate-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: #62748b;
+}
+.tax-filters select {
+  min-width: 190px;
+  max-width: 300px;
+}
+.tax-filters input {
+  width: 160px;
+}
+.tax-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid #ccd7e2;
+  margin-top: 20px;
+}
+.tax-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 12px 4px;
+  min-width: 64px;
+}
+.tax-tabs button[aria-selected="true"] {
+  border-bottom-color: #1766b6;
+  color: #1766b6;
+  font-weight: 650;
+}
+.tax-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #62748b;
+  margin: 14px 0;
+}
+.tax-meta span:last-child {
+  color: #1766b6;
+}
+.tax-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.tax-tools p {
+  color: #62748b;
+  font-size: 12px;
+}
+.tax-tools label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.tax-tools input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 350px;
+}
+.tax-table-wrap {
+  overflow: auto;
+  background: white;
+  border: 1px solid #d6e0eb;
+  border-radius: 6px;
+  max-width: 100%;
+}
+.tax-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tax-page th {
+  background: #edf2f7;
+  color: #52667f;
+  text-align: left;
+  font-weight: 550;
+  padding: 12px 13px;
+  border-bottom: 1px solid #ccd7e2;
+}
+.tax-page td {
+  padding: 13px;
+  border-bottom: 1px solid #e5eaf0;
+  vertical-align: top;
+}
+.tax-page tbody tr:last-child td {
+  border-bottom: 0;
+}
+.tax-page tbody tr:hover {
+  background: #f7faff;
+}
+.tax-page .tax-num {
+  text-align: right;
+}
+.tax-page .tax-total {
+  background: #eaf3fb;
+  border-bottom: 2px solid #9bb7cf;
+  font-weight: 600;
+}
+.tax-page .tax-emphasis {
+  font-weight: 650;
+  color: #144f85;
+}
+.tax-summary td:nth-child(11),
+.tax-summary th:nth-child(11) {
+  border-right: 1px solid #9bb7cf;
+}
+.tax-page .tax-note {
+  white-space: normal;
+  min-width: 260px;
+  max-width: 440px;
+  overflow-wrap: anywhere;
+}
+.tax-page .tax-empty {
+  text-align: center;
+  padding: 65px 24px;
+  white-space: normal;
+  color: #62748b;
+}
+.tax-table-wrap:has(.tax-empty) table {
+  white-space: normal;
+}
+.tax-table-wrap:has(.tax-empty) thead {
+  display: none;
+}
+.tax-table-wrap:has(.tax-empty) .tax-empty {
+  max-width: none;
+}
+.tax-empty h2 {
+  font-size: 20px;
+  font-weight: 500;
+  color: #263445;
+}
+.tax-empty p {
+  margin-bottom: 20px;
+}
+.tax-page .tax-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  color: #1766b6;
+}
+.tax-message {
+  padding: 12px 16px;
+  background: #eaf3fb;
+  border-left: 3px solid #1766b6;
+  border-radius: 4px;
+}
+.tax-page .tax-error {
+  background: #fff1ed;
+  border-color: #b4482d;
+}
+.tax-page .tax-error-text {
+  color: #b4482d;
+}
+.tax-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  padding: 14px 0;
+  color: #62748b;
+  font-size: 12px;
+}
+.tax-pagination > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.tax-method {
+  margin: 20px 0;
+  color: #62748b;
+  font-size: 12px;
+  max-width: 850px;
+}
+.tax-method summary {
+  cursor: pointer;
+  color: #263445;
+  font-size: 13px;
+}
+.tax-page a:hover {
+  text-decoration: underline;
+}
+.tax-method a,
+.tax-page td a {
+  color: #1766b6;
+}
+.tax-rate-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px 0;
+}
+.tax-rate-form input {
+  width: 155px;
+}
+.tax-rate-form label:last-of-type input {
+  width: 240px;
+}
+.tax-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid #dce4ec;
+  margin-top: 28px;
+  padding-top: 16px;
+  color: #62748b;
+  font-size: 11px;
+}
+.tax-loading {
+  color: #1766b6;
+  font-size: 12px;
+  margin: 8px 0;
+}
+@media (max-width: 700px) {
+  .tax-header {
+    padding: 14px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .tax-header nav {
+    gap: 18px;
+  }
+  .tax-main {
+    padding: 20px 14px;
+  }
+  .tax-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .tax-heading h1 {
+    font-size: 23px;
+  }
+  .tax-filters {
+    padding: 14px;
+    gap: 10px;
+  }
+  .tax-filters label:first-child {
+    width: 100%;
+  }
+  .tax-filters select {
+    max-width: 100%;
+  }
+  .tax-filters input {
+    width: 140px;
+  }
+  .tax-panel {
+    padding: 15px;
+  }
+  .tax-meta {
+    font-size: 11px;
+  }
+  .tax-pagination {
+    flex-wrap: wrap;
+  }
+  .tax-import-list li {
+    align-items: flex-start;
+  }
+  .tax-rate-form label:last-of-type {
+    width: 100%;
+  }
+  .tax-empty {
+    max-width: 85vw;
+  }
+  .tax-page .tax-empty {
+    padding: 45px 15px;
+  }
+  .tax-footer span {
+    display: none;
+  }
+}

@@ -13,12 +13,14 @@ import (
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/ledger"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/liquor"
+	"github.com/Banana1995/WeiboSpider/backend/internal/modules/tax"
 )
 
 type Application struct {
 	Handler         http.Handler
 	db              *database.DB
 	ledgerDB        *database.DB
+	taxStore        *tax.Store
 	source          *liquor.SinaSource
 	worker          *liquor.Worker
 	ledgerWorker    *ledger.WeeklyWorker
@@ -52,6 +54,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	})
 	mux := http.NewServeMux()
 	liquor.Handler{Store: store, Worker: application.worker, Logger: logger}.Register(mux)
+	application.taxStore, err = tax.Open(ctx, cfg.DataDir)
+	if err != nil {
+		return nil, errors.Join(err, application.Close())
+	}
+	tax.Handler{Store: application.taxStore}.Register(mux)
 	if cfg.LedgerEnabled {
 		application.ledgerDB, err = ledger.Open(ctx, cfg.DataDir)
 		if err != nil {
@@ -171,8 +178,11 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 func (a *Application) Close() error {
 	a.source.Close()
 	var err error
+	if a.taxStore != nil {
+		err = a.taxStore.Close()
+	}
 	if a.ledgerDB != nil {
-		err = a.ledgerDB.Close()
+		err = errors.Join(err, a.ledgerDB.Close())
 	}
 	if a.db != nil {
 		err = errors.Join(err, a.db.Close())

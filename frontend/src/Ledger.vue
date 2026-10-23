@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
         <a href="/liquor" :aria-disabled="navigationLocked">白酒行情</a
         ><a href="/ledger" aria-current="page" :aria-disabled="navigationLocked"
           >投资账本</a
-        >
+        ><a href="/tax" :aria-disabled="navigationLocked">税务计算</a>
       </nav>
     </header>
     <main class="lp-main">

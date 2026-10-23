@@ -174,7 +174,7 @@ onBeforeUnmount(() => {
     >
     <nav class="module-nav" aria-label="模块导航">
       <a href="/liquor" aria-current="page">白酒行情</a
-      ><a href="/ledger">投资账本</a>
+      ><a href="/ledger">投资账本</a><a href="/tax">税务计算</a>
     </nav>
   </header>
   <main>

@@ -20,13 +20,23 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	config := string(data)
 	locations := regexp.MustCompile(`(?ms)^    location ([^\n{]+)\{\n(.*?)^    }`).FindAllStringSubmatch(config, -1)
 	require.NotEmpty(t, locations)
-	var liquorProxy, ledgerProxy, platformDenied bool
+	var liquorProxy, ledgerProxy, taxProxy, archiveProxy, platformDenied bool
 	for _, location := range locations {
 		pattern, body := strings.TrimSpace(location[1]), location[2]
 		if strings.Contains(body, "${BACKEND_API_TOKEN}") {
-			require.Equal(t, "/api/platform/liquor/", pattern, "public token must only reach liquor routes")
+			require.Contains(t, []string{"/api/platform/liquor/", "^~ /api/platform/tax/"}, pattern, "internal token must only reach reviewed routes")
 		}
 		switch pattern {
+		case "= /mcp":
+			archiveProxy = true
+			require.Contains(t, body, "set $archive_upstream value-explore:5053;")
+			require.Contains(t, body, "proxy_set_header Authorization $http_authorization;")
+		case "^~ /api/platform/tax/":
+			taxProxy = true
+			require.Contains(t, body, "proxy_pass http://platform:5051;")
+			require.Contains(t, body, "proxy_set_header X-Tax-Key $http_x_tax_key;")
+			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
+			require.Contains(t, body, "proxy_set_header Host $http_host;")
 		case "/api/platform/liquor/":
 			liquorProxy = true
 			require.Contains(t, body, "limit_except GET HEAD { deny all; }")
@@ -58,9 +68,14 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	}
 	require.True(t, liquorProxy)
 	require.True(t, ledgerProxy)
+	require.True(t, taxProxy)
 	require.True(t, platformDenied)
-	require.Equal(t, 2, strings.Count(config, "proxy_pass"))
-	require.Equal(t, 1, strings.Count(config, "${BACKEND_API_TOKEN}"))
+	proxies := 3
+	if archiveProxy {
+		proxies++
+	}
+	require.Equal(t, proxies, strings.Count(config, "proxy_pass"))
+	require.Equal(t, 2, strings.Count(config, "${BACKEND_API_TOKEN}"))
 }
 
 func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {
@@ -69,8 +84,8 @@ func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "vite.config.ts"))
 	require.NoError(t, err)
 	paths := regexp.MustCompile(`"(/api/platform[^"]*)":`).FindAllStringSubmatch(string(data), -1)
-	require.Len(t, paths, 1)
-	require.Equal(t, "/api/platform/liquor/", paths[0][1])
+	require.Len(t, paths, 2)
+	require.ElementsMatch(t, []string{"/api/platform/liquor/", "/api/platform/tax/"}, []string{paths[0][1], paths[1][1]})
 	require.Contains(t, string(data), "...ledger.proxy")
 	boundary, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "dev", "ledger-proxy.ts"))
 	require.NoError(t, err)

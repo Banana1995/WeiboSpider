@@ -46,6 +46,11 @@ export interface TaxSummary {
   redemption: string;
   subscription: string;
   trade_fees: string;
+  incurred_trade_fees: string;
+  realized_open_fees: string;
+  realized_close_fees: string;
+  deferred_open_fees: string;
+  unmatched_close_fees: string;
   other_fees: string;
   fees: string;
   net: string;
@@ -69,7 +74,12 @@ export interface TaxReport {
   rows: TaxSummary[];
   matches: TaxMatch[];
   entries: TaxDetail[];
-  missing: { record: TaxRecord; quantity: string; amount: string }[];
+  missing: {
+    record: TaxRecord;
+    quantity: string;
+    amount: string;
+    fee: string;
+  }[];
   method: string;
 }
 export interface TaxOpening {
@@ -83,6 +93,7 @@ export interface TaxDetail {
   openings: TaxOpening[];
   has_close: boolean;
   fees: string;
+  capitalized_fee: string;
   profit: string;
   dividends: string;
   complete: boolean;
@@ -218,7 +229,8 @@ export const summaryColumns: [keyof TaxSummary, string][] = [
   ["sell_open", "对应卖出开仓"],
   ["redemption", "赎回金额"],
   ["subscription", "对应申购"],
-  ["trade_fees", "交易费用"],
+  ["trade_fees", "计入损益交易费"],
   ["other_fees", "其他费用"],
-  ["fees", "总费用"],
+  ["fees", "计入损益总费用"],
+  ["deferred_open_fees", "期末待结转开仓费"],
 ];

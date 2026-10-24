@@ -43,7 +43,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 18px 28px;
+  padding: 18px 16px;
   background: #fff;
   border-bottom: 1px solid #dce4ec;
 }
@@ -83,9 +83,9 @@
 }
 .tax-main {
   width: 100%;
-  max-width: 1600px;
+  max-width: none;
   margin: 0 auto;
-  padding: 28px;
+  padding: 24px 16px;
 }
 .tax-heading {
   display: flex;
@@ -464,6 +464,13 @@
 }
 .tax-page .tax-records td.tax-num {
   text-align: right;
+  white-space: normal;
+  word-break: keep-all;
+}
+.tax-page .tax-records td:nth-child(3) {
+  min-width: 170px;
+  max-width: 220px;
+  white-space: normal;
 }
 .tax-page .tax-index {
   width: 44px;
@@ -479,8 +486,8 @@
   font-weight: 550;
 }
 .tax-detail-dialog {
-  width: calc(100vw - 40px);
-  max-width: 1900px;
+  width: calc(100vw - 16px);
+  max-width: none;
   max-height: calc(100dvh - 40px);
   min-height: 0;
   margin: auto;
@@ -530,23 +537,41 @@
   border-top: 1px solid #dce4ec;
 }
 .tax-page .tax-detail-table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   font-size: 12px;
 }
 .tax-detail-table thead {
   position: sticky;
   top: 0;
   z-index: 2;
+  background: #edf2f7;
 }
 .tax-page .tax-detail-table th,
 .tax-page .tax-detail-table td {
-  padding: 10px;
+  padding: 10px 8px;
   text-align: left;
 }
 .tax-page .tax-detail-table .tax-num {
   text-align: right;
-  min-width: 105px;
+  min-width: 85px;
+  white-space: normal;
+  word-break: keep-all;
+}
+.tax-page .tax-detail-table .tax-detail-quantity {
+  min-width: 70px;
+}
+.tax-page .tax-summary th.tax-num,
+.tax-page .tax-summary td.tax-num {
+  white-space: normal;
+  word-break: keep-all;
+  min-width: 85px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.tax-page .tax-summary .tax-deferred-fee {
+  background: #f1f5f9;
+  border-left: 1px solid #9bb7cf;
+  color: #52667f;
 }
 .tax-page .tax-detail-table .tax-index {
   text-align: center;
@@ -581,12 +606,9 @@
 .tax-detail-account small {
   white-space: nowrap;
 }
-.tax-cash-account {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  flex-wrap: wrap;
-  color: #52667f;
+.tax-page .tax-detail-table .tax-detail-date {
+  min-width: 160px;
+  white-space: nowrap;
 }
 .tax-page .tax-unclosed {
   text-align: center;

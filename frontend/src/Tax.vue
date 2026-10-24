@@ -494,7 +494,9 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
         aria-labelledby="tax-tab-profit"
       >
         <div class="tax-tools">
-          <p>净利润＝已配对平仓盈亏＋赎回盈亏−当年全部费用</p>
+          <p>
+            已实现净利润＝配对买卖差价−计入损益交易费−其他费用。开仓费用随平仓扣除，待结转费用不扣本期利润。
+          </p>
         </div>
         <div class="tax-table-wrap">
           <table class="tax-summary">
@@ -502,10 +504,15 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
               <tr>
                 <th>年度</th>
                 <th>币种</th>
-                <th v-for="c in summaryColumns" :key="c[0]" class="tax-num">
+                <th
+                  v-for="c in summaryColumns"
+                  :key="c[0]"
+                  class="tax-num"
+                  :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
+                >
                   {{ c[1] }}
                 </th>
-                <th class="tax-num">净利润</th>
+                <th class="tax-num">已实现净利润</th>
                 <th class="tax-num">股息收入</th>
                 <th class="tax-num">估算税额（元）</th>
                 <th>明细</th>
@@ -524,8 +531,19 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   >
                 </td>
                 <td>{{ r.currency === "CNY" ? "人民币合计" : r.currency }}</td>
-                <td v-for="c in summaryColumns" :key="c[0]" class="tax-num">
+                <td
+                  v-for="c in summaryColumns"
+                  :key="c[0]"
+                  class="tax-num"
+                  :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
+                >
                   {{ taxMoney(String(r[c[0]]), r.currency) }}
+                  <small
+                    v-if="c[0] === 'trade_fees'"
+                    :title="`对应开仓费 ${taxMoney(r.realized_open_fees, r.currency)}；平仓费 ${taxMoney(r.realized_close_fees, r.currency)}`"
+                    >期内发生
+                    {{ taxMoney(r.incurred_trade_fees, r.currency) }}</small
+                  >
                 </td>
                 <td class="tax-num tax-emphasis">
                   {{ taxMoney(r.net, r.currency)
@@ -553,7 +571,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 </td>
               </tr>
               <tr v-if="!report.rows.length">
-                <td colspan="15" class="tax-empty">
+                <td colspan="16" class="tax-empty">
                   <h2>
                     {{
                       state.records.length
@@ -593,6 +611,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   <th>币种</th>
                   <th class="tax-num">缺口数量</th>
                   <th class="tax-num">未匹配金额</th>
+                  <th class="tax-num">未核算平仓费</th>
                   <th>账户</th>
                 </tr>
               </thead>
@@ -611,6 +630,9 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   <td class="tax-num">
                     {{ taxMoney(m.amount, m.record.currency) }}
                   </td>
+                  <td class="tax-num">
+                    {{ taxMoney(m.fee, m.record.currency) }}
+                  </td>
                   <td>
                     {{ m.record.account
                     }}<small>{{ m.record.account_id }}</small>
@@ -624,7 +646,10 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
           <summary>计算口径与支持范围</summary>
           <p>
             证券、基金、债券及资金进出，支持
-            HKD／USD。股票采用先进先出，交易费用按发生年度全部扣除；“股息收入”单列，“银证转账”不计收益，其他非空变动原因按费用处理。空原因资金只保留流水。
+            HKD／USD。采用先进先出，开仓交易费用计入对应持仓成本，平仓时按匹配数量分摊扣除，未平仓部分结转；平仓费用按已匹配数量计入损益。“期内发生”只作现金费用核对，不重复扣减利润。“期末待结转开仓费”按原始开仓账户汇总至所选截止日期。
+          </p>
+          <p>
+            “股息收入”单列，“银证转账”不计收益，其他非空变动原因仍单列为其他费用。独立费用的税前扣除资格须按具体项目核实；空原因资金只保留流水。费用分摊采用精确小数计算后汇总展示。
           </p>
           <p>
             交易利润按每币种正收益的 20% 估算；港元股息 20%，美元股息按已扣约
@@ -632,11 +657,11 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
             原金额，不自动调整税前税后。原币合计后折人民币，金额最终保留两位。期权不属于此格式的支持范围。
           </p>
           <p>
-            结果用于复现理杏仁测算，申报和缴款由官方税务渠道完成。<a
-              href="https://www.lixinger.com/marketing/oversea-tax-import"
+            交易手续费按持仓成本归属核算，申报和缴款由官方税务渠道完成。<a
+              href="https://12366.chinatax.gov.cn/sscx/detail?code=0000000002019010200013"
               target="_blank"
               rel="noopener"
-              >查看理杏仁导入指南</a
+              >查看财产原值与合理费用规定</a
             >
           </p>
         </details>

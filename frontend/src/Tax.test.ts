@@ -61,7 +61,7 @@ beforeEach(() => {
     matches: [],
     entries: [],
     missing: [],
-    method: "lixinger-compatible-v1",
+    method: "fifo-cost-basis-v2",
   };
   failImport = false;
   state = {
@@ -319,14 +319,19 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
       sell_open: "0",
       redemption: "0",
       subscription: "0",
-      trade_fees: "2",
+      trade_fees: "12",
+      incurred_trade_fees: "2",
+      realized_open_fees: "10",
+      realized_close_fees: "2",
+      deferred_open_fees: "0",
+      unmatched_close_fees: "0",
       other_fees: "0",
-      fees: "2",
-      net: "198",
+      fees: "12",
+      net: "188",
       dividends: "10",
-      profit_tax: "39.6",
+      profit_tax: "37.6",
       dividend_tax: "2",
-      tax: "41.6",
+      tax: "39.6",
       rate: null,
       complete: true,
       missing_rate: false,
@@ -339,8 +344,9 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
         { record: opening, quantity: "100", amount: "1000", fee: "10" },
       ],
       has_close: true,
-      fees: "2",
-      profit: "198",
+      fees: "12",
+      capitalized_fee: "0",
+      profit: "188",
       dividends: "0",
       complete: true,
     },
@@ -349,6 +355,7 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
       openings: [],
       has_close: false,
       fees: "0",
+      capitalized_fee: "0",
       profit: "0",
       dividends: "10",
       complete: true,
@@ -367,7 +374,8 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
   expect(modal.textContent).toContain("new-002");
   expect(modal.textContent).toContain("布鲁可");
   expect(modal.textContent).toContain("00325");
-  expect(modal.textContent).toContain("198.00 港币");
+  expect(modal.textContent).toContain("188.00 港币");
+  expect(modal.textContent).toContain("12.00 港币");
   expect(modal.textContent!.indexOf("开仓信息")).toBeLessThan(
     modal.textContent!.indexOf("平仓信息"),
   );
@@ -381,4 +389,42 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
   expect(document.querySelector("dialog")).toBeNull();
   expect(document.body.style.overflow).toBe("");
   expect(document.activeElement).toBe(button.element);
+});
+
+it("distinguishes incurred opening fees, recognized expense and carryforward in an unsold year", async () => {
+  report.rows = [
+    {
+      year: 2024,
+      currency: "HKD",
+      sell_close: "0",
+      buy_open: "0",
+      buy_close: "0",
+      sell_open: "0",
+      redemption: "0",
+      subscription: "0",
+      trade_fees: "0",
+      incurred_trade_fees: "12",
+      realized_open_fees: "0",
+      realized_close_fees: "0",
+      deferred_open_fees: "12",
+      unmatched_close_fees: "0",
+      other_fees: "0",
+      fees: "0",
+      net: "0",
+      dividends: "0",
+      profit_tax: "0",
+      dividend_tax: "0",
+      tax: "0",
+      rate: "1",
+      complete: true,
+      missing_rate: false,
+    },
+  ];
+  wrapper = mount(Tax);
+  await flushPromises();
+  const table = wrapper.get(".tax-summary");
+  expect(table.text()).toContain("计入损益交易费");
+  expect(table.text()).toContain("期内发生 12.00 港币");
+  expect(table.get("tbody .tax-deferred-fee").text()).toBe("12.00 港币");
+  expect(table.get("tbody .tax-emphasis").text()).toContain("0.00 港币");
 });

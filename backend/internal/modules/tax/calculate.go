@@ -52,27 +52,33 @@ type Missing struct {
 	Record   Record `json:"record"`
 	Quantity string `json:"quantity"`
 	Amount   string `json:"amount"`
+	Fee      string `json:"fee"`
 }
 type Summary struct {
-	Year         int     `json:"year"`
-	Currency     string  `json:"currency"`
-	SellClose    string  `json:"sell_close"`
-	BuyOpen      string  `json:"buy_open"`
-	BuyClose     string  `json:"buy_close"`
-	SellOpen     string  `json:"sell_open"`
-	Redemption   string  `json:"redemption"`
-	Subscription string  `json:"subscription"`
-	TradeFees    string  `json:"trade_fees"`
-	OtherFees    string  `json:"other_fees"`
-	Fees         string  `json:"fees"`
-	Net          string  `json:"net"`
-	Dividends    string  `json:"dividends"`
-	ProfitTax    *string `json:"profit_tax"`
-	DividendTax  *string `json:"dividend_tax"`
-	Tax          *string `json:"tax"`
-	Rate         *string `json:"rate"`
-	Complete     bool    `json:"complete"`
-	MissingRate  bool    `json:"missing_rate"`
+	Year               int     `json:"year"`
+	Currency           string  `json:"currency"`
+	SellClose          string  `json:"sell_close"`
+	BuyOpen            string  `json:"buy_open"`
+	BuyClose           string  `json:"buy_close"`
+	SellOpen           string  `json:"sell_open"`
+	Redemption         string  `json:"redemption"`
+	Subscription       string  `json:"subscription"`
+	TradeFees          string  `json:"trade_fees"`
+	IncurredTradeFees  string  `json:"incurred_trade_fees"`
+	RealizedOpenFees   string  `json:"realized_open_fees"`
+	RealizedCloseFees  string  `json:"realized_close_fees"`
+	DeferredOpenFees   string  `json:"deferred_open_fees"`
+	UnmatchedCloseFees string  `json:"unmatched_close_fees"`
+	OtherFees          string  `json:"other_fees"`
+	Fees               string  `json:"fees"`
+	Net                string  `json:"net"`
+	Dividends          string  `json:"dividends"`
+	ProfitTax          *string `json:"profit_tax"`
+	DividendTax        *string `json:"dividend_tax"`
+	Tax                *string `json:"tax"`
+	Rate               *string `json:"rate"`
+	Complete           bool    `json:"complete"`
+	MissingRate        bool    `json:"missing_rate"`
 }
 type Report struct {
 	Rows    []Summary `json:"rows"`
@@ -82,9 +88,8 @@ type Report struct {
 	Method  string    `json:"method"`
 }
 
-// Detail preserves the original event and its cost lots. Fees charged to the
-// year remain on the event that incurred them; opening fee allocations are
-// informational and must not be subtracted from the closing profit again.
+// Opening fees travel with each cost lot. A closing event recognizes the
+// matched opening fee and its own proportionate closing fee exactly once.
 type Opening struct {
 	Record   Record `json:"record"`
 	Quantity string `json:"quantity"`
@@ -92,23 +97,24 @@ type Opening struct {
 	Fee      string `json:"fee"`
 }
 type Detail struct {
-	Record    Record    `json:"record"`
-	Openings  []Opening `json:"openings"`
-	HasClose  bool      `json:"has_close"`
-	Fees      string    `json:"fees"`
-	Profit    string    `json:"profit"`
-	Dividends string    `json:"dividends"`
-	Complete  bool      `json:"complete"`
+	Record         Record    `json:"record"`
+	Openings       []Opening `json:"openings"`
+	HasClose       bool      `json:"has_close"`
+	Fees           string    `json:"fees"`
+	CapitalizedFee string    `json:"capitalized_fee"`
+	Profit         string    `json:"profit"`
+	Dividends      string    `json:"dividends"`
+	Complete       bool      `json:"complete"`
 }
 
 func newDetail(r Record) Detail {
-	return Detail{Record: r, Openings: []Opening{}, Fees: r.Fee, Profit: fixed(sub(zero(), number(r.Fee)), 12), Dividends: "0", Complete: true}
+	return Detail{Record: r, Openings: []Opening{}, Fees: "0", CapitalizedFee: "0", Profit: "0", Dividends: "0", Complete: true}
 }
 
 type amounts struct {
 	year                   int
 	currency               string
-	v                      [11]*big.Rat
+	v                      [amountCount]*big.Rat
 	profitTax, dividendTax *big.Rat
 	missing                bool
 	rate                   *big.Rat
@@ -127,6 +133,12 @@ const (
 	net
 	dividends
 	fees
+	incurredTradeFees
+	realizedOpenFees
+	realizedCloseFees
+	deferredOpenFees
+	unmatchedCloseFees
+	amountCount
 )
 
 func newAmounts(year int, currency string) *amounts {
@@ -138,8 +150,52 @@ func newAmounts(year int, currency string) *amounts {
 }
 
 type lot struct {
-	record           Record
-	quantity, amount *big.Rat
+	record                Record
+	quantity, amount, fee *big.Rat
+}
+
+type feeChange struct {
+	date, account, currency string
+	amount                  *big.Rat
+}
+
+// Snapshot the unrecognized opening fees at each selected year-end (or the
+// selected end date). Changes include all closures, even outside the display
+// filter; ownership of a pending cost lot follows its original opening account.
+func applyDeferredFees(annual map[string]*amounts, changes []feeChange, filter Filter) {
+	yearSet := map[int]bool{}
+	for _, a := range annual {
+		yearSet[a.year] = true
+	}
+	years := make([]int, 0, len(yearSet))
+	for year := range yearSet {
+		years = append(years, year)
+	}
+	sort.Ints(years)
+	balances := map[string]*big.Rat{"HKD": zero(), "USD": zero()}
+	index := 0
+	for _, year := range years {
+		end := fmt.Sprintf("%04d-12-31", year)
+		if filter.To != "" && filter.To < end {
+			end = filter.To
+		}
+		for index < len(changes) && changes[index].date <= end {
+			change := changes[index]
+			if filter.Account == "" || filter.Account == change.account {
+				balances[change.currency].Add(balances[change.currency], change.amount)
+			}
+			index++
+		}
+		for currency, balance := range balances {
+			key := fmt.Sprintf("%d/%s", year, currency)
+			if annual[key] == nil && balance.Sign() != 0 {
+				annual[key] = newAmounts(year, currency)
+			}
+			if a := annual[key]; a != nil {
+				a.v[deferredOpenFees].Set(balance)
+			}
+		}
+	}
 }
 
 func poolKey(r Record) string {
@@ -153,7 +209,7 @@ func poolKey(r Record) string {
 }
 
 func Calculate(records []Record, rates []Rate, filter Filter) Report {
-	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Entries: []Detail{}, Method: "lixinger-compatible-v1"}
+	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Entries: []Detail{}, Method: "fifo-cost-basis-v2"}
 	ordered := append([]Record{}, records...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].timestamp() != ordered[j].timestamp() {
@@ -174,6 +230,7 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 		return annual[key]
 	}
 	longs, shorts := map[string][]*lot{}, map[string][]*lot{}
+	feeChanges := []feeChange{}
 	for _, r := range ordered {
 		selected := filter.includes(r)
 		var a *amounts
@@ -200,29 +257,27 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 			continue
 		}
 		if selected {
-			a.v[tradeFees].Add(a.v[tradeFees], number(r.Fee))
+			a.v[incurredTradeFees].Add(a.v[incurredTradeFees], number(r.Fee))
 		}
 		quantity, amount := abs(number(r.Quantity)), abs(number(r.Amount))
 		entry := newDetail(r)
 		key := poolKey(r)
-		if r.Direction == "买入开仓" || r.Direction == "申购" {
-			longs[key] = append(longs[key], &lot{r, quantity, amount})
-			if selected {
-				entry.Openings = append(entry.Openings, Opening{r, fixed(quantity, 12), fixed(amount, 12), r.Fee})
-				result.Entries = append(result.Entries, entry)
+		if r.Direction == "买入开仓" || r.Direction == "申购" || r.Direction == "卖出开仓" {
+			pool := longs
+			if r.Direction == "卖出开仓" {
+				pool = shorts
 			}
-			continue
-		}
-		if r.Direction == "卖出开仓" {
-			shorts[key] = append(shorts[key], &lot{r, quantity, amount})
+			pool[key] = append(pool[key], &lot{r, quantity, amount, number(r.Fee)})
+			feeChanges = append(feeChanges, feeChange{r.timestamp()[:10], r.AccountID, r.Currency, number(r.Fee)})
 			if selected {
+				entry.CapitalizedFee = r.Fee
 				entry.Openings = append(entry.Openings, Opening{r, fixed(quantity, 12), fixed(amount, 12), r.Fee})
 				result.Entries = append(result.Entries, entry)
 			}
 			continue
 		}
 		entry.HasClose = true
-		entryProfit := sub(zero(), number(r.Fee))
+		entryProfit, entryFees := zero(), zero()
 		pool := longs
 		short := r.Direction == "买入平仓"
 		if short {
@@ -236,14 +291,22 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 				matched.Set(l.quantity)
 			}
 			cost := portion(l.amount, matched, l.quantity)
+			openingFee := portion(l.fee, matched, l.quantity)
+			closingFee := portion(number(r.Fee), matched, quantity)
+			matchedFees := add(openingFee, closingFee)
+			feeChanges = append(feeChanges, feeChange{r.timestamp()[:10], l.record.AccountID, r.Currency, new(big.Rat).Neg(openingFee)})
 			proceeds := portion(amount, matched, quantity)
 			profit := sub(proceeds, cost)
 			if short {
 				profit = sub(cost, proceeds)
 			}
 			if selected {
-				entry.Openings = append(entry.Openings, Opening{l.record, fixed(matched, 12), fixed(cost, 12), fixed(portion(number(l.record.Fee), matched, abs(number(l.record.Quantity))), 12)})
-				entryProfit.Add(entryProfit, profit)
+				entry.Openings = append(entry.Openings, Opening{l.record, fixed(matched, 12), fixed(cost, 12), fixed(openingFee, 12)})
+				entryProfit.Add(entryProfit, sub(profit, matchedFees))
+				entryFees.Add(entryFees, matchedFees)
+				a.v[tradeFees].Add(a.v[tradeFees], matchedFees)
+				a.v[realizedOpenFees].Add(a.v[realizedOpenFees], openingFee)
+				a.v[realizedCloseFees].Add(a.v[realizedCloseFees], closingFee)
 				op, cl := buyOpen, sellClose
 				if short {
 					op, cl = sellOpen, buyClose
@@ -257,6 +320,7 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 			remaining.Sub(remaining, matched)
 			l.quantity.Sub(l.quantity, matched)
 			l.amount.Sub(l.amount, cost)
+			l.fee.Sub(l.fee, openingFee)
 			if l.quantity.Sign() == 0 {
 				pool[key] = pool[key][1:]
 			}
@@ -264,13 +328,17 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 		if selected && remaining.Sign() > 0 {
 			a.missing = true
 			entry.Complete = false
-			result.Missing = append(result.Missing, Missing{r, fixed(remaining, 12), fixed(portion(amount, remaining, quantity), 12)})
+			unmatchedFee := portion(number(r.Fee), remaining, quantity)
+			a.v[unmatchedCloseFees].Add(a.v[unmatchedCloseFees], unmatchedFee)
+			result.Missing = append(result.Missing, Missing{r, fixed(remaining, 12), fixed(portion(amount, remaining, quantity), 12), fixed(unmatchedFee, 12)})
 		}
 		if selected {
 			entry.Profit = fixed(entryProfit, 12)
+			entry.Fees = fixed(entryFees, 12)
 			result.Entries = append(result.Entries, entry)
 		}
 	}
+	applyDeferredFees(annual, feeChanges, filter)
 	rateMap := map[string]*big.Rat{}
 	for _, r := range rates {
 		rateMap[fmt.Sprintf("%d/%s", r.Year, r.Currency)] = number(r.Value)
@@ -329,7 +397,7 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 
 func (a *amounts) summary() Summary {
 	s := Summary{Year: a.year, Currency: a.currency, Complete: !a.missing, MissingRate: a.rateMissing}
-	fields := []*string{&s.SellClose, &s.BuyOpen, &s.BuyClose, &s.SellOpen, &s.Redemption, &s.Subscription, &s.TradeFees, &s.OtherFees, &s.Net, &s.Dividends, &s.Fees}
+	fields := []*string{&s.SellClose, &s.BuyOpen, &s.BuyClose, &s.SellOpen, &s.Redemption, &s.Subscription, &s.TradeFees, &s.OtherFees, &s.Net, &s.Dividends, &s.Fees, &s.IncurredTradeFees, &s.RealizedOpenFees, &s.RealizedCloseFees, &s.DeferredOpenFees, &s.UnmatchedCloseFees}
 	for i, f := range fields {
 		if a.currency != "CNY" || !a.rateMissing {
 			*f = fixed(a.v[i], 2)

@@ -9,7 +9,7 @@ function place() {
   const element = trigger.value;
   if (!element) return;
   const rect = element.getBoundingClientRect();
-  const width = Math.min(340, window.innerWidth - 24);
+  const width = Math.min(420, window.innerWidth - 24);
   const half = width / 2;
   const left = Math.min(
     Math.max(rect.left + rect.width / 2, half + 12),

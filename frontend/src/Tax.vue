@@ -131,7 +131,7 @@ function profitTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
   if (!row.profit_tax) return "缺少年度汇率，暂时无法折算税额。";
   if (row.net.startsWith("-") || /^0(?:\.0+)?$/.test(row.net))
     return `净利润 ${taxNumber(row.net)} ${currencyName(row.currency)}，没有正收益，交易税额按 0 计算。`;
-  return `${taxNumber(row.net)} ${currencyName(row.currency)} × 20% × ${row.rate ?? "—"} ＝ ${taxNumber(row.profit_tax)} 人民币`;
+  return `${taxNumber(row.net)} ${currencyName(row.currency)} × 20% × ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.profit_tax)} 人民币`;
 }
 function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
   if (!row.dividend_tax) return "缺少年度汇率，暂时无法折算税额。";
@@ -147,7 +147,7 @@ function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
       : "没有股息收入，股息税额为 0。";
   }
   const rate = row.currency === "USD" ? "10%" : "20%";
-  return `${taxNumber(row.dividends)} ${currencyName(row.currency)} × ${rate} × ${row.rate ?? "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
+  return `${taxNumber(row.dividends)} ${currencyName(row.currency)} × ${rate} × ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
 }
 function totalTaxTip(row: TaxSummary): string {
   if (!row.tax) return "缺少年度汇率，暂时无法折算税额。";

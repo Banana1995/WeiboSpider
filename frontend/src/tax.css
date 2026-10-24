@@ -83,9 +83,9 @@
 }
 .tax-main {
   width: 100%;
-  max-width: none;
+  max-width: 1840px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 24px;
 }
 .tax-heading {
   display: flex;
@@ -278,9 +278,20 @@
   font-weight: 650;
   color: #144f85;
 }
-.tax-summary td:nth-child(11),
-.tax-summary th:nth-child(11) {
-  border-right: 1px solid #9bb7cf;
+.tax-page .tax-summary .tax-year-column {
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.tax-page .tax-summary td.tax-year-column {
+  background: #fff;
+  border-bottom: 2px solid #9bb7cf;
+}
+.tax-page .tax-summary .tax-summary-currency {
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 .tax-page .tax-note {
   white-space: normal;
@@ -486,8 +497,8 @@
   font-weight: 550;
 }
 .tax-detail-dialog {
-  width: calc(100vw - 16px);
-  max-width: none;
+  width: calc(100vw - 40px);
+  max-width: 2080px;
   max-height: calc(100dvh - 40px);
   min-height: 0;
   margin: auto;
@@ -548,7 +559,7 @@
 }
 .tax-page .tax-detail-table th,
 .tax-page .tax-detail-table td {
-  padding: 10px 8px;
+  padding: 10px 6px;
   text-align: left;
 }
 .tax-page .tax-detail-table .tax-num {

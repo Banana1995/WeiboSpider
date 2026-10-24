@@ -94,6 +94,19 @@ const details = computed(() =>
     (entry) => Number(entry.record.date.slice(0, 4)) === detailYear.value,
   ),
 );
+const annualGroups = computed(() => {
+  const groups = new Map<number, typeof report.value.rows>();
+  for (const row of report.value.rows) {
+    const rows = groups.get(row.year) ?? [];
+    rows.push(row);
+    groups.set(row.year, rows);
+  }
+  return [...groups].map(([year, rows]) => ({
+    year,
+    rows,
+    complete: rows.every((row) => row.complete),
+  }));
+});
 const readyFiles = computed(() =>
   pending.value.filter((p) => p.preview && !p.imported && !p.error),
 );
@@ -502,8 +515,8 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
           <table class="tax-summary">
             <thead>
               <tr>
-                <th>年度</th>
-                <th>币种</th>
+                <th class="tax-year-column">年度</th>
+                <th class="tax-summary-currency">币种</th>
                 <th
                   v-for="c in summaryColumns"
                   :key="c[0]"
@@ -518,19 +531,29 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 <th>明细</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              v-for="group in annualGroups"
+              :key="group.year"
+              class="tax-year-group"
+            >
               <tr
-                v-for="r in report.rows"
+                v-for="(r, rowIndex) in group.rows"
                 :key="`${r.year}-${r.currency}`"
                 :class="{ 'tax-total': r.currency === 'CNY' }"
               >
-                <td>
-                  {{ r.year
-                  }}<small v-if="!r.complete" class="tax-error-text"
+                <td
+                  v-if="rowIndex === 0"
+                  :rowspan="group.rows.length"
+                  class="tax-year-column"
+                >
+                  {{ group.year
+                  }}<small v-if="!group.complete" class="tax-error-text"
                     >缺成本</small
                   >
                 </td>
-                <td>{{ r.currency === "CNY" ? "人民币合计" : r.currency }}</td>
+                <td class="tax-summary-currency">
+                  {{ r.currency === "CNY" ? "人民币合计" : r.currency }}
+                </td>
                 <td
                   v-for="c in summaryColumns"
                   :key="c[0]"
@@ -570,7 +593,9 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   </button>
                 </td>
               </tr>
-              <tr v-if="!report.rows.length">
+            </tbody>
+            <tbody v-if="!report.rows.length">
+              <tr>
                 <td colspan="16" class="tax-empty">
                   <h2>
                     {{

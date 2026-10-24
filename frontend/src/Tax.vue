@@ -643,10 +643,9 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 <td class="tax-num tax-emphasis">
                   {{ taxMoney(r.tax, "CNY") }}
                   <small v-if="r.tax"
-                    >合计<TaxTip
-                      :text="totalTaxTip(r)"
-                      label="合计税额计算" /></small
-                  ><small v-if="r.missing_rate" class="tax-error-text"
+                    ><TaxTip :text="totalTaxTip(r)" label="合计税额计算"
+                  /></small>
+                  <small v-if="r.missing_rate" class="tax-error-text"
                     >缺少年度汇率</small
                   >
                 </td>

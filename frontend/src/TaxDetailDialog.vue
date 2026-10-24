@@ -260,25 +260,20 @@ function outside(event: MouseEvent) {
                 >
                   开仓流水
                 </td>
-                <td colspan="6" class="tax-open-end">
-                  <div class="tax-pair-totals">
-                    <span
-                      >共
-                      <b>{{ openingQuantity(entry) }}</b>
-                    </span>
-                    <span
-                      >成交均价
-                      <b>{{ openingAverage(entry) }}</b>
-                    </span>
-                    <span
-                      >总配对金额
-                      <b>{{ openingAmount(entry) }}</b>
-                    </span>
-                    <span
-                      >总开仓费用
-                      <b>{{ openingFees(entry) }}</b>
-                    </span>
-                  </div>
+                <td colspan="2" class="tax-pair-summary-label">
+                  {{ entry.openings.length }} 笔开仓
+                </td>
+                <td class="tax-num tax-pair-summary-value">
+                  <small>共</small><b>{{ openingQuantity(entry) }}</b>
+                </td>
+                <td class="tax-num tax-pair-summary-value">
+                  <small>成交均价</small><b>{{ openingAverage(entry) }}</b>
+                </td>
+                <td class="tax-num tax-pair-summary-value">
+                  <small>总配对金额</small><b>{{ openingAmount(entry) }}</b>
+                </td>
+                <td class="tax-num tax-pair-summary-value tax-open-end">
+                  <small>总开仓费用</small><b>{{ openingFees(entry) }}</b>
                 </td>
                 <td :rowspan="entry.openings.length + 1" class="tax-num">
                   {{ taxMoney(entry.fees, entry.record.currency) }}

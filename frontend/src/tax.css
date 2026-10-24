@@ -623,19 +623,32 @@
 .tax-detail-account small {
   white-space: nowrap;
 }
-.tax-page .tax-detail-table .tax-pair-totals {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px 24px;
-  color: #52667f;
+.tax-page .tax-detail-table .tax-pair-summary td {
+  background: #f7f9fc;
+  border-bottom: 1px solid #dce4ec;
+}
+.tax-page .tax-detail-table .tax-pair-summary-label {
+  color: #62748b;
   font-size: 12px;
+  text-align: right;
   white-space: nowrap;
 }
-.tax-page .tax-detail-table .tax-pair-totals b {
+.tax-page .tax-detail-table .tax-pair-summary-value {
+  line-height: 1.5;
+}
+.tax-page .tax-detail-table .tax-pair-summary-value small {
+  display: block;
+  color: #62748b;
+  font-size: 11px;
+  margin: 0;
+}
+.tax-page .tax-detail-table .tax-pair-summary-value b {
+  display: block;
   color: #263445;
+  font-size: 12px;
   font-weight: 650;
-  margin-left: 2px;
+  white-space: normal;
+  word-break: keep-all;
 }
 .tax-page .tax-detail-table .tax-detail-date {
   min-width: 160px;

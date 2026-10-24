@@ -378,6 +378,9 @@
 .tax-page .tax-rates th:nth-child(4) {
   width: 22%;
 }
+.tax-source-short {
+  display: none;
+}
 .tax-footer {
   display: flex;
   gap: 12px;
@@ -447,5 +450,11 @@
   }
   .tax-footer span {
     display: none;
+  }
+  .tax-source-long {
+    display: none;
+  }
+  .tax-source-short {
+    display: inline;
   }
 }

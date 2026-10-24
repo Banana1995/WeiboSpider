@@ -742,7 +742,8 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                     :href="r.source"
                     target="_blank"
                     rel="noopener"
-                    >查看历史中间价来源</a
+                    ><span class="tax-source-long">查看历史中间价来源</span
+                    ><span class="tax-source-short">查看</span></a
                   ><span v-else>{{ r.source }}</span>
                 </td>
               </tr>

@@ -7,6 +7,7 @@ import {
   taxExact,
   taxMoney,
   taxPrice,
+  currencyName,
   securityIdentity,
   pivotRates,
   summaryColumns,
@@ -14,10 +15,12 @@ import {
   type TaxReport,
   type TaxPreview,
   type TaxRecord,
+  type TaxSummary,
 } from "./tax";
 import "./tax.css";
 import TaxSecurity from "./TaxSecurity.vue";
 import TaxDetailDialog from "./TaxDetailDialog.vue";
+import TaxTip from "./TaxTip.vue";
 
 const state = ref<TaxState>({ imports: [], records: [], rates: [] });
 const report = ref<TaxReport>({
@@ -107,6 +110,49 @@ const annualGroups = computed(() => {
     complete: rows.every((row) => row.complete),
   }));
 });
+const feeTips: Record<string, string> = {
+  trade_fees:
+    "计入损益交易费：当年利润实际扣掉的手续费，包括卖出部分对应的买入费加卖出费。\n期内发生（金额下方小字）：这一年实际支付的交易手续费，包括当年买入费、卖出费和赎回费；不管这些股票有没有卖出。",
+  deferred_open_fees:
+    "期末待结转开仓费：到了年末，仍未卖出部分的买入费还有多少没进利润表；它是累计余额，不只是当年的。",
+};
+function profitTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
+  if (row.currency === "CNY") {
+    const parts = rows
+      .filter((item) => item.currency !== "CNY" && item.profit_tax)
+      .map(
+        (item) =>
+          `${currencyName(item.currency)} ${taxNumber(item.profit_tax)}`,
+      );
+    return parts.length
+      ? `按币种分别计算后合计：${parts.join(" ＋ ")} ＝ ${taxNumber(row.profit_tax)} 人民币`
+      : "各币种均无正收益，交易税额为 0。";
+  }
+  if (!row.profit_tax) return "缺少年度汇率，暂时无法折算税额。";
+  if (row.net.startsWith("-") || /^0(?:\.0+)?$/.test(row.net))
+    return `净利润 ${taxNumber(row.net)} ${currencyName(row.currency)}，没有正收益，交易税额按 0 计算。`;
+  return `${taxNumber(row.net)} ${currencyName(row.currency)} × 20% × ${row.rate ?? "—"} ＝ ${taxNumber(row.profit_tax)} 人民币`;
+}
+function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
+  if (!row.dividend_tax) return "缺少年度汇率，暂时无法折算税额。";
+  if (row.currency === "CNY") {
+    const parts = rows
+      .filter((item) => item.currency !== "CNY" && item.dividend_tax)
+      .map(
+        (item) =>
+          `${currencyName(item.currency)} ${taxNumber(item.dividend_tax)}`,
+      );
+    return parts.length
+      ? `按币种分别计算后合计：${parts.join(" ＋ ")} ＝ ${taxNumber(row.dividend_tax)} 人民币`
+      : "没有股息收入，股息税额为 0。";
+  }
+  const rate = row.currency === "USD" ? "10%" : "20%";
+  return `${taxNumber(row.dividends)} ${currencyName(row.currency)} × ${rate} × ${row.rate ?? "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
+}
+function totalTaxTip(row: TaxSummary): string {
+  if (!row.tax) return "缺少年度汇率，暂时无法折算税额。";
+  return `交易税额 ${taxNumber(row.profit_tax)} ＋ 股息税额 ${taxNumber(row.dividend_tax)} ＝ ${taxNumber(row.tax)} 人民币`;
+}
 const readyFiles = computed(() =>
   pending.value.filter((p) => p.preview && !p.imported && !p.error),
 );
@@ -523,9 +569,19 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   class="tax-num"
                   :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
                 >
-                  {{ c[1] }}
+                  {{ c[1]
+                  }}<TaxTip
+                    v-if="feeTips[String(c[0])]"
+                    :text="feeTips[String(c[0])]!"
+                    :label="`${c[1]}说明`"
+                  />
                 </th>
-                <th class="tax-num">已实现净利润</th>
+                <th class="tax-num">
+                  已实现净利润<TaxTip
+                    text="已实现净利润＝卖出平仓收入−对应买入开仓金额＋卖出开仓收入−买入平仓支出＋赎回收入−对应申购金额−计入损益交易费−其他费用。"
+                    label="已实现净利润说明"
+                  />
+                </th>
                 <th class="tax-num">股息收入</th>
                 <th class="tax-num">估算税额（元）</th>
                 <th>明细</th>
@@ -561,24 +617,36 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
                 >
                   {{ taxMoney(String(r[c[0]]), r.currency) }}
-                  <small
-                    v-if="c[0] === 'trade_fees'"
-                    :title="`对应开仓费 ${taxMoney(r.realized_open_fees, r.currency)}；平仓费 ${taxMoney(r.realized_close_fees, r.currency)}`"
+                  <small v-if="c[0] === 'trade_fees'"
                     >期内发生
                     {{ taxMoney(r.incurred_trade_fees, r.currency) }}</small
                   >
                 </td>
                 <td class="tax-num tax-emphasis">
-                  {{ taxMoney(r.net, r.currency)
-                  }}<small>税额 {{ taxMoney(r.profit_tax, "CNY") }}</small>
+                  {{ taxMoney(r.net, r.currency) }}
+                  <small
+                    >税额<TaxTip
+                      :text="profitTaxTip(r, group.rows)"
+                      label="交易税额计算"
+                    />{{ taxMoney(r.profit_tax, "CNY") }}</small
+                  >
                 </td>
                 <td class="tax-num">
-                  {{ taxMoney(r.dividends, r.currency)
-                  }}<small>税额 {{ taxMoney(r.dividend_tax, "CNY") }}</small>
+                  {{ taxMoney(r.dividends, r.currency) }}
+                  <small
+                    >税额<TaxTip
+                      :text="dividendTaxTip(r, group.rows)"
+                      label="股息税额计算"
+                    />{{ taxMoney(r.dividend_tax, "CNY") }}</small
+                  >
                 </td>
                 <td class="tax-num tax-emphasis">
-                  {{ taxMoney(r.tax, "CNY")
-                  }}<small v-if="r.missing_rate" class="tax-error-text"
+                  {{ taxMoney(r.tax, "CNY") }}
+                  <small v-if="r.tax"
+                    >合计<TaxTip
+                      :text="totalTaxTip(r)"
+                      label="合计税额计算" /></small
+                  ><small v-if="r.missing_rate" class="tax-error-text"
                     >缺少年度汇率</small
                   >
                 </td>

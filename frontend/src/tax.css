@@ -581,8 +581,15 @@
 }
 .tax-page .tax-summary .tax-deferred-fee {
   background: #f1f5f9;
-  border-left: 1px solid #9bb7cf;
   color: #52667f;
+}
+.tax-page .tax-summary small {
+  display: block;
+  white-space: normal;
+}
+.tax-page .tax-summary small .tax-tip-trigger {
+  margin: 0 3px;
+  vertical-align: 1px;
 }
 .tax-page .tax-detail-table .tax-index {
   text-align: center;
@@ -713,4 +720,51 @@
   .tax-rates-heading {
     margin-top: 18px;
   }
+}
+
+.tax-tip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 5px;
+  border: 1px solid #9bb7cf;
+  border-radius: 50%;
+  background: #fff;
+  color: #52667f;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  vertical-align: 1px;
+}
+.tax-tip-trigger:hover,
+.tax-tip-trigger:focus-visible {
+  border-color: #1766b6;
+  color: #1766b6;
+  outline: none;
+  box-shadow: 0 0 0 2px #1766b626;
+}
+.tax-tooltip {
+  position: fixed;
+  z-index: 20000;
+  padding: 10px 12px;
+  border: 1px solid #ccd7e2;
+  border-radius: 6px;
+  background: #fff;
+  color: #263445;
+  box-shadow: 0 8px 24px #13243c26;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.75;
+  text-align: left;
+  white-space: pre-line;
+  pointer-events: none;
 }

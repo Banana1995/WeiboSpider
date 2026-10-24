@@ -101,7 +101,7 @@ function outside(event: MouseEvent) {
               <th class="tax-num tax-detail-quantity">配对数量</th>
               <th class="tax-num">价格</th>
               <th class="tax-num">配对金额</th>
-              <th class="tax-num tax-open-end">分摊费用</th>
+              <th class="tax-num tax-open-end">费用</th>
               <th class="tax-detail-date">平仓日期</th>
               <th>平仓账户</th>
               <th class="tax-num tax-detail-quantity">数量</th>

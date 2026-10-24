@@ -158,10 +158,6 @@ function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
   const rate = row.currency === "USD" ? "10%" : "20%";
   return `${taxNumber(row.dividends)} ${currencyName(row.currency)} × ${rate} × ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
 }
-function totalTaxTip(row: TaxSummary): string {
-  if (!row.tax) return "缺少年度汇率，暂时无法折算税额。";
-  return `交易税额 ${taxNumber(row.profit_tax)} ＋ 股息税额 ${taxNumber(row.dividend_tax)} ＝ ${taxNumber(row.tax)} 人民币`;
-}
 const readyFiles = computed(() =>
   pending.value.filter((p) => p.preview && !p.imported && !p.error),
 );
@@ -657,9 +653,6 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 </td>
                 <td class="tax-num tax-emphasis">
                   {{ taxMoney(r.tax, "CNY") }}
-                  <small v-if="r.tax"
-                    ><TaxTip :text="totalTaxTip(r)" label="合计税额计算"
-                  /></small>
                   <small v-if="r.missing_rate" class="tax-error-text"
                     >缺少年度汇率</small
                   >

@@ -68,8 +68,95 @@ export interface TaxMatch {
 export interface TaxReport {
   rows: TaxSummary[];
   matches: TaxMatch[];
+  entries: TaxDetail[];
   missing: { record: TaxRecord; quantity: string; amount: string }[];
   method: string;
+}
+export interface TaxOpening {
+  record: TaxRecord;
+  quantity: string;
+  amount: string;
+  fee: string;
+}
+export interface TaxDetail {
+  record: TaxRecord;
+  openings: TaxOpening[];
+  has_close: boolean;
+  fees: string;
+  profit: string;
+  dividends: string;
+  complete: boolean;
+}
+
+export function currencyName(currency: string): string {
+  return (
+    ({ HKD: "港币", USD: "美元", CNY: "人民币" } as Record<string, string>)[
+      currency
+    ] ?? currency
+  );
+}
+export function taxMoney(
+  value: string | null | undefined,
+  currency: string,
+): string {
+  if (value == null || value === "") return "—";
+  if (!/^-?\d+(\.\d+)?$/.test(value)) return "—";
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  let cents = BigInt(whole!) * 100n + BigInt((fraction + "00").slice(0, 2));
+  if ((fraction[2] ?? "0") >= "5") cents++;
+  const text = `${negative && cents !== 0n ? "-" : ""}${cents / 100n}.${(cents % 100n).toString().padStart(2, "0")}`;
+  return `${taxNumber(text)} ${currencyName(currency)}`;
+}
+export function taxPrice(value: string, currency: string): string {
+  return value
+    ? `${taxNumber(taxExact(value))} ${currencyName(currency)}`
+    : "—";
+}
+export function securityIdentity(r: TaxRecord): {
+  key: string;
+  code: string;
+  market: string;
+} {
+  let market = r.market,
+    code = r.code.toUpperCase();
+  if (r.kind === "资金进出") {
+    const hk = r.note.match(/<SEHK\s+([0-9]{1,5})\s/);
+    const us = r.note.match(/^([A-Z][A-Z0-9.-]{0,15})\s+[0-9.]+\s+SHARES\s/);
+    if (hk) {
+      market = "SEHK";
+      code = hk[1]!;
+    } else if (us) {
+      market = "US";
+      code = us[1]!;
+    }
+  } else if (r.kind !== "证券") {
+    return { key: "", code: r.code, market: r.market };
+  }
+  if ((market === "SEHK" || market === "HK") && /^\d{1,5}$/.test(code)) {
+    code = code.padStart(5, "0");
+    return { key: `hk${code}`, code, market: "港股" };
+  }
+  if (market === "US" && /^[A-Z][A-Z0-9.-]{0,15}$/.test(code))
+    return { key: `us${code}`, code, market: "美股" };
+  return { key: "", code: r.code, market: r.market };
+}
+export function pivotRates(rates: TaxRate[]) {
+  const years = new Map<
+    number,
+    { year: number; HKD: string | null; USD: string | null }
+  >();
+  for (const rate of rates) {
+    const row = years.get(rate.year) ?? {
+      year: rate.year,
+      HKD: null,
+      USD: null,
+    };
+    if (rate.currency === "HKD" || rate.currency === "USD")
+      row[rate.currency] = rate.value;
+    years.set(rate.year, row);
+  }
+  return [...years.values()].sort((a, b) => b.year - a.year);
 }
 export interface TaxPreview {
   digest: string;
@@ -124,52 +211,6 @@ export function taxExact(value: string): string {
     ? value.replace(/0+$/, "").replace(/\.$/, "")
     : value;
 }
-export function taxCSV(rows: (string | number)[][]): string {
-  return (
-    "\uFEFF" +
-    rows
-      .map((row) =>
-        row
-          .map((cell) => {
-            let text = String(cell);
-            // Spreadsheet formula escaping only applies to text, not parsed decimals.
-            if (!/^-?\d+(\.\d+)?$/.test(text) && /^[\s]*[=+@-]/.test(text))
-              text = "'" + text;
-            return '"' + text.replace(/"/g, '""') + '"';
-          })
-          .join(","),
-      )
-      .join("\r\n") +
-    "\r\n"
-  );
-}
-export function downloadTax(name: string, rows: (string | number)[][]) {
-  const url = URL.createObjectURL(
-    new Blob([taxCSV(rows)], { type: "text/csv;charset=utf-8" }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-export const recordColumns: [keyof TaxRecord, string][] = [
-  ["date", "日期"],
-  ["account", "账户名称"],
-  ["account_id", "账户号码"],
-  ["kind", "品类"],
-  ["code", "证券代码"],
-  ["market", "交易所"],
-  ["direction", "方向"],
-  ["currency", "币种"],
-  ["quantity", "数量"],
-  ["price", "价格"],
-  ["amount", "成交金额"],
-  ["fee", "总费用"],
-  ["change", "变动金额"],
-  ["note", "备注"],
-  ["reason", "变动原因"],
-];
 export const summaryColumns: [keyof TaxSummary, string][] = [
   ["sell_close", "卖出平仓"],
   ["buy_open", "对应买入开仓"],

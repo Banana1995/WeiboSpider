@@ -15,7 +15,10 @@ import (
 
 var keyPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-type Handler struct{ Store *Store }
+type Handler struct {
+	Store *Store
+	Names *NamesClient
+}
 
 func (h Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/platform/tax/", http.HandlerFunc(h.serve))
@@ -37,6 +40,19 @@ func (h Handler) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case path == "names" && r.Method == "GET":
+		if r.URL.RawQuery != "" {
+			fail(w, 400, "名称查询不接受额外参数")
+			return
+		}
+		state, err := h.Store.State(r.Context(), workspace)
+		if err != nil {
+			fail(w, 500, "读取证券列表失败")
+			return
+		}
+		httpapi.Write(w, 200, struct {
+			Names map[string]string `json:"names"`
+		}{h.Names.Lookup(r.Context(), state.Records)})
 	case path == "state" && r.Method == "GET":
 		state, err := h.Store.State(r.Context(), workspace)
 		if err != nil {

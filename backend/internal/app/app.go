@@ -58,7 +58,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	if err != nil {
 		return nil, errors.Join(err, application.Close())
 	}
-	tax.Handler{Store: application.taxStore}.Register(mux)
+	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient()}.Register(mux)
 	if cfg.LedgerEnabled {
 		application.ledgerDB, err = ledger.Open(ctx, cfg.DataDir)
 		if err != nil {

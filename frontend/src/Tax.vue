@@ -5,8 +5,10 @@ import {
   taxDay,
   taxNumber,
   taxExact,
-  downloadTax,
-  recordColumns,
+  taxMoney,
+  taxPrice,
+  securityIdentity,
+  pivotRates,
   summaryColumns,
   type TaxState,
   type TaxReport,
@@ -14,11 +16,14 @@ import {
   type TaxRecord,
 } from "./tax";
 import "./tax.css";
+import TaxSecurity from "./TaxSecurity.vue";
+import TaxDetailDialog from "./TaxDetailDialog.vue";
 
 const state = ref<TaxState>({ imports: [], records: [], rates: [] });
 const report = ref<TaxReport>({
   rows: [],
   matches: [],
+  entries: [],
   missing: [],
   method: "",
 });
@@ -35,8 +40,10 @@ const kind = ref(""),
   page = ref(1),
   detailYear = ref<number>();
 const importsOpen = ref(false),
-  fileInput = ref<HTMLInputElement>(),
-  detailElement = ref<HTMLElement>();
+  fileInput = ref<HTMLInputElement>();
+const names = ref<Record<string, string>>({});
+const namesLoading = ref(false);
+const rateRows = computed(() => pivotRates(state.value.rates));
 const pending = ref<
   { file: File; preview?: TaxPreview; error: string; imported: boolean }[]
 >([]);
@@ -65,7 +72,7 @@ const statements = computed(() =>
       (r) =>
         (!kind.value || r.kind === kind.value) &&
         (!search.value ||
-          `${r.code} ${r.note} ${r.reason} ${r.account}`
+          `${r.code} ${securityIdentity(r).code} ${names.value[securityIdentity(r).key] ?? ""} ${r.note} ${r.reason} ${r.account}`
             .toLowerCase()
             .includes(search.value.toLowerCase())),
     )
@@ -83,24 +90,40 @@ const pageCount = computed(() =>
   Math.max(1, Math.ceil(statements.value.length / 50)),
 );
 const details = computed(() =>
-  report.value.matches.filter(
-    (m) => Number(m.close.date.slice(0, 4)) === detailYear.value,
+  report.value.entries.filter(
+    (entry) => Number(entry.record.date.slice(0, 4)) === detailYear.value,
   ),
 );
 const readyFiles = computed(() =>
   pending.value.filter((p) => p.preview && !p.imported && !p.error),
 );
-const latest = computed(
-  () =>
-    state.value.records
-      .map((r) => taxDay(r.date))
-      .sort()
-      .at(-1) || "—",
-);
 const fail = (e: unknown) =>
   e instanceof Error ? e.message : "请求失败，请重试";
 let reportController: AbortController | undefined;
 let reportGeneration = 0;
+let namesController: AbortController | undefined;
+async function loadNames() {
+  namesController?.abort();
+  const controller = new AbortController();
+  namesController = controller;
+  if (!state.value.records.length) {
+    names.value = {};
+    namesLoading.value = false;
+    return;
+  }
+  namesLoading.value = true;
+  try {
+    const result = await taxRequest<{ names: Record<string, string> }>(
+      "names",
+      { signal: controller.signal },
+    );
+    if (!controller.signal.aborted) names.value = result.names;
+  } catch {
+    /* Names are optional; imported transactions remain usable. */
+  } finally {
+    if (!controller.signal.aborted) namesLoading.value = false;
+  }
+}
 
 async function loadReport() {
   reportController?.abort();
@@ -122,7 +145,13 @@ async function loadReport() {
   } catch (e) {
     if (generation === reportGeneration && !controller.signal.aborted) {
       error.value = fail(e);
-      report.value = { rows: [], matches: [], missing: [], method: "" };
+      report.value = {
+        rows: [],
+        matches: [],
+        entries: [],
+        missing: [],
+        method: "",
+      };
     }
   } finally {
     if (generation === reportGeneration) loading.value = false;
@@ -132,6 +161,7 @@ async function reload() {
   error.value = "";
   try {
     state.value = await taxRequest<TaxState>("state");
+    void loadNames();
     if (account.value && !accounts.value.some((a) => a.id === account.value))
       account.value = "";
     await loadReport();
@@ -148,7 +178,10 @@ watch([kind, search], () => {
   page.value = 1;
 });
 onMounted(() => void reload());
-onBeforeUnmount(() => reportController?.abort());
+onBeforeUnmount(() => {
+  reportController?.abort();
+  namesController?.abort();
+});
 
 async function previewFiles(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -217,67 +250,12 @@ async function removeBatch(id: number) {
     busy.value = false;
   }
 }
-function exportRecords() {
-  downloadTax("税务流水.csv", [
-    recordColumns.map((c) => c[1]),
-    ...statements.value.map((r) => recordColumns.map((c) => r[c[0]])),
-  ]);
-}
-function exportSummary() {
-  const columns = [
-    ...summaryColumns,
-    ["net", "净利润"],
-    ["dividends", "股息收入"],
-    ["profit_tax", "交易税额（元）"],
-    ["dividend_tax", "股息税额（元）"],
-    ["tax", "合计税额（元）"],
-  ] as const;
-  downloadTax("税务年度汇总.csv", [
-    ["年度", "币种", ...columns.map((c) => c[1]), "成本完整", "汇率完整"],
-    ...report.value.rows.map((r) => [
-      r.year,
-      r.currency,
-      ...columns.map((c) => String(r[c[0]] ?? "")),
-      r.complete ? "是" : "否",
-      r.missing_rate ? "否" : "是",
-    ]),
-  ]);
-}
-function exportMatches() {
-  downloadTax("税务成本配对.csv", [
-    [
-      "平仓日期",
-      "平仓账户",
-      "代码",
-      "币种",
-      "数量",
-      "开仓日期",
-      "开仓账户",
-      "开仓金额",
-      "平仓金额",
-      "费用前盈亏",
-    ],
-    ...details.value.map((m) => [
-      m.close.date,
-      m.close.account,
-      m.close.code,
-      m.close.currency,
-      m.quantity,
-      m.open.date,
-      m.open.account,
-      m.open_amount,
-      m.close_amount,
-      m.profit,
-    ]),
-  ]);
-}
 const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
   const value = r[key];
   return typeof value === "string" && value !== ""
     ? taxNumber(taxExact(value))
     : "—";
 };
-const externalSource = (s: string) => /^https?:\/\//.test(s);
 </script>
 
 <template>
@@ -369,7 +347,7 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
           移除批次会重新计算。需要恢复时，重新上传原 CSV。
         </p>
       </section>
-      <div class="tax-filters">
+      <div v-show="tab !== 'rates'" class="tax-filters">
         <label
           >资产账户<select v-model="account" :disabled="busy">
             <option value="">全部账户</option>
@@ -409,10 +387,6 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
           {{ t.name }}
         </button>
       </div>
-      <div class="tax-meta">
-        <span>{{ state.records.length }} 条流水 · 最新 {{ latest }}</span
-        ><span>理杏仁兼容口径</span>
-      </div>
       <div v-if="loading" class="tax-loading" role="status">正在核算…</div>
 
       <section
@@ -433,20 +407,19 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
           ><input
             v-model="search"
             type="search"
-            placeholder="搜索代码、备注、变动原因"
+            placeholder="搜索代码、名称、备注"
             aria-label="搜索流水"
-          /><button :disabled="!statements.length" @click="exportRecords">
-            导出流水
-          </button>
+          />
         </div>
         <div class="tax-table-wrap">
           <table class="tax-records">
             <thead>
               <tr>
+                <th class="tax-index">#</th>
                 <th>日期</th>
                 <th>账户</th>
                 <th>品类</th>
-                <th>代码／市场</th>
+                <th>证券</th>
                 <th>方向</th>
                 <th>币种</th>
                 <th class="tax-num">数量</th>
@@ -455,36 +428,44 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                 <th class="tax-num">费用</th>
                 <th class="tax-num">变动金额</th>
                 <th>变动原因</th>
-                <th>备注／来源</th>
+                <th>备注</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in shown" :key="`${r.source}-${r.line}-${i}`">
+                <td class="tax-index">{{ (page - 1) * 50 + i + 1 }}</td>
                 <td>
-                  {{ r.date.length === 8 ? taxDay(r.date) : r.date
-                  }}<small v-if="r.date.length <= 10">日精度</small>
+                  {{ r.date.length === 8 ? taxDay(r.date) : r.date }}
                 </td>
                 <td>
                   {{ r.account }}<small>{{ r.account_id }}</small>
                 </td>
                 <td>{{ r.kind }}</td>
                 <td>
-                  {{ r.code || "—" }}<small>{{ r.market }}</small>
+                  <TaxSecurity
+                    :record="r"
+                    :names="names"
+                    :loading="namesLoading"
+                  />
                 </td>
                 <td>{{ r.direction }}</td>
                 <td>{{ r.currency }}</td>
                 <td class="tax-num">{{ textAmount(r, "quantity") }}</td>
-                <td class="tax-num">{{ textAmount(r, "price") }}</td>
-                <td class="tax-num">{{ textAmount(r, "amount") }}</td>
-                <td class="tax-num">{{ textAmount(r, "fee") }}</td>
-                <td class="tax-num">{{ textAmount(r, "change") }}</td>
+                <td class="tax-num">{{ taxPrice(r.price, r.currency) }}</td>
+                <td class="tax-num" :title="taxPrice(r.amount, r.currency)">
+                  {{ taxMoney(r.amount, r.currency) }}
+                </td>
+                <td class="tax-num">{{ taxMoney(r.fee, r.currency) }}</td>
+                <td class="tax-num" :title="taxPrice(r.change, r.currency)">
+                  {{ taxMoney(r.change, r.currency) }}
+                </td>
                 <td>{{ r.reason || "—" }}</td>
                 <td class="tax-note">
-                  {{ r.note }}<small>{{ r.source }} · 第 {{ r.line }} 行</small>
+                  {{ r.note }}
                 </td>
               </tr>
               <tr v-if="!shown.length">
-                <td colspan="13" class="tax-empty">
+                <td colspan="14" class="tax-empty">
                   {{
                     state.records.length
                       ? "筛选范围内没有流水。"
@@ -496,7 +477,6 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
           </table>
         </div>
         <div class="tax-pagination">
-          <span>共 {{ statements.length }} 条 · 每页 50 条</span>
           <div>
             <button :disabled="page <= 1" @click="page--">上一页</button
             ><span>{{ page }} / {{ pageCount }}</span
@@ -515,12 +495,6 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
       >
         <div class="tax-tools">
           <p>净利润＝已配对平仓盈亏＋赎回盈亏−当年全部费用</p>
-          <button
-            :disabled="loading || !report.rows.length"
-            @click="exportSummary"
-          >
-            导出年度汇总
-          </button>
         </div>
         <div class="tax-table-wrap">
           <table class="tax-summary">
@@ -551,31 +525,30 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                 </td>
                 <td>{{ r.currency === "CNY" ? "人民币合计" : r.currency }}</td>
                 <td v-for="c in summaryColumns" :key="c[0]" class="tax-num">
-                  {{ taxNumber(String(r[c[0]])) }}
+                  {{ taxMoney(String(r[c[0]]), r.currency) }}
                 </td>
                 <td class="tax-num tax-emphasis">
-                  {{ taxNumber(r.net)
-                  }}<small>税额 {{ taxNumber(r.profit_tax) }} 元</small>
+                  {{ taxMoney(r.net, r.currency)
+                  }}<small>税额 {{ taxMoney(r.profit_tax, "CNY") }}</small>
                 </td>
                 <td class="tax-num">
-                  {{ taxNumber(r.dividends)
-                  }}<small>税额 {{ taxNumber(r.dividend_tax) }} 元</small>
+                  {{ taxMoney(r.dividends, r.currency)
+                  }}<small>税额 {{ taxMoney(r.dividend_tax, "CNY") }}</small>
                 </td>
                 <td class="tax-num tax-emphasis">
-                  {{ taxNumber(r.tax)
+                  {{ taxMoney(r.tax, "CNY")
                   }}<small v-if="r.missing_rate" class="tax-error-text"
-                    >请补充年度汇率</small
+                    >缺少年度汇率</small
                   >
                 </td>
                 <td>
                   <button
                     v-if="r.currency === 'CNY'"
                     class="tax-link"
-                    @click="
-                      detailYear = detailYear === r.year ? undefined : r.year
-                    "
+                    :disabled="loading || busy"
+                    @click="detailYear = r.year"
                   >
-                    {{ detailYear === r.year ? "收起" : "查看配对" }}
+                    详情
                   </button>
                 </td>
               </tr>
@@ -620,69 +593,28 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                   <th>币种</th>
                   <th class="tax-num">缺口数量</th>
                   <th class="tax-num">未匹配金额</th>
-                  <th>来源</th>
+                  <th>账户</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(m, i) in report.missing" :key="i">
                   <td>{{ m.record.date }}</td>
-                  <td>{{ m.record.code }}</td>
+                  <td>
+                    <TaxSecurity
+                      :record="m.record"
+                      :names="names"
+                      :loading="namesLoading"
+                    />
+                  </td>
                   <td>{{ m.record.currency }}</td>
                   <td class="tax-num">{{ taxExact(m.quantity) }}</td>
-                  <td class="tax-num">{{ taxExact(m.amount) }}</td>
-                  <td>{{ m.record.source }}:{{ m.record.line }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-        <section v-if="detailYear" ref="detailElement" class="tax-panel">
-          <div class="tax-tools">
-            <h2>{{ detailYear }} 年成本配对</h2>
-            <button @click="exportMatches">导出配对明细</button>
-          </div>
-          <p class="tax-muted">
-            按整个税务空间的历史流水 FIFO
-            配对；金额为分摊后的费用前金额，年度费用在汇总表统一扣除。
-          </p>
-          <div class="tax-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>平仓日期／代码</th>
-                  <th>平仓账户</th>
-                  <th>开仓日期</th>
-                  <th>开仓账户</th>
-                  <th class="tax-num">数量</th>
-                  <th class="tax-num">开仓金额</th>
-                  <th class="tax-num">平仓金额</th>
-                  <th class="tax-num">费用前盈亏</th>
-                  <th>币种</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(m, i) in details" :key="i">
+                  <td class="tax-num">
+                    {{ taxMoney(m.amount, m.record.currency) }}
+                  </td>
                   <td>
-                    {{ m.close.date
-                    }}<small
-                      >{{ m.close.code }} · {{ m.close.direction }}</small
-                    >
+                    {{ m.record.account
+                    }}<small>{{ m.record.account_id }}</small>
                   </td>
-                  <td>{{ m.close.account }}</td>
-                  <td>{{ m.open.date }}</td>
-                  <td>{{ m.open.account }}</td>
-                  <td class="tax-num">{{ taxExact(m.quantity) }}</td>
-                  <td class="tax-num">
-                    {{ taxNumber(taxExact(m.open_amount)) }}
-                  </td>
-                  <td class="tax-num">
-                    {{ taxNumber(taxExact(m.close_amount)) }}
-                  </td>
-                  <td class="tax-num">{{ taxNumber(taxExact(m.profit)) }}</td>
-                  <td>{{ m.close.currency }}</td>
-                </tr>
-                <tr v-if="!details.length">
-                  <td colspan="9">本年度没有已配对的平仓交易。</td>
                 </tr>
               </tbody>
             </table>
@@ -716,46 +648,34 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
         role="tabpanel"
         aria-labelledby="tax-tab-rates"
       >
-        <p class="tax-muted">
-          1 单位外币折合的人民币金额。各年度收入与税额均按此汇率折算。
-        </p>
+        <h2 class="tax-rates-heading">兑换人民币汇率</h2>
         <div class="tax-table-wrap">
           <table class="tax-rates">
             <thead>
               <tr>
                 <th>年度</th>
-                <th>币种</th>
-                <th class="tax-num">汇率</th>
-                <th>日期</th>
-                <th>来源</th>
+                <th>港币（HKD）</th>
+                <th>美元（USD）</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in state.rates" :key="`${r.year}-${r.currency}`">
-                <td>{{ r.year }}</td>
-                <td>{{ r.currency }}</td>
-                <td class="tax-num">{{ r.value }}</td>
-                <td>{{ r.date }}</td>
-                <td>
-                  <a
-                    v-if="externalSource(r.source)"
-                    :href="r.source"
-                    target="_blank"
-                    rel="noopener"
-                    ><span class="tax-source-long">查看历史中间价来源</span
-                    ><span class="tax-source-short">查看</span></a
-                  ><span v-else>{{ r.source }}</span>
-                </td>
+              <tr v-for="r in rateRows" :key="r.year">
+                <td>{{ r.year }}年</td>
+                <td>{{ r.HKD === null ? "—" : taxExact(r.HKD) }}</td>
+                <td>{{ r.USD === null ? "—" : taxExact(r.USD) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
-      <footer class="tax-footer">
-        数据保存在本浏览器对应的独立税务空间，可导出流水备份。<span
-          >成本配对采用精确小数计算。</span
-        >
-      </footer>
     </main>
+    <TaxDetailDialog
+      v-if="detailYear"
+      :year="detailYear"
+      :entries="details"
+      :names="names"
+      :names-loading="namesLoading"
+      @close="detailYear = undefined"
+    />
   </div>
 </template>

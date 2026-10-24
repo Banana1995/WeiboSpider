@@ -22,6 +22,10 @@ func DefaultRates() []Rate {
 		{2020, "USD", "6.5249", "2020-12-31", "https://www.zmdnews.cn/2021/0104/626863.shtml"},
 		{2021, "HKD", "0.81760", "2021-12-31", "https://www.news.cn/2021-12/31/c_1128219921.htm"},
 		{2021, "USD", "6.3757", "2021-12-31", "https://www.news.cn/2021-12/31/c_1128219921.htm"},
+		{2022, "HKD", "0.89327", "2022-12-30", "https://www.chinamoney.com.cn/chinese/ccprnoticecontent/index.html?searchDate=2022-12-30"},
+		{2022, "USD", "6.9646", "2022-12-30", "https://www.chinamoney.com.cn/chinese/ccprnoticecontent/index.html?searchDate=2022-12-30"},
+		{2023, "HKD", "0.90622", "2023-12-29", "https://xining.pbc.gov.cn/zhengcehuobisi/125207/125217/125925/5184576/index.html"},
+		{2023, "USD", "7.0827", "2023-12-29", "https://xining.pbc.gov.cn/zhengcehuobisi/125207/125217/125925/5184576/index.html"},
 		{2024, "HKD", "0.92604", "2024-12-31", "https://www.xinhuanet.com/fortune/20241231/c45faecb827645aebc9b2ac0dc3f82c4/c.html"},
 		{2024, "USD", "7.1884", "2024-12-31", "https://www.xinhuanet.com/fortune/20241231/c45faecb827645aebc9b2ac0dc3f82c4/c.html"},
 		{2025, "HKD", "0.90322", "2025-12-31", "https://nanjing.pbc.gov.cn/zhengcehuobisi/125207/125217/125925/2025123109021714424/index.html"},
@@ -74,7 +78,31 @@ type Report struct {
 	Rows    []Summary `json:"rows"`
 	Matches []Match   `json:"matches"`
 	Missing []Missing `json:"missing"`
+	Entries []Detail  `json:"entries"`
 	Method  string    `json:"method"`
+}
+
+// Detail preserves the original event and its cost lots. Fees charged to the
+// year remain on the event that incurred them; opening fee allocations are
+// informational and must not be subtracted from the closing profit again.
+type Opening struct {
+	Record   Record `json:"record"`
+	Quantity string `json:"quantity"`
+	Amount   string `json:"amount"`
+	Fee      string `json:"fee"`
+}
+type Detail struct {
+	Record    Record    `json:"record"`
+	Openings  []Opening `json:"openings"`
+	HasClose  bool      `json:"has_close"`
+	Fees      string    `json:"fees"`
+	Profit    string    `json:"profit"`
+	Dividends string    `json:"dividends"`
+	Complete  bool      `json:"complete"`
+}
+
+func newDetail(r Record) Detail {
+	return Detail{Record: r, Openings: []Opening{}, Fees: r.Fee, Profit: fixed(sub(zero(), number(r.Fee)), 12), Dividends: "0", Complete: true}
 }
 
 type amounts struct {
@@ -125,7 +153,7 @@ func poolKey(r Record) string {
 }
 
 func Calculate(records []Record, rates []Rate, filter Filter) Report {
-	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Method: "lixinger-compatible-v1"}
+	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Entries: []Detail{}, Method: "lixinger-compatible-v1"}
 	ordered := append([]Record{}, records...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].timestamp() != ordered[j].timestamp() {
@@ -156,28 +184,45 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 			if !selected {
 				continue
 			}
+			entry := newDetail(r)
 			switch r.Reason {
 			case "股息收入":
 				a.v[dividends].Add(a.v[dividends], number(r.Change))
+				entry.Dividends = r.Change
 			case "", "银证转账":
+				continue
 			default:
 				a.v[otherFees].Sub(a.v[otherFees], number(r.Change))
+				entry.Fees = fixed(sub(zero(), number(r.Change)), 12)
+				entry.Profit = r.Change
 			}
+			result.Entries = append(result.Entries, entry)
 			continue
 		}
 		if selected {
 			a.v[tradeFees].Add(a.v[tradeFees], number(r.Fee))
 		}
 		quantity, amount := abs(number(r.Quantity)), abs(number(r.Amount))
+		entry := newDetail(r)
 		key := poolKey(r)
 		if r.Direction == "买入开仓" || r.Direction == "申购" {
 			longs[key] = append(longs[key], &lot{r, quantity, amount})
+			if selected {
+				entry.Openings = append(entry.Openings, Opening{r, fixed(quantity, 12), fixed(amount, 12), r.Fee})
+				result.Entries = append(result.Entries, entry)
+			}
 			continue
 		}
 		if r.Direction == "卖出开仓" {
 			shorts[key] = append(shorts[key], &lot{r, quantity, amount})
+			if selected {
+				entry.Openings = append(entry.Openings, Opening{r, fixed(quantity, 12), fixed(amount, 12), r.Fee})
+				result.Entries = append(result.Entries, entry)
+			}
 			continue
 		}
+		entry.HasClose = true
+		entryProfit := sub(zero(), number(r.Fee))
 		pool := longs
 		short := r.Direction == "买入平仓"
 		if short {
@@ -197,6 +242,8 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 				profit = sub(cost, proceeds)
 			}
 			if selected {
+				entry.Openings = append(entry.Openings, Opening{l.record, fixed(matched, 12), fixed(cost, 12), fixed(portion(number(l.record.Fee), matched, abs(number(l.record.Quantity))), 12)})
+				entryProfit.Add(entryProfit, profit)
 				op, cl := buyOpen, sellClose
 				if short {
 					op, cl = sellOpen, buyClose
@@ -216,7 +263,12 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 		}
 		if selected && remaining.Sign() > 0 {
 			a.missing = true
+			entry.Complete = false
 			result.Missing = append(result.Missing, Missing{r, fixed(remaining, 12), fixed(portion(amount, remaining, quantity), 12)})
+		}
+		if selected {
+			entry.Profit = fixed(entryProfit, 12)
+			result.Entries = append(result.Entries, entry)
 		}
 	}
 	rateMap := map[string]*big.Rat{}

@@ -151,7 +151,7 @@ func TestHTTPPreviewConfirmationAndAccess(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	mux := http.NewServeMux()
-	Handler{s}.Register(mux)
+	Handler{Store: s}.Register(mux)
 	key := strings.Repeat("a", 64)
 	send := func(path, hash string, data []byte) *httptest.ResponseRecorder {
 		var body bytes.Buffer
@@ -219,6 +219,7 @@ func TestPrivateAnnualCSVComparison(t *testing.T) {
 	require.NoError(t, err)
 	r := Calculate(state.Records, state.Rates, Filter{})
 	require.Empty(t, r.Missing)
+	requireDetailsReconcile(t, r)
 	data, err := os.ReadFile(baseline)
 	require.NoError(t, err)
 	var expected []map[string]any

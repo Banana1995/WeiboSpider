@@ -606,11 +606,14 @@
   text-align: center;
   border-right: 2px solid #9bb7cf;
 }
-.tax-page .tax-detail-table .tax-open-end,
-.tax-page .tax-detail-table .tax-close-end {
+.tax-page .tax-detail-table th.tax-open-end,
+.tax-page .tax-detail-table td.tax-open-end,
+.tax-page .tax-detail-table th.tax-close-end,
+.tax-page .tax-detail-table td.tax-close-end {
   border-right: 2px solid #9bb7cf;
 }
-.tax-page .tax-detail-table .tax-close-start {
+.tax-page .tax-detail-table th.tax-close-start,
+.tax-page .tax-detail-table td.tax-close-start {
   border-left: 2px solid #9bb7cf;
 }
 .tax-page .tax-detail-table .tax-entry-group td {

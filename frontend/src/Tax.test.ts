@@ -105,7 +105,6 @@ beforeEach(() => {
       state.imports = [];
       return response({ ok: true });
     }
-    if (u.pathname.endsWith("/rates")) return response({ ok: true });
     throw new Error(`Unexpected request ${url}`);
   });
   vi.stubGlobal("fetch", fetcher);
@@ -170,31 +169,37 @@ it("filters dates through the report API and removes an imported batch", async (
   expect(wrapper.text()).toContain("已移除导入批次");
 });
 
-it("edits a historical rate without replacing its actual source date", async () => {
+it("shows the yearly rates read-only without editing controls", async () => {
+  state.rates = [
+    {
+      year: 2025,
+      currency: "HKD",
+      value: "0.90322",
+      date: "2025-12-31",
+      source: "https://example.invalid/rate",
+    },
+    {
+      year: 2025,
+      currency: "USD",
+      value: "7.0288",
+      date: "2025-12-31",
+      source: "synthetic",
+    },
+  ];
   wrapper = mount(Tax);
   await flushPromises();
   await buttons("汇率").trigger("click");
-  await buttons("修改").trigger("click");
-  await flushPromises();
-  expect(
-    (
-      wrapper.get('.tax-rate-form input[type="date"]')
-        .element as HTMLInputElement
-    ).value,
-  ).toBe("2025-12-30");
-  await wrapper
-    .get('.tax-rate-form input[inputmode="decimal"]')
-    .setValue("0.9");
-  await wrapper.get(".tax-rate-form").trigger("submit");
-  await flushPromises();
-  const call = fetcher.mock.calls.find(
-    (c) => (c[1] as RequestInit).method === "PUT",
-  )!;
-  expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({
-    year: 2025,
-    value: "0.9",
-    date: "2025-12-30",
-  });
+  const view = wrapper.get("#tax-view-rates");
+  expect(view.text()).toContain("0.90322");
+  expect(view.text()).toContain("7.0288");
+  expect(view.text()).toContain("查看历史中间价来源");
+  expect(view.text()).toContain("synthetic");
+  expect(view.find("form").exists()).toBe(false);
+  expect(view.findAll("button")).toHaveLength(0);
+  expect(view.findAll("input, select")).toHaveLength(0);
+  expect(fetcher.mock.calls.some((c) => String(c[0]).includes("/rates"))).toBe(
+    false,
+  );
 });
 
 it("keeps financial formatting exact and protects spreadsheet text cells", () => {

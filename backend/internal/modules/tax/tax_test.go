@@ -137,7 +137,6 @@ func TestStoreMultisetDeletionIsolationAndRestart(t *testing.T) {
 	state, err = s.State(ctx, "owner")
 	require.NoError(t, err)
 	require.Len(t, state.Records, 1)
-	require.NoError(t, s.SaveRate(ctx, "owner", Rate{2025, "HKD", "1", "2025-12-31", "manual"}))
 	require.NoError(t, s.Close())
 	s, err = Open(ctx, dir)
 	require.NoError(t, err)
@@ -145,7 +144,7 @@ func TestStoreMultisetDeletionIsolationAndRestart(t *testing.T) {
 	state, err = s.State(ctx, "owner")
 	require.NoError(t, err)
 	require.Len(t, state.Imports, 1)
-	require.Equal(t, "2.00", *find(t, Calculate(state.Records, state.Rates, Filter{}), 2025, "CNY").Tax)
+	require.Equal(t, "1.81", *find(t, Calculate(state.Records, state.Rates, Filter{}), 2025, "CNY").Tax)
 }
 func TestHTTPPreviewConfirmationAndAccess(t *testing.T) {
 	s, err := Open(context.Background(), t.TempDir())

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 	"time"
 
@@ -44,10 +43,7 @@ func Open(ctx context.Context, directory string) (*Store, error) {
 	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS tax_imports (
 		id INTEGER PRIMARY KEY, workspace TEXT NOT NULL, digest TEXT NOT NULL,
 		name TEXT NOT NULL, count INTEGER NOT NULL, created TEXT NOT NULL, records TEXT NOT NULL,
-		UNIQUE(workspace,digest));
-		CREATE TABLE IF NOT EXISTS tax_rates (
-		workspace TEXT NOT NULL, year INTEGER NOT NULL, currency TEXT NOT NULL, value TEXT NOT NULL,
-		date TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY(workspace,year,currency));`)
+		UNIQUE(workspace,digest));`)
 	if err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
@@ -102,28 +98,6 @@ func load(ctx context.Context, db queryer, workspace string) (State, error) {
 		return state, err
 	}
 	state.Records = mergeRecords(groups...)
-	rows, err = db.QueryContext(ctx, `SELECT year,currency,value,date,source FROM tax_rates WHERE workspace=?`, workspace)
-	if err != nil {
-		return state, err
-	}
-	for rows.Next() {
-		var rate Rate
-		if err = rows.Scan(&rate.Year, &rate.Currency, &rate.Value, &rate.Date, &rate.Source); err != nil {
-			break
-		}
-		found := false
-		for i, v := range state.Rates {
-			if v.Year == rate.Year && v.Currency == rate.Currency {
-				state.Rates[i] = rate
-				found = true
-				break
-			}
-		}
-		if !found {
-			state.Rates = append(state.Rates, rate)
-		}
-	}
-	err = errors.Join(err, rows.Err(), rows.Close())
 	sort.Slice(state.Rates, func(i, j int) bool {
 		a, b := state.Rates[i], state.Rates[j]
 		if a.Year != b.Year {
@@ -131,7 +105,7 @@ func load(ctx context.Context, db queryer, workspace string) (State, error) {
 		}
 		return a.Currency < b.Currency
 	})
-	return state, err
+	return state, nil
 }
 func (s *Store) State(ctx context.Context, workspace string) (State, error) {
 	var state State
@@ -173,20 +147,5 @@ func (s *Store) Import(ctx context.Context, workspace, name, hash string, record
 }
 func (s *Store) Delete(ctx context.Context, workspace string, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM tax_imports WHERE workspace=? AND id=?`, workspace, id)
-	return err
-}
-func (s *Store) SaveRate(ctx context.Context, workspace string, rate Rate) error {
-	x, err := decimal(rate.Value)
-	if err != nil || x.Sign() <= 0 || x.Cmp(number("1000")) > 0 || rate.Year < 1900 || rate.Year > 2100 || (rate.Currency != "HKD" && rate.Currency != "USD") {
-		return fmt.Errorf("汇率须大于 0 且不超过 1000，币种为 HKD／USD，年份为 1900—2100")
-	}
-	d, err := time.Parse(time.DateOnly, rate.Date)
-	if err != nil || d.Year() != rate.Year {
-		return fmt.Errorf("汇率日期必须属于所选年度")
-	}
-	if len(rate.Source) > 512 {
-		return fmt.Errorf("来源说明过长")
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO tax_rates(workspace,year,currency,value,date,source) VALUES(?,?,?,?,?,?) ON CONFLICT(workspace,year,currency) DO UPDATE SET value=excluded.value,date=excluded.date,source=excluded.source`, workspace, rate.Year, rate.Currency, rate.Value, rate.Date, rate.Source)
 	return err
 }

@@ -167,8 +167,7 @@
   border: 1px solid #dce4ec;
   border-radius: 8px;
 }
-.tax-filters label,
-.tax-rate-form label {
+.tax-filters label {
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -364,22 +363,23 @@
 .tax-page td a {
   color: #1766b6;
 }
-.tax-rate-form {
-  display: flex;
-  align-items: end;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 18px 0;
+.tax-page .tax-rates {
+  white-space: nowrap;
 }
-.tax-rate-form input {
-  width: 155px;
+.tax-page .tax-rates th:nth-child(1) {
+  width: 14%;
 }
-.tax-rate-form label:last-of-type input {
-  width: 240px;
+.tax-page .tax-rates th:nth-child(2) {
+  width: 14%;
+}
+.tax-page .tax-rates th:nth-child(3) {
+  width: 22%;
+}
+.tax-page .tax-rates th:nth-child(4) {
+  width: 22%;
 }
 .tax-footer {
   display: flex;
-  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
   border-top: 1px solid #dce4ec;
@@ -438,9 +438,6 @@
   }
   .tax-import-list li {
     align-items: flex-start;
-  }
-  .tax-rate-form label:last-of-type {
-    width: 100%;
   }
   .tax-empty {
     max-width: 85vw;

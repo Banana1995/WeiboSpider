@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  onMounted,
-  onBeforeUnmount,
-  reactive,
-  ref,
-  watch,
-} from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import {
   taxRequest,
   taxDay,
@@ -18,7 +11,6 @@ import {
   type TaxState,
   type TaxReport,
   type TaxPreview,
-  type TaxRate,
   type TaxRecord,
 } from "./tax";
 import "./tax.css";
@@ -48,13 +40,6 @@ const importsOpen = ref(false),
 const pending = ref<
   { file: File; preview?: TaxPreview; error: string; imported: boolean }[]
 >([]);
-const rateForm = reactive<TaxRate>({
-  year: new Date().getFullYear() - 1,
-  currency: "HKD",
-  value: "",
-  date: `${new Date().getFullYear() - 1}-12-31`,
-  source: "手动设置",
-});
 const weiboURL = `${location.protocol}//${location.hostname}:5050/`;
 const accounts = computed(() => [
   ...new Map(
@@ -162,13 +147,6 @@ watch([from, to, account], () => {
 watch([kind, search], () => {
   page.value = 1;
 });
-watch(
-  () => rateForm.year,
-  (year) => {
-    rateForm.date = `${year}-12-31`;
-  },
-  { flush: "sync" },
-);
 onMounted(() => void reload());
 onBeforeUnmount(() => reportController?.abort());
 
@@ -233,26 +211,6 @@ async function removeBatch(id: number) {
     await reload();
     page.value = 1;
     notice.value = "已移除导入批次，其他来源的重叠记录仍保留。";
-  } catch (e) {
-    error.value = fail(e);
-  } finally {
-    busy.value = false;
-  }
-}
-function editRate(rate: TaxRate) {
-  Object.assign(rateForm, rate);
-}
-async function saveRate() {
-  busy.value = true;
-  error.value = "";
-  try {
-    await taxRequest("rates", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(rateForm),
-    });
-    await reload();
-    notice.value = "汇率已保存，年度结果已重新计算。";
   } catch (e) {
     error.value = fail(e);
   } finally {
@@ -759,39 +717,10 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
         aria-labelledby="tax-tab-rates"
       >
         <p class="tax-muted">
-          1
-          单位外币折合的人民币金额。修改汇率后，各年度人民币合计与税额自动重算。
+          1 单位外币折合的人民币金额。各年度收入与税额均按此汇率折算。
         </p>
-        <form class="tax-rate-form" @submit.prevent="saveRate">
-          <label
-            >年度<input
-              v-model.number="rateForm.year"
-              type="number"
-              min="1900"
-              max="2100"
-              required /></label
-          ><label
-            >币种<select v-model="rateForm.currency">
-              <option>HKD</option>
-              <option>USD</option>
-            </select></label
-          ><label
-            >人民币汇率<input
-              v-model="rateForm.value"
-              inputmode="decimal"
-              placeholder="如 0.90322"
-              required /></label
-          ><label
-            >汇率日期<input
-              v-model="rateForm.date"
-              type="date"
-              required /></label
-          ><label
-            >来源说明<input v-model="rateForm.source" maxlength="512" /></label
-          ><button class="tax-primary" :disabled="busy">保存汇率</button>
-        </form>
         <div class="tax-table-wrap">
-          <table>
+          <table class="tax-rates">
             <thead>
               <tr>
                 <th>年度</th>
@@ -799,7 +728,6 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                 <th class="tax-num">汇率</th>
                 <th>日期</th>
                 <th>来源</th>
-                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -816,9 +744,6 @@ const externalSource = (s: string) => /^https?:\/\//.test(s);
                     rel="noopener"
                     >查看历史中间价来源</a
                   ><span v-else>{{ r.source }}</span>
-                </td>
-                <td>
-                  <button :disabled="busy" @click="editRate(r)">修改</button>
                 </td>
               </tr>
             </tbody>

@@ -1,7 +1,6 @@
 package tax
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -67,20 +66,6 @@ func (h Handler) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if err = h.Store.Delete(r.Context(), workspace, id); err != nil {
 			fail(w, 500, "删除批次失败")
-			return
-		}
-		httpapi.Write(w, 200, map[string]bool{"ok": true})
-	case path == "rates" && r.Method == "PUT":
-		var rate Rate
-		r.Body = http.MaxBytesReader(w, r.Body, 4096)
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&rate) != nil || decoder.Decode(new(any)) != io.EOF {
-			fail(w, 400, "汇率数据格式无效")
-			return
-		}
-		if err := h.Store.SaveRate(r.Context(), workspace, rate); err != nil {
-			fail(w, 400, err.Error())
 			return
 		}
 		httpapi.Write(w, 200, map[string]bool{"ok": true})

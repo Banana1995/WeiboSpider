@@ -623,6 +623,20 @@
 .tax-detail-account small {
   white-space: nowrap;
 }
+.tax-page .tax-detail-table .tax-pair-totals {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  color: #52667f;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tax-page .tax-detail-table .tax-pair-totals b {
+  color: #263445;
+  font-weight: 650;
+  margin-left: 2px;
+}
 .tax-page .tax-detail-table .tax-detail-date {
   min-width: 160px;
   white-space: nowrap;

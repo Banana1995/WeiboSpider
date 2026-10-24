@@ -132,7 +132,7 @@ function outside(event: MouseEvent) {
               <th rowspan="2" class="tax-num tax-result-dividend">股息收入</th>
             </tr>
             <tr>
-              <th class="tax-detail-date">平仓日期</th>
+              <th class="tax-detail-date tax-close-start">平仓日期</th>
               <th>平仓账户</th>
               <th class="tax-num tax-detail-quantity">数量</th>
               <th class="tax-num">价格</th>
@@ -165,7 +165,9 @@ function outside(event: MouseEvent) {
                   entry.record.reason
                 }}</small>
               </td>
-              <td class="tax-detail-date">{{ date(entry.record.date) }}</td>
+              <td class="tax-detail-date tax-close-start">
+                {{ date(entry.record.date) }}
+              </td>
               <td class="tax-detail-account">
                 {{ entry.record.account
                 }}<small>{{ entry.record.account_id }}</small>
@@ -217,7 +219,7 @@ function outside(event: MouseEvent) {
                 <template v-if="entry.has_close">
                   <td
                     :rowspan="entry.openings.length + 1"
-                    class="tax-detail-date"
+                    class="tax-detail-date tax-close-start"
                   >
                     {{ date(entry.record.date) }}
                   </td>
@@ -256,7 +258,7 @@ function outside(event: MouseEvent) {
                   v-else
                   colspan="6"
                   :rowspan="entry.openings.length + 1"
-                  class="tax-close-end tax-unclosed"
+                  class="tax-close-end tax-close-start tax-unclosed"
                 >
                   开仓流水
                 </td>
@@ -320,7 +322,7 @@ function outside(event: MouseEvent) {
                     >
                   </td>
                   <template v-if="entry.has_close">
-                    <td class="tax-detail-date">
+                    <td class="tax-detail-date tax-close-start">
                       {{ date(entry.record.date) }}
                     </td>
                     <td class="tax-detail-account">
@@ -345,7 +347,11 @@ function outside(event: MouseEvent) {
                       {{ taxMoney(entry.record.fee, entry.record.currency) }}
                     </td>
                   </template>
-                  <td v-else colspan="6" class="tax-close-end tax-unclosed">
+                  <td
+                    v-else
+                    colspan="6"
+                    class="tax-close-end tax-close-start tax-unclosed"
+                  >
                     开仓流水
                   </td>
                 </template>

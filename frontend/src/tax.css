@@ -560,10 +560,11 @@
 .tax-page .tax-detail-table th,
 .tax-page .tax-detail-table td {
   padding: 10px 6px;
-  text-align: left;
+  text-align: center;
+  border-right: 1px solid #eef2f7;
 }
 .tax-page .tax-detail-table .tax-num {
-  text-align: right;
+  text-align: center;
   min-width: 85px;
   white-space: normal;
   word-break: keep-all;
@@ -609,8 +610,12 @@
 .tax-page .tax-detail-table .tax-close-end {
   border-right: 2px solid #9bb7cf;
 }
+.tax-page .tax-detail-table .tax-close-start {
+  border-left: 2px solid #9bb7cf;
+}
 .tax-page .tax-detail-table .tax-entry-group td {
   border-bottom: 1px solid #dce4ec;
+  border-right: 1px solid #eef2f7;
 }
 .tax-entry-group:nth-of-type(even) {
   background: #f7f9fc;
@@ -619,6 +624,7 @@
   min-width: 170px;
   max-width: 220px;
   white-space: normal;
+  text-align: center;
 }
 .tax-detail-account small {
   white-space: nowrap;
@@ -630,7 +636,7 @@
 .tax-page .tax-detail-table .tax-pair-summary-label {
   color: #62748b;
   font-size: 12px;
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 .tax-page .tax-detail-table .tax-pair-summary-value {

@@ -583,6 +583,9 @@
   background: #f1f5f9;
   color: #52667f;
 }
+.tax-page .tax-summary .tax-group-end {
+  border-right: 1px solid #c3d2e0;
+}
 .tax-page .tax-summary small {
   display: block;
   white-space: normal;

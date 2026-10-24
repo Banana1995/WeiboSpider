@@ -110,6 +110,12 @@ const annualGroups = computed(() => {
     complete: rows.every((row) => row.complete),
   }));
 });
+const groupEnds = new Set([
+  "buy_open",
+  "sell_open",
+  "subscription",
+  "deferred_open_fees",
+]);
 const feeTips: Record<string, string> = {
   trade_fees:
     "计入损益交易费：当年利润实际扣掉的手续费，包括卖出部分对应的买入费加卖出费。\n期内发生（金额下方小字）：这一年实际支付的交易手续费，包括当年买入费、卖出费和赎回费；不管这些股票有没有卖出。",
@@ -565,12 +571,15 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
             <thead>
               <tr>
                 <th class="tax-year-column">年度</th>
-                <th class="tax-summary-currency">币种</th>
+                <th class="tax-summary-currency tax-group-end">币种</th>
                 <th
                   v-for="c in summaryColumns"
                   :key="c[0]"
                   class="tax-num"
-                  :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
+                  :class="{
+                    'tax-deferred-fee': c[0] === 'deferred_open_fees',
+                    'tax-group-end': groupEnds.has(String(c[0])),
+                  }"
                 >
                   {{ c[1]
                   }}<TaxTip
@@ -581,7 +590,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 </th>
                 <th class="tax-num">
                   已实现净利润<TaxTip
-                    text="已实现净利润＝卖出平仓收入−对应买入开仓金额＋卖出开仓收入−买入平仓支出＋赎回收入−对应申购金额−计入损益交易费−其他费用。"
+                    text="已实现净利润＝卖出平仓收入−对应买入开仓金额＋卖出开仓收入−买入平仓支出＋赎回金额−对应申购金额−计入损益交易费−其他费用。"
                     label="已实现净利润说明"
                   />
                 </th>
@@ -610,14 +619,17 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                     >缺成本</small
                   >
                 </td>
-                <td class="tax-summary-currency">
+                <td class="tax-summary-currency tax-group-end">
                   {{ r.currency === "CNY" ? "人民币合计" : r.currency }}
                 </td>
                 <td
                   v-for="c in summaryColumns"
                   :key="c[0]"
                   class="tax-num"
-                  :class="{ 'tax-deferred-fee': c[0] === 'deferred_open_fees' }"
+                  :class="{
+                    'tax-deferred-fee': c[0] === 'deferred_open_fees',
+                    'tax-group-end': groupEnds.has(String(c[0])),
+                  }"
                 >
                   {{ taxMoney(String(r[c[0]]), r.currency) }}
                   <small v-if="c[0] === 'trade_fees'"

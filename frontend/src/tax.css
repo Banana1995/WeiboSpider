@@ -579,10 +579,6 @@
   padding-left: 8px;
   padding-right: 8px;
 }
-.tax-page .tax-summary .tax-deferred-fee {
-  background: #f1f5f9;
-  color: #52667f;
-}
 .tax-page .tax-summary .tax-group-end {
   border-right: 1px solid #c3d2e0;
 }

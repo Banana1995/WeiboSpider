@@ -572,10 +572,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   v-for="c in summaryColumns"
                   :key="c[0]"
                   class="tax-num"
-                  :class="{
-                    'tax-deferred-fee': c[0] === 'deferred_open_fees',
-                    'tax-group-end': groupEnds.has(String(c[0])),
-                  }"
+                  :class="{ 'tax-group-end': groupEnds.has(String(c[0])) }"
                 >
                   {{ c[1]
                   }}<TaxTip
@@ -622,10 +619,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                   v-for="c in summaryColumns"
                   :key="c[0]"
                   class="tax-num"
-                  :class="{
-                    'tax-deferred-fee': c[0] === 'deferred_open_fees',
-                    'tax-group-end': groupEnds.has(String(c[0])),
-                  }"
+                  :class="{ 'tax-group-end': groupEnds.has(String(c[0])) }"
                 >
                   {{ taxMoney(String(r[c[0]]), r.currency) }}
                   <small v-if="c[0] === 'trade_fees'"

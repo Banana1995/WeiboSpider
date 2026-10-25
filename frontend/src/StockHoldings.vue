@@ -224,7 +224,6 @@ defineExpose({ load });
               {{ option.label }}{{ sortMark(option.key) }}
             </button>
           </div>
-          <span class="stock-list-hint">点击股票查看买卖与分红</span>
         </div>
         <div v-if="rows.length" class="stock-list">
           <div class="stock-list-labels">

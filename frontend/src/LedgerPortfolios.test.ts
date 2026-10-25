@@ -530,6 +530,41 @@ it("updates members with an expected version and deletes only the portfolio", as
   expect(accounts).toHaveLength(3);
 });
 
+it("reloads the remaining members and clears the view when account deletion removes every portfolio", async () => {
+  render();
+  await flushPromises();
+  expect(wrapper.findAll(".lp-member-chip")).toHaveLength(2);
+  expect(wrapper.text()).toContain("10.00%");
+
+  // The account DELETE atomically removed A from family and retired mine.
+  groups = [{ ...family, account_ids: ["b"], version: "2" }];
+  await wrapper.setProps({
+    accounts: accounts.filter((a) => a.id !== "a"),
+    refreshKey: 1,
+  });
+  await flushPromises();
+  expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual([
+    "家庭股票",
+  ]);
+  expect(wrapper.findAll(".lp-member-chip").map((chip) => chip.text())).toEqual(
+    ["股票账户 B"],
+  );
+  expect(wrapper.text()).toContain("1 个成员");
+  expect(wrapper.text()).toContain("5.00%");
+  expect(wrapper.text()).not.toContain("已删除的账户");
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+
+  groups = [];
+  await wrapper.setProps({ accounts: [], refreshKey: 2 });
+  await flushPromises();
+  expect(wrapper.findAll('[role="tab"]')).toHaveLength(0);
+  expect(wrapper.findAll(".lp-member-chip")).toHaveLength(0);
+  expect(wrapper.findComponent(Chart).exists()).toBe(false);
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  expect(wrapper.text()).toContain("先在单账户中创建或导入投资记录");
+  expect(writes).toHaveLength(0);
+});
+
 it("keeps the draft's original version when a list refresh arrives during editing", async () => {
   render();
   await flushPromises();

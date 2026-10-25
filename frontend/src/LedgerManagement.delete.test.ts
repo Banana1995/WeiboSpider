@@ -63,6 +63,9 @@ async function click(text: string) {
 it("waits the full five seconds and requires an explicit second confirmation", async () => {
   await click("删除账户");
   expect(wrapper.get("dialog").text()).toContain(account.name);
+  expect(wrapper.get("dialog").text()).toContain(
+    "组合中会同步移除此账户；没有剩余成员的组合也会删除。",
+  );
   expect(workspace.navigationLocked.value).toBe(true);
   expect(button("确认删除（5 秒）").attributes("disabled")).toBeDefined();
   await click("确认删除（5 秒）");

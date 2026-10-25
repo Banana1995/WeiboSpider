@@ -50,6 +50,9 @@ func (s *Store) DeleteAccount(ctx context.Context, id, key string) (json.RawMess
 				return nil, 0, err
 			}
 		}
+		if err := removeAccountFromPortfolios(ctx, tx, id, key, stamp); err != nil {
+			return nil, 0, err
+		}
 		return result, auditID, nil
 	})
 }

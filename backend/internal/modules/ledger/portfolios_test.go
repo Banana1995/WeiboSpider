@@ -104,8 +104,9 @@ func TestPortfolioHTTPPersistenceReceiptsAndMembership(t *testing.T) {
 	require.Len(t, httpItems(t, f.get(t, "/accounts/a/records")), 1)
 	require.Len(t, httpItems(t, f.get(t, "/accounts")), 4)
 	f.request(t, "DELETE", "/accounts/c", "delete-member", `{}`, 200)
-	httpError(t, f.request(t, "GET", "/portfolios/other/analysis-basis", "", "", 409), "portfolio_member_missing")
-	require.Equal(t, []any{"a", "c"}, f.get(t, "/portfolios/other")["account_ids"])
+	f.get(t, "/portfolios/other/analysis-basis")
+	require.Equal(t, []any{"a"}, f.get(t, "/portfolios/other")["account_ids"])
+	require.Equal(t, "2", f.get(t, "/portfolios/other")["version"])
 }
 
 func TestPortfolioDelayedMemberCarryAndIndependentReturns(t *testing.T) {

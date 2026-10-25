@@ -240,8 +240,9 @@ returns 含 `revision/requested_from/requested_to/start_mode/effective_from/effe
 
 - 定义返回 `id/name/currency/account_ids/version/created_at/updated_at`；成员按 ID 排序。`currency` 指定组合展示币种（CNY/HKD/USD），允许 1～50 个唯一的不同币种账户，不能嵌套组合。前端新组合默认 CNY。兼容旧客户端省略 `currency` 的同币种请求，仍从成员推导；省略币种的旧混合请求仍返回 `portfolio_currency_mismatch`，旧回执保持可重放。
 - 删除返回 `{"portfolio_id":"family","deleted":true}`。审计与回执保留，组合 ID 不可复用；账户财务记录不属于删除范围。
+- 删除账户会在同一事务内从所有组合移除对应成员，受影响组合递增版本；成员清空时自动删除组合。联动变更追加系统审计并关联原账户删除请求，原有回执和其他账户资料保留。服务启动时按已验证的账户删除审计清理历史遗留成员，重复启动不重复变更；GET 不执行清理写入。
 - 所有组合写入沿用 64 KiB JSON、同源校验、精度校验及全局幂等键机制。版本冲突为 409 `version_conflict`。
-- 成员已不存在返回 409 `portfolio_member_missing`；无法建立非负资产基准返回 422 `portfolio_basis_missing`。汇率不可用/无效返回 502 `fx_unavailable`，超时返回 504；不展示缺少部分币种的合计。
+- 新增/修改组合引用不存在的成员返回 409 `portfolio_member_missing`；正常账户删除由上述联动处理，不保留“已删除成员”。无法建立非负资产基准返回 422 `portfolio_basis_missing`。汇率不可用/无效返回 502 `fx_unavailable`，超时返回 504；不展示缺少部分币种的合计。
 - `analysis-basis` 包含第 9/10 节的字段（`account_id` 在此表示组合 ID），另带 `portfolio/members/entries/carried/fx`。组合投影点是临时计算结果，不附伪造的 `record`，也不写入原账户。
 - `fx` 为本次使用的 FXQuote 数组，同币种为空。事务释放后按币种对查询最新可用汇率，一次分析每种外币只查一次；整段历史的明确资产及每笔资金流按同一汇率精确折算、四舍五入到分后再合并。历史筛选和年度分析也使用当前汇率，不是历史换汇收益；汇率变化会影响下次组合展示及 revision。界面展示实际汇率日期及来源。
 - `members` 包含 `account_id/name/currency/state/first_date/initial_assets/source_date/from/to/assets/asset_share/profit/modified_dietz/xirr/twr/twr_annualized/carried`。其中 `currency` 是原账户币种，金额均为组合币种。`asset_share` 和各收益率为 ReturnMetric；未参与该区间的账户资产、收益贡献为零，收益率不可用。

@@ -36,7 +36,7 @@ const props = defineProps<{
     "buy" | "sell" | "dividend" | "cash" | "void" | "opening" | "clear_opening";
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
-const { locked, error, send } = useLedgerWorkspace();
+const { locked, busy, error, send } = useLedgerWorkspace();
 const version = ref(props.book.version);
 const basis = ref(props.book);
 const security = ref<Instrument | undefined>(props.item?.instrument);
@@ -361,11 +361,8 @@ function save() {
                   required
               /></label>
             </div>
-            <p
-              v-if="preview && kind !== 'dividend'"
-              class="stock-trade-preview"
-            >
-              {{ kind === "buy" ? "买入支出" : "卖出净回款" }}
+            <p v-if="kind === 'sell' && preview" class="stock-trade-preview">
+              卖出净回款
               <strong>{{ holdingNumber(preview, 2) }}</strong>
               {{ security.currency }}
             </p>
@@ -428,9 +425,11 @@ function save() {
             :disabled="fxLoading || error.includes('version_conflict')"
           >
             {{
-              mode === "void" || mode === "clear_opening"
-                ? "确认删除"
-                : "保存记录"
+              busy
+                ? "保存中…"
+                : mode === "void" || mode === "clear_opening"
+                  ? "确认删除"
+                  : "保存记录"
             }}
           </button>
         </div>

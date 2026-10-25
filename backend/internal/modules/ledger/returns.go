@@ -222,8 +222,9 @@ func calculateMoneyReturns(ctx context.Context, b AnalysisBasis, requestedFrom, 
 	return r, err
 }
 
-// Solve only after proving global uniqueness, by one sign variation or the
-// cumulative cash-flow certificate. A finite sign scan is not a uniqueness proof.
+// A cash-flow sign count is only a fast uniqueness test, not a rejection rule.
+// Other candidates must pass the discounted-prefix certificate before rounding
+// and publication. A floating root or finite sign scan alone never suffices.
 func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int, status string) (ReturnMetric, error) {
 	if err := ctx.Err(); err != nil {
 		return ReturnMetric{}, err
@@ -255,12 +256,16 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 	if changes == 0 {
 		return returnUnavailable("no_solution"), nil
 	}
-	if changes > 1 {
-		unique, err := certifyXIRRUnique(ctx, nonzero, grouped)
+	unique := changes == 1
+	if !unique {
+		var err error
+		unique, err = certifyXIRRUnique(ctx, nonzero, grouped)
 		if err != nil {
 			return ReturnMetric{}, err
 		}
-		if !unique {
+		// Equal endpoint signs cannot satisfy our investment-balance
+		// certificate. A zero-rate root was already checked exactly above.
+		if !unique && (total.Sign() == 0 || grouped[nonzero[0]].Sign() == grouped[nonzero[len(nonzero)-1]].Sign()) {
 			return returnUnavailable("possible_multiple_roots"), nil
 		}
 	}
@@ -321,6 +326,9 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 	}
 	lastSign := grouped[nonzero[len(nonzero)-1]].Sign()
 	if flo*float64(lastSign) <= 0 || fhi*float64(lastSign) >= 0 {
+		if !unique {
+			return returnUnavailable("possible_multiple_roots"), nil
+		}
 		// Floating cancellation cannot establish that a root is outside the
 		// range. Certify the signs at the exact rational boundary rates instead.
 		for _, bound := range []struct {
@@ -349,6 +357,15 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 		width := math.Exp(hi) * (hi - lo)
 		ulp := math.Nextafter(rate, math.Inf(1)) - rate
 		if math.Abs(f) < 1e-12 && width < 2e-14 && ulp < 1e-14 {
+			if !unique {
+				unique, err = certifyXIRRDiscountedUnique(ctx, nonzero, grouped, mid)
+				if err != nil {
+					return ReturnMetric{}, err
+				}
+				if !unique {
+					return returnUnavailable("possible_multiple_roots"), nil
+				}
+			}
 			candidate := returnValue(new(big.Rat).SetFloat64(rate), 12, status)
 			certain, err := certifyXIRRRounding(ctx, nonzero, grouped, candidate)
 			if err != nil {
@@ -367,6 +384,9 @@ func solveXIRR(ctx context.Context, dates []string, grouped map[string]*big.Int,
 		} else {
 			hi = mid
 		}
+	}
+	if !unique {
+		return returnUnavailable("possible_multiple_roots"), nil
 	}
 	return returnUnavailable("not_converged"), nil
 }
@@ -392,7 +412,7 @@ func certifyXIRRRounding(ctx context.Context, dates []string, grouped map[string
 	if lo.Cmp(hi) >= 0 || hi.Cmp(big.NewRat(-1, 1)) <= 0 {
 		return false, nil
 	}
-	// Both uniqueness certificates imply opposite first/last signs, with the last
+	// All uniqueness certificates imply opposite first/last signs, with the last
 	// term dominating as r approaches -1. That open boundary needs no NPV call.
 	lastSign := grouped[dates[len(dates)-1]].Sign()
 	for _, bound := range []struct {
@@ -415,24 +435,8 @@ func certifyXIRRRounding(ctx context.Context, dates []string, grouped map[string
 // operations below are correctly rounded OUTWARD at 192 bits. Resource budgets
 // are fixed: <=192 root steps and O(points * log(calendar days)) multiplications.
 func xirrSignAtRate(ctx context.Context, dates []string, grouped map[string]*big.Int, rate *big.Rat) (int, error) {
-	const precision = 192
-	makeFloat := func(mode big.RoundingMode) *big.Float {
-		return new(big.Float).SetPrec(precision).SetMode(mode)
-	}
+	makeFloat, pow := xirrFloat, xirrPower
 	down, up := big.ToNegativeInf, big.ToPositiveInf
-	pow := func(x *big.Float, n int, mode big.RoundingMode) *big.Float {
-		result, base := makeFloat(mode).SetInt64(1), makeFloat(mode).Set(x)
-		for n > 0 {
-			if n&1 != 0 {
-				result.Mul(result, base)
-			}
-			n >>= 1
-			if n > 0 {
-				base.Mul(base, base)
-			}
-		}
-		return result
-	}
 	growth := new(big.Rat).Add(rate, big.NewRat(1, 1))
 	if growth.Sign() <= 0 {
 		return 0, nil
@@ -443,7 +447,7 @@ func xirrSignAtRate(ctx context.Context, dates []string, grouped map[string]*big
 	if pow(lo, 365, up).Cmp(targetLo) >= 0 || pow(hi, 365, down).Cmp(targetHi) <= 0 {
 		return 0, nil
 	}
-	for i := 0; i < precision; i++ {
+	for i := 0; i < xirrPrecision; i++ {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}

@@ -78,7 +78,6 @@ it("records the first purchase with date, shares, price and fee without inventin
   await wrapper.get('[name="quantity"]').setValue("1000");
   await wrapper.get('[name="price"]').setValue("10.123456");
   await wrapper.get('[name="fee"]').setValue("1.01");
-  expect(wrapper.text()).toContain("10,124.47");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   const payload = JSON.parse(fetcher.mock.calls[0]![1].body as string);

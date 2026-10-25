@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 import { errorText } from "./ledger";
-const props = defineProps<{
-  title: string;
-  caption?: string;
-  dirty?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    title: string;
+    caption?: string;
+    dirty?: boolean;
+    showWriteStatus?: boolean;
+  }>(),
+  { showWriteStatus: true },
+);
 const emit = defineEmits<{ close: [] }>();
 const { locked, pending, busy, error, retry, label, dialogs } =
   useLedgerWorkspace();
 const dialog = ref<HTMLDialogElement>();
+const titleId = useId();
 const discard = ref(false);
 let opener: HTMLElement | null = null;
 let resumeTarget: HTMLElement | null = null;
@@ -34,7 +39,7 @@ function resume() {
   void nextTick(() => resumeTarget?.isConnected && resumeTarget.focus());
 }
 watch(error, (value) => {
-  if (value)
+  if (value && props.showWriteStatus !== false)
     void nextTick(() =>
       dialog.value?.querySelector<HTMLElement>(".lp-error")?.focus(),
     );
@@ -71,15 +76,27 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", beforeUnload);
   dialog.value?.close();
   void nextTick(() => {
-    const target = opener?.isConnected
-      ? opener
-      : (document.querySelector<HTMLElement>(
-          ".ledger-page [data-ledger-focus]",
-        ) ??
-        document.querySelector<HTMLElement>(
-          '.lp-account-tabs [aria-selected="true"]',
-        ));
-    target?.focus();
+    const remainingDialog = Array.from(
+      document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
+    ).at(-1);
+    // Saving can refresh and temporarily disable the action that opened a
+    // nested editor. Keep keyboard focus in the remaining detail dialog.
+    const target =
+      opener?.isConnected &&
+      !opener.matches(":disabled") &&
+      (!remainingDialog || remainingDialog.contains(opener))
+        ? opener
+        : (remainingDialog?.querySelector<HTMLElement>(
+            ".lp-close:not(:disabled)",
+          ) ??
+          remainingDialog ??
+          document.querySelector<HTMLElement>(
+            ".ledger-page [data-ledger-focus]",
+          ) ??
+          document.querySelector<HTMLElement>(
+            '.lp-account-tabs [aria-selected="true"]',
+          ));
+    target?.focus({ preventScroll: !!remainingDialog });
   });
 });
 </script>
@@ -88,14 +105,15 @@ onBeforeUnmount(() => {
   <dialog
     ref="dialog"
     class="lp-dialog"
-    aria-labelledby="ledger-dialog-title"
+    :aria-labelledby="titleId"
+    :aria-busy="showWriteStatus !== false && busy && !!pending"
     @cancel.prevent="requestClose(!!dirty)"
     @click="backdrop($event, !!dirty)"
   >
     <header class="lp-dialog-header">
       <div>
         <span class="lp-caption">{{ caption }}</span>
-        <h2 id="ledger-dialog-title">{{ title }}</h2>
+        <h2 :id="titleId">{{ title }}</h2>
       </div>
       <button
         type="button"
@@ -107,10 +125,27 @@ onBeforeUnmount(() => {
         ×
       </button>
     </header>
-    <p v-if="error" class="lp-error" role="alert" tabindex="-1">
+    <span
+      v-if="showWriteStatus !== false && pending && busy && !pending.uncertain"
+      class="sr-only"
+      role="status"
+      >正在保存{{ label }}…</span
+    >
+    <p
+      v-if="showWriteStatus !== false && error"
+      class="lp-error"
+      role="alert"
+      tabindex="-1"
+    >
       {{ errorText(error) }}
     </p>
-    <div v-if="pending" class="lp-dialog-body lp-reference" role="status">
+    <div
+      v-if="
+        showWriteStatus !== false && pending && (!busy || pending.uncertain)
+      "
+      class="lp-dialog-body lp-reference"
+      role="status"
+    >
       <strong>{{ busy ? `正在确认${label}` : `${label}结果待确认` }}</strong>
       <p>请保留此页。账户、内容和请求已锁定，不要重复填写或刷新。</p>
       <button type="button" :disabled="busy" @click="retry">

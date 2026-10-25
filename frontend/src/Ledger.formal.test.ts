@@ -198,6 +198,12 @@ const returnChart = defineComponent({
   template: "<div class='lp-return-chart-stub' />",
 });
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   basis = fixture();
   calls = [];
   accountList = accounts;
@@ -440,6 +446,48 @@ it("shows account holdings immediately above records without automatically savin
   await flushPromises();
   expect(calls.filter((path) => path.endsWith("/stock-book"))).toHaveLength(2);
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+});
+
+it("places management in workspace navigation and recording inside the selected account", async () => {
+  await ledger();
+  const navigation = wrapper.get('.lp-workspace-switch[aria-label="账本导航"]');
+  expect(navigation.findAll("button").map((button) => button.text())).toEqual([
+    "单账户",
+    "账户组合",
+    "管理账户",
+  ]);
+  expect(wrapper.get(".lp-account-heading").findAll("button")).toHaveLength(0);
+  const recordButton = () =>
+    wrapper.get('[role="tabpanel"] .lp-account-toolbar .lp-primary');
+  expect(recordButton().text()).toBe("＋ 记一笔");
+  await wrapper.get("#account-tab-b").trigger("click");
+  await flushPromises();
+  expect(wrapper.get("#account-panel-b .lp-account-toolbar").text()).toContain(
+    accounts[1]!.name,
+  );
+  await recordButton().trigger("click");
+  await flushPromises();
+  expect(wrapper.get("dialog").text()).toContain(accounts[1]!.name);
+  await wrapper.get("dialog .lp-close").trigger("click");
+  await flushPromises();
+  await navigation
+    .findAll("button")
+    .find((button) => button.text() === "管理账户")!
+    .trigger("click");
+  expect(navigation.get('[aria-pressed="true"]').text()).toBe("管理账户");
+  expect(
+    wrapper.find('[role="tabpanel"] .lp-account-toolbar .lp-primary').exists(),
+  ).toBe(false);
+  expect(wrapper.findComponent(manager).exists()).toBe(true);
+  await navigation
+    .findAll("button")
+    .find((button) => button.text() === "单账户")!
+    .trigger("click");
+  await flushPromises();
+  expect(navigation.get('[aria-pressed="true"]').text()).toBe("单账户");
+  expect(wrapper.get("#account-panel-b .lp-account-toolbar").text()).toContain(
+    "＋ 记一笔",
+  );
 });
 
 it("keeps a same-day inclusive duration of one, but requires zero when the closing endpoint is missing", () => {

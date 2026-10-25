@@ -283,6 +283,20 @@
   gap: 20px;
   margin-bottom: 22px;
 }
+.ledger-page .lp-account-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.ledger-page .lp-account-toolbar h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-account-toolbar > button {
+  flex: none;
+}
 .ledger-page .lp-caption,
 .ledger-page .lp-muted {
   color: var(--lp-muted);

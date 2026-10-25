@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"testing"
 
@@ -137,4 +138,84 @@ func TestXIRRUniqueUnequalDatesAndBounds(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	_, err = certifyXIRRUnique(t.Context(), make([]string, 10003), nil)
 	require.ErrorIs(t, err, ErrQuery)
+}
+
+func TestXIRRDiscountedCashFlowUniqueness(t *testing.T) {
+	dates := []string{"2021-01-01", "2022-01-01", "2023-01-01", "2024-01-01"}
+	for _, tt := range []struct {
+		name, value, percentage string
+		amounts                 []int64
+	}{
+		// In annual growth g, the first polynomial factors as
+		// -(g-0.9)*(1000*g*g+100*g+1090). The second factor is
+		// strictly positive for g>0, independently proving the sole IRR.
+		{"negative_ten", "-0.100000000000", "-10.00", []int64{-1000, 800, -1000, 981}},
+		{"reversed_positive", "0.111111111111", "11.11", []int64{981, -1000, 800, -1000}},
+		// Synthetic exact g=9729/10000; the quadratic factor again has
+		// positive coefficients. These are generated amounts, not account data.
+		{"negative_271", "-0.027100000000", "-2.71", []int64{-1000000000000, 900000000000, -3000000000000, 2987702358489}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, scale := range []int64{1, -1, 1000000000000} {
+				flows := map[string]*big.Int{}
+				for i, amount := range tt.amounts {
+					flows[dates[i]] = new(big.Int).Mul(big.NewInt(amount), big.NewInt(scale))
+				}
+				// The former zero-rate prefix check cannot decide these cases.
+				unique, err := certifyXIRRUnique(t.Context(), dates, flows)
+				require.NoError(t, err)
+				require.False(t, unique)
+				result, err := solveXIRR(t.Context(), dates, flows, "reference")
+				require.NoError(t, err)
+				require.Equal(t, "reference", result.Status, result.Reason)
+				require.Equal(t, tt.value, *result.Value)
+				require.Equal(t, tt.percentage, *result.Percentage)
+			}
+		})
+	}
+}
+
+func TestXIRRDiscountedUnequalDates(t *testing.T) {
+	dates := []string{"2020-02-28", "2020-03-01", "2022-12-31", "2026-10-01"}
+	flows := map[string]*big.Int{}
+	for i, amount := range []int64{-1000, 800, -1000, 981} {
+		flows[dates[i]] = big.NewInt(amount)
+	}
+	result, err := solveXIRR(t.Context(), dates, flows, "available")
+	require.NoError(t, err)
+	require.Equal(t, "available", result.Status, result.Reason)
+	// Independent 80-digit Decimal evaluation of actual-day / 365 XNPV.
+	require.Equal(t, "-0.046799510545", *result.Value)
+	require.Equal(t, "-4.68", *result.Percentage)
+}
+
+func TestXIRRDiscountedCertificateRejectsMultipleRootsAndHonorsBounds(t *testing.T) {
+	dates := []string{"2021-01-01", "2022-01-01", "2023-01-01", "2024-01-01"}
+	for _, amounts := range [][]int64{
+		{-100, 230, -132},          // IRRs 10% and 20%
+		{-1000, 3600, -4310, 1716}, // IRRs 10%, 20%, 30%
+		{-100, 400, -500, 200},     // a tangent root plus another root
+		{-100, 230, -132, 2},       // zero plus other roots
+	} {
+		flows := map[string]*big.Int{}
+		for i, amount := range amounts {
+			flows[dates[i]] = big.NewInt(amount)
+		}
+		for _, rate := range []float64{-0.5, 0, 0.1, 0.2, 0.3, 1} {
+			unique, err := certifyXIRRDiscountedUnique(t.Context(), dates[:len(amounts)], flows, math.Log1p(rate))
+			require.NoError(t, err)
+			require.False(t, unique)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := certifyXIRRDiscountedUnique(ctx, nil, nil, 0)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = certifyXIRRDiscountedUnique(t.Context(), make([]string, 10003), nil, 0)
+	require.ErrorIs(t, err, ErrQuery)
+	for _, invalid := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		unique, err := certifyXIRRDiscountedUnique(t.Context(), dates, nil, invalid)
+		require.NoError(t, err)
+		require.False(t, unique)
+	}
 }

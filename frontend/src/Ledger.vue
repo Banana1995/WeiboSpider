@@ -314,6 +314,7 @@ function openAccount() {
 }
 function manageAccount(tab = "info") {
   if (navigationLocked.value) return;
+  workspaceView.value = "accounts";
   managementTab.value = tab;
   manage.value = true;
   if (!instruments.data && !instruments.loading) loadInstruments();
@@ -401,32 +402,10 @@ onBeforeUnmount(() => {
     <main class="lp-main">
       <div class="lp-account-heading">
         <h1>投资账本</h1>
-        <div v-if="workspaceView === 'accounts'" class="lp-actions">
-          <template v-if="!manage"
-            ><button
-              class="lp-text-button"
-              :disabled="navigationLocked"
-              @click="manageAccount()"
-            >
-              管理账户
-            </button>
-            <button
-              class="lp-primary"
-              data-ledger-focus
-              :disabled="navigationLocked || !account"
-              @click="openRecord('create')"
-            >
-              ＋ 记一笔
-            </button></template
-          >
-          <button v-else :disabled="navigationLocked" @click="manage = false">
-            返回账户
-          </button>
-        </div>
       </div>
-      <div class="lp-segment lp-workspace-switch" aria-label="账本分析范围">
+      <div class="lp-segment lp-workspace-switch" aria-label="账本导航">
         <button
-          :aria-pressed="workspaceView === 'accounts'"
+          :aria-pressed="workspaceView === 'accounts' && !manage"
           :disabled="navigationLocked"
           @click="selectWorkspace('accounts')"
         >
@@ -438,6 +417,13 @@ onBeforeUnmount(() => {
           @click="selectWorkspace('portfolios')"
         >
           账户组合
+        </button>
+        <button
+          :aria-pressed="workspaceView === 'accounts' && manage"
+          :disabled="navigationLocked"
+          @click="manageAccount()"
+        >
+          管理账户
         </button>
       </div>
       <p v-if="returnPortfolio && workspaceView === 'accounts'">
@@ -476,11 +462,32 @@ onBeforeUnmount(() => {
           {{ a.name }}
         </button>
       </div>
+      <div
+        v-if="workspaceView === 'accounts' && manage"
+        class="lp-account-toolbar"
+      >
+        <h2>账户管理</h2>
+        <button :disabled="navigationLocked" @click="manage = false">
+          返回账户
+        </button>
+      </div>
       <p v-if="notice" class="lp-notice" role="status">{{ notice }}</p>
-      <p v-if="error && !modal" class="lp-error" role="alert">
+      <p
+        v-if="error && workspace.dialogs.value === 0"
+        class="lp-error"
+        role="alert"
+      >
         {{ errorText(error) }}
       </p>
-      <div v-if="pending && !modal" class="lp-reference" role="status">
+      <div
+        v-if="
+          pending &&
+          workspace.dialogs.value === 0 &&
+          (!busy || pending.uncertain)
+        "
+        class="lp-reference"
+        role="status"
+      >
         <strong>{{ busy ? `正在确认${label}` : `${label}结果待确认` }}</strong>
         <p>原始内容和账户已锁定，请保留此页，不要刷新或重复录入。</p>
         <button :disabled="busy" @click="retry">按原请求重试确认</button>
@@ -499,6 +506,17 @@ onBeforeUnmount(() => {
         :aria-labelledby="`account-tab-${account.id}`"
       >
         <template v-if="!manage">
+          <div class="lp-account-toolbar">
+            <h2>{{ account.name }}</h2>
+            <button
+              class="lp-primary"
+              data-ledger-focus
+              :disabled="navigationLocked"
+              @click="openRecord('create')"
+            >
+              ＋ 记一笔
+            </button>
+          </div>
           <LedgerOverview
             :key="account.id"
             :account="account"

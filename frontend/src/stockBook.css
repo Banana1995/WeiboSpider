@@ -173,6 +173,13 @@
   align-items: flex-start;
   flex-wrap: wrap;
 }
+.ledger-page .lp-dialog.stock-detail-dialog {
+  width: 1200px;
+}
+.stock-detail-dialog .stock-detail-heading {
+  margin: 0 0 16px;
+  align-items: center;
+}
 .ledger-page .stock-detail-heading h2 {
   font-size: 23px;
 }
@@ -452,5 +459,16 @@
   }
   .stock-fx-field {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .stock-detail-dialog .stock-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stock-detail-dialog .stock-metrics > div {
+    text-align: left;
+  }
+  .stock-detail-dialog .stock-metrics > div:nth-child(even) {
+    text-align: right;
   }
 }

@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"math"
 	"math/big"
 )
 
@@ -51,6 +52,66 @@ func certifyXIRRUnique(ctx context.Context, dates []string, grouped map[string]*
 				break
 			}
 		}
+	}
+	return false, nil
+}
+
+// Scale the daily polynomial by a positive discount q0 near the candidate:
+// P(q0*u) has coefficients C[i]*q0^d[i]. The same Abel certificate above applies
+// to their prefix sums, proving uniqueness over ALL u>0 (hence all r>-1).
+// This is the discounted-investment-balance / Soper condition: withdrawals and
+// later deposits do not prevent a unique IRR when capital remains invested.
+//
+// q0 is an exactly representable binary rational, not an assumed exact exp()
+// result. Outward 192-bit bounds certify every prefix and the final sign. At most
+// four candidate-near probes locate a certificate; neither floating
+// signs, a root scan, nor proximity to a guessed rate can establish uniqueness.
+func certifyXIRRDiscountedUnique(ctx context.Context, dates []string, grouped map[string]*big.Int, logRate float64) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(dates) < 2 {
+		return false, nil
+	}
+	if len(dates) > 10002 {
+		return false, ErrQuery
+	}
+	discount := math.Exp(-logRate / 365)
+	if discount <= 0 || math.IsNaN(discount) || math.IsInf(discount, 0) {
+		return false, nil
+	}
+	firstSign := grouped[dates[0]].Sign()
+	if firstSign == 0 {
+		return false, nil
+	}
+	origin := civilDay(dates[0])
+	down, up := big.ToNegativeInf, big.ToPositiveInf
+	for attempt := 0; attempt < 4; attempt++ {
+		q := xirrFloat(big.ToNearestEven).SetFloat64(discount)
+		sumLo, sumHi := xirrFloat(down), xirrFloat(up)
+		for i, date := range dates {
+			if i%32 == 0 && ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			days := civilDay(date) - origin
+			powerLo, powerHi := xirrPower(q, days, down), xirrPower(q, days, up)
+			amount := grouped[date]
+			if amount.Sign() < 0 {
+				powerLo, powerHi = powerHi, powerLo
+			}
+			sumLo.Add(sumLo, xirrFloat(down).Mul(xirrFloat(down).SetInt(amount), powerLo))
+			sumHi.Add(sumHi, xirrFloat(up).Mul(xirrFloat(up).SetInt(amount), powerHi))
+			if i == len(dates)-1 {
+				if firstSign < 0 && sumLo.Sign() >= 0 || firstSign > 0 && sumHi.Sign() <= 0 {
+					return true, nil
+				}
+			} else if firstSign < 0 && sumHi.Sign() > 0 || firstSign > 0 && sumLo.Sign() < 0 {
+				break
+			}
+		}
+		// Increasing q moves just beyond the root, where the final sum must
+		// oppose the first flow. Its sign is still independently certified.
+		discount = math.Nextafter(discount, math.Inf(1))
 	}
 	return false, nil
 }

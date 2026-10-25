@@ -1,5 +1,5 @@
 .ledger-page .lp-workspace-switch {
-  margin-bottom: 26px;
+  margin-bottom: 22px;
 }
 .ledger-page .lp-portfolio-navigation {
   display: flex;
@@ -38,6 +38,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
 }
 .ledger-page .lp-portfolio-menu {
   position: relative;
@@ -62,6 +64,7 @@
   background: var(--lp-surface);
   border: 1px solid var(--lp-rule);
   border-radius: 5px;
+  box-shadow: 0 8px 24px #13243c26;
 }
 .ledger-page .lp-portfolio-menu button {
   border: 0;
@@ -81,6 +84,13 @@
   padding: 13px 4px;
   border-bottom: 1px solid var(--lp-rule);
   cursor: pointer;
+}
+.ledger-page .lp-portfolio-choice:has(input:checked) {
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
+}
+.ledger-page .lp-portfolio-choice:hover:not(:has(input:disabled)) {
+  background: var(--lp-hover);
 }
 .ledger-page .lp-portfolio-choice > span {
   flex: 1;
@@ -119,12 +129,21 @@
 }
 .ledger-page .lp-contribution-table th:first-child {
   text-align: left;
-  padding-left: 0;
+  padding-left: 13px;
+}
+.ledger-page .lp-contribution-table tbody th {
+  color: var(--lp-text);
+  background: transparent;
 }
 .ledger-page .lp-contribution-table thead th {
-  color: var(--lp-muted);
+  color: #52667f;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 550;
+}
+.ledger-page .lp-contribution-table tfoot :is(th, td) {
+  background: var(--lp-tint);
+  border-top: 2px solid #9bb7cf;
+  font-weight: 600;
 }
 .ledger-page .lp-contribution-table th small {
   display: block;
@@ -137,7 +156,7 @@
 }
 .ledger-page .lp-contribution-detail td {
   padding: 14px 18px;
-  background: #f0f4ee;
+  background: var(--lp-tint);
   text-align: left;
 }
 .ledger-page .lp-contribution-detail dl {
@@ -154,17 +173,17 @@
   margin: 0;
 }
 .ledger-page .lp-portfolio-details {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   border: 1px solid var(--lp-rule);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--lp-surface);
 }
 .ledger-page .lp-portfolio-details > summary {
-  padding: 18px 24px;
+  padding: 16px 20px;
   font-weight: 600;
 }
 .ledger-page .lp-portfolio-details > .lp-portfolio-basis {
-  padding: 0 24px 20px;
+  padding: 0 20px 20px;
 }
 .ledger-page .lp-portfolio-details > .lp-annual {
   border: 0;

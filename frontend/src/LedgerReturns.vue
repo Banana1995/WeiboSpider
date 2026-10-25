@@ -235,20 +235,20 @@ const states = {
 }
 .returns-cards > div {
   padding: 18px;
-  border: 1px solid #dde3db;
-  border-left: 3px solid #285b46;
+  border: 1px solid var(--lp-rule);
+  border-left: 3px solid var(--lp-primary);
   border-radius: 4px;
-  background: #f3f6f1;
+  background: var(--lp-tint);
   overflow-wrap: anywhere;
 }
 .returns-cards > div[data-state="reference"],
 .returns-cards > div[data-state="unavailable"] {
-  border-left-color: #a47827;
-  background: #fff6df;
+  border-left-color: var(--lp-warning);
+  background: #fff8e8;
 }
 .returns-cards dt {
   font-size: 13px;
-  color: #526657;
+  color: var(--lp-muted);
 }
 .returns-cards dd {
   margin: 8px 0 0;

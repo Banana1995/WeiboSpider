@@ -164,8 +164,8 @@ it("uses safe Canvas exact text, same-snapshot red/green events, local selectors
   expect(option.series[0].data).toHaveLength(2);
   expect(option.series[1].symbol).toBe("circle");
   expect(option.series[1].data).toHaveLength(2);
-  expect(option.series[2].itemStyle.color).toBe("#bc514c");
-  expect(option.series[3].itemStyle.color).toBe("#24745b");
+  expect(option.series[2].itemStyle.color).toBe("#b4482d");
+  expect(option.series[3].itemStyle.color).toBe("#365c4a");
   expect(
     option.tooltip.formatter({ data: option.series[2].data[0] }),
   ).toContain("123.45");

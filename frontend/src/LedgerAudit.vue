@@ -163,7 +163,7 @@ li {
   font-weight: 600;
 }
 .ledger-audit-content {
-  border-top: 1px solid #dde3db;
+  border-top: 1px solid var(--lp-rule);
   padding-top: 12px;
 }
 </style>

@@ -482,15 +482,16 @@ watch(filter, () => {
   font-weight: 600;
 }
 .weekly-content {
-  border-top: 1px solid #dde3db;
+  border-top: 1px solid var(--lp-rule);
   padding-top: 12px;
 }
 .weekly-badge {
   display: inline-block;
-  border: 1px solid #bac9be;
+  border: 1px solid var(--lp-control-border);
   border-radius: 4px;
   padding: 4px 8px;
-  background: #eaf3eb;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
   font-size: 13px;
 }
 .ledger-weekly {
@@ -512,7 +513,7 @@ watch(filter, () => {
   line-height: 1.7;
 }
 .weekly-distinction {
-  border-top: 1px solid #dde3db;
+  border-top: 1px solid var(--lp-rule);
   margin-top: 24px;
   padding-top: 12px;
 }

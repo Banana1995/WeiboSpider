@@ -43,7 +43,7 @@ const chartError = ref("");
 let chart: EChartsType | undefined;
 let observer: ResizeObserver | undefined;
 const statuses = ["reported", "observed", "carried", "stale", "untracked"];
-const colors = ["#24745b", "#24745b", "#a67828", "#ba534a", "#787583"];
+const colors = ["#1766b6", "#1766b6", "#8c641f", "#b4482d", "#62748b"];
 function choose(date: string) {
   selected.value = date;
   detailPage.value = 0;
@@ -82,7 +82,7 @@ function render() {
       yAxisIndex: 1,
       symbol: ["triangle", "diamond", "circle", "rect"][index],
       symbolSize: 12,
-      itemStyle: { color: ["#bc514c", "#24745b", "#a67828", "#787583"][index] },
+      itemStyle: { color: ["#b4482d", "#365c4a", "#8c641f", "#62748b"][index] },
       data: days.value
         .filter((d) =>
           d.points.some((p) =>
@@ -99,6 +99,11 @@ function render() {
       {
         animation: false,
         useUTC: true,
+        textStyle: {
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
+          color: "#62748b",
+        },
         grid: [
           { left: 80, right: 20, top: 30, height: 210 },
           { left: 80, right: 20, top: 295, height: 85 },
@@ -107,6 +112,10 @@ function render() {
           trigger: "item",
           renderMode: "richText",
           confine: true,
+          backgroundColor: "#fff",
+          borderColor: "#ccd7e2",
+          padding: [10, 12],
+          textStyle: { color: "#263445", fontSize: 12 },
           // Only server calendar dates and exact decimal strings enter Canvas text.
           // Arbitrary notes/labels are rendered exclusively by Vue interpolation below.
           formatter: (params: unknown) => {
@@ -132,7 +141,12 @@ function render() {
           max: days.value.length
             ? Date.parse(`${days.value.at(-1)!.date}T00:00:00Z`) + 43200000
             : undefined,
-          axisLabel: { hideOverlap: true, formatter: "{yyyy}-{MM}-{dd}" },
+          axisLabel: {
+            hideOverlap: true,
+            formatter: "{yyyy}-{MM}-{dd}",
+            color: "#62748b",
+          },
+          axisLine: { lineStyle: { color: "#ccd7e2" } },
           splitLine: { show: false },
         })),
         yAxis: [
@@ -141,10 +155,11 @@ function render() {
             scale: true,
             name: "资产坐标（近似）",
             axisLabel: {
+              color: "#62748b",
               formatter: (v: number) =>
                 Math.abs(v) >= 1e9 ? v.toExponential(1) : String(v),
             },
-            splitLine: { lineStyle: { color: "#edf0ec", type: "dashed" } },
+            splitLine: { lineStyle: { color: "#e5eaf0", type: "dashed" } },
           },
           {
             type: "category",
@@ -161,6 +176,10 @@ function render() {
             bottom: 8,
             height: 22,
             filterMode: "none",
+            borderColor: "#ccd7e2",
+            fillerColor: "#1766b61a",
+            textStyle: { color: "#62748b" },
+            handleStyle: { color: "#fff", borderColor: "#1766b6" },
           },
         ],
         series: [
@@ -169,7 +188,7 @@ function render() {
             name: "同日其他明确观察",
             type: "scatter",
             symbolSize: 6,
-            itemStyle: { color: "#787583", opacity: 0.6 },
+            itemStyle: { color: "#62748b", opacity: 0.6 },
             data: other.map((p) => ({
               value: [Date.parse(`${p.date}T00:00:00Z`), Number(p.assets)],
               date: p.date,
@@ -403,7 +422,7 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 .asset-detail {
-  border-top: 1px solid #dce3df;
+  border-top: 1px solid var(--lp-rule);
   padding: 12px 0;
 }
 .asset-detail h5 {

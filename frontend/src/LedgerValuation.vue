@@ -223,8 +223,9 @@ const errors: Record<string, string> = {
 <style scoped>
 .valuation-total {
   padding: 20px;
-  background: #eaf3eb;
-  color: #285b46;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
+  border-radius: 6px;
 }
 .valuation-total strong {
   display: block;

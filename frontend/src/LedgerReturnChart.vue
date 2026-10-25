@@ -50,8 +50,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ locate: [{ id: string; date: string }] }>();
 
-const TRANSFER_IN = "#bc514c";
-const TRANSFER_OUT = "#2f7d5b";
+const TRANSFER_IN = "#b4482d";
+const TRANSFER_OUT = "#365c4a";
 
 const element = ref<HTMLDivElement>();
 const chartError = ref("");
@@ -63,7 +63,7 @@ const activeBenchmarks = computed(() =>
   props.mode === "rate" ? props.benchmarks : [],
 );
 const encodingFor = (code: string): BenchmarkEncoding =>
-  benchmarkEncodings[code as BenchmarkCode] ?? { color: "#6b7280", dash: [] };
+  benchmarkEncodings[code as BenchmarkCode] ?? { color: "#62748b", dash: [] };
 
 const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
 
@@ -254,10 +254,19 @@ function render() {
       {
         animation: false,
         useUTC: true,
+        textStyle: {
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
+          color: "#62748b",
+        },
         grid: { left: 56, right: 18, top: 18, bottom: 30 },
         tooltip: {
           trigger: "axis",
           confine: true,
+          backgroundColor: "#fff",
+          borderColor: "#ccd7e2",
+          padding: [10, 12],
+          textStyle: { color: "#263445", fontSize: 12 },
           formatter: tooltip,
           axisPointer: { triggerEmphasis: false },
         },
@@ -266,16 +275,22 @@ function render() {
           // Keep the shared axis tooltip, but only the line actually under the
           // pointer should highlight rather than every series at that date.
           axisPointer: { triggerEmphasis: false },
-          axisLabel: { hideOverlap: true, formatter: "{yyyy}-{MM}-{dd}" },
+          axisLabel: {
+            hideOverlap: true,
+            formatter: "{yyyy}-{MM}-{dd}",
+            color: "#62748b",
+          },
+          axisLine: { lineStyle: { color: "#ccd7e2" } },
           splitLine: { show: false },
         },
         yAxis: {
           type: "value",
           scale: true,
           axisLabel: {
+            color: "#62748b",
             formatter: props.mode === "rate" ? percentLabel : amountLabel,
           },
-          splitLine: { lineStyle: { color: "#edf0ec", type: "dashed" } },
+          splitLine: { lineStyle: { color: "#e5eaf0", type: "dashed" } },
         },
         series: [
           account,
@@ -288,7 +303,7 @@ function render() {
                   type: "scatter",
                   symbol: "diamond",
                   symbolSize: 8,
-                  itemStyle: { color: "#65766b" },
+                  itemStyle: { color: "#62748b" },
                   data: props.markers
                     .map((m) => ({
                       value: [time(m.date), curveValue(m.date)],

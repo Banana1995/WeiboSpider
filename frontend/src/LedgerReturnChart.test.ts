@@ -100,7 +100,7 @@ it("renders a crisp thin solid account line at devicePixelRatio and cleans up", 
   });
   expect(option.series[0].lineStyle).toEqual({
     width: 1.8,
-    color: "#1f6f5c",
+    color: "#1766b6",
     type: "solid",
   });
   expect((option.series[0].data as Point[]).map((p) => p.value[1])).toEqual([
@@ -120,7 +120,7 @@ it("aligns an optional benchmark with a prior market close", () => {
   expect(option.series).toHaveLength(2);
   expect(option.series[1].lineStyle).toEqual({
     width: 1.5,
-    color: "#0072b2",
+    color: "#14838c",
     type: [6, 3],
   });
   const points = option.series[1].data as Point[];
@@ -188,12 +188,12 @@ it("distinguishes account and every benchmark by dash pattern, not color alone",
   expect(option.series).toHaveLength(4);
   expect(option.series[0].lineStyle).toEqual({
     width: 1.8,
-    color: "#1f6f5c",
+    color: "#1766b6",
     type: "solid",
   });
   expect(option.series[1].lineStyle).toEqual({
     width: 1.5,
-    color: "#0072b2",
+    color: "#14838c",
     type: [6, 3],
   });
   expect(option.series[2].lineStyle).toEqual({
@@ -241,9 +241,9 @@ it("draws red transfer-in and green transfer-out dots and emits locate", () => {
   );
   expect(option.series).toHaveLength(3);
   expect(option.series[1].name).toBe("转入");
-  expect(option.series[1].itemStyle).toEqual({ color: "#bc514c" });
+  expect(option.series[1].itemStyle).toEqual({ color: "#b4482d" });
   expect(option.series[2].name).toBe("转出");
-  expect(option.series[2].itemStyle).toEqual({ color: "#2f7d5b" });
+  expect(option.series[2].itemStyle).toEqual({ color: "#365c4a" });
   expect(option.series[1].data[0].value[1]).toBe(0.1);
   const eventTooltip = option.tooltip.formatter([
     {

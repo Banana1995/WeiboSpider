@@ -1,29 +1,46 @@
 .ledger-page {
-  --lp-rule: #dde3db;
-  --lp-surface: #fbfcfa;
-  --lp-muted: #65766b;
-  --lp-primary: #285b46;
-  --lp-danger: #bc514c;
-  color: #263b32;
-  background: #f6f7f4;
+  /* Match the tax workspace, including the less prominent ledger views. */
+  --lp-rule: #dce4ec;
+  --lp-control-border: #ccd7e2;
+  --lp-surface: #fff;
+  --lp-background: #f5f7fa;
+  --lp-text: #263445;
+  --lp-muted: #62748b;
+  --lp-primary: #1766b6;
+  --lp-primary-hover: #105594;
+  --lp-emphasis: #144f85;
+  --lp-tint: #eaf3fb;
+  --lp-hover: #f5f9ff;
+  --lp-table-heading: #edf2f7;
+  --lp-danger: #b4482d;
+  --lp-down: #365c4a;
+  --lp-warning: #8c641f;
+  color: var(--lp-text);
+  background: var(--lp-background);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
   font-size: 14px;
   line-height: 1.6;
+  font-variant-numeric: tabular-nums;
   min-height: 100dvh;
 }
 .ledger-page :is(button, input, select, textarea) {
   font: inherit;
   color: inherit;
-  border: 1px solid var(--lp-rule);
+  border: 1px solid var(--lp-control-border);
   border-radius: 5px;
   background: var(--lp-surface);
 }
 .ledger-page button {
-  padding: 8px 15px;
-  line-height: 1.5;
+  padding: 7px 12px;
+  min-height: 36px;
+  line-height: 1.6;
 }
 .ledger-page button:hover:not(:disabled) {
-  background: #edf2eb;
-  border-color: #a9b9ad;
+  background: var(--lp-hover);
+  border-color: var(--lp-primary);
+  color: var(--lp-primary);
 }
 .ledger-page button:disabled {
   cursor: not-allowed;
@@ -31,25 +48,43 @@
 }
 .ledger-page
   :is(button, a, input, textarea, select, summary, tr):focus-visible {
-  outline: 2px solid #438b70;
-  outline-offset: 3px;
+  outline: 3px solid #8bb6e5;
+  outline-offset: 2px;
 }
 .ledger-page :is(input, select, textarea) {
   min-width: 0;
   max-width: 100%;
-  padding: 8px 10px;
+  padding: 7px 12px;
+}
+.ledger-page :is(input:not([type="checkbox"], [type="radio"]), select) {
+  min-height: 36px;
+}
+.ledger-page :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--lp-primary);
+}
+.ledger-page input::file-selector-button {
+  font: inherit;
+  padding: 5px 10px;
+  margin-right: 10px;
+  border: 1px solid var(--lp-control-border);
+  border-radius: 4px;
+  background: var(--lp-hover);
+  color: var(--lp-primary);
+  cursor: pointer;
 }
 .ledger-page textarea {
   resize: vertical;
 }
 .ledger-page h1 {
-  font-size: 24px;
-  letter-spacing: 0;
-  margin: 4px 0 0;
+  font-size: 25px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  margin: 0;
 }
 .ledger-page h1 > span {
   font: inherit;
   letter-spacing: inherit;
+  color: inherit;
 }
 .ledger-page h2 {
   font-size: 17px;
@@ -66,7 +101,7 @@
   overflow-wrap: anywhere;
 }
 .ledger-page small {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--lp-muted);
   font-weight: 400;
 }
@@ -79,12 +114,43 @@
 .ledger-page label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 12px;
   min-width: 0;
 }
 .ledger-page summary {
   cursor: pointer;
+}
+.ledger-page summary:hover {
+  color: var(--lp-primary);
+}
+.ledger-page table {
+  font-size: 12px;
+}
+.ledger-page :is(th, td) {
+  padding: 12px 13px;
+  border-bottom: 1px solid #e5eaf0;
+}
+.ledger-page th {
+  background: var(--lp-table-heading);
+  color: #52667f;
+  font-weight: 550;
+}
+.ledger-page thead th {
+  border-bottom-color: var(--lp-control-border);
+}
+.ledger-page tbody tr:hover {
+  background: #f7faff;
+}
+.ledger-page :is(.ledger-table, .ledger-table-wrap) {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--lp-rule);
+  border-radius: 6px;
+  background: var(--lp-surface);
+}
+.ledger-page :is(.ledger-table, .ledger-table-wrap) tbody tr:last-child td {
+  border-bottom: 0;
 }
 .ledger-page .lp-primary,
 .ledger-page .ledger-form button[type="submit"] {
@@ -92,12 +158,15 @@
   color: #fff;
   border-color: var(--lp-primary);
 }
-.ledger-page .lp-primary:hover:not(:disabled) {
-  background: #204b39;
+.ledger-page .lp-primary:hover:not(:disabled),
+.ledger-page .ledger-form button[type="submit"]:hover:not(:disabled) {
+  background: var(--lp-primary-hover);
+  border-color: var(--lp-primary-hover);
   color: #fff;
 }
 .ledger-page .lp-text-button {
   padding: 3px 4px;
+  min-height: 0;
   border-color: transparent;
   background: transparent;
   color: var(--lp-primary);
@@ -145,9 +214,9 @@
   flex-wrap: wrap;
   gap: 4px 24px;
   padding: 7px 20px;
-  background: #eaf0e7;
+  background: var(--lp-tint);
   font-size: 12px;
-  color: #42604d;
+  color: var(--lp-emphasis);
 }
 .ledger-page .lp-banner strong {
   font-weight: 600;
@@ -157,16 +226,41 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  min-height: 74px;
-  padding: 12px max(24px, calc((100vw - 1280px) / 2));
+  padding: 18px 16px;
   border-bottom: 1px solid var(--lp-rule);
   background: var(--lp-surface);
 }
+.ledger-page .brand {
+  gap: 10px;
+  font-size: 20px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.ledger-page .brand-mark {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--lp-primary);
+  font-size: 20px;
+}
+.ledger-page .brand-divider {
+  margin: 0;
+  color: #9cabbc;
+  font-weight: 400;
+}
+.ledger-page .brand-sub {
+  font-size: 14px;
+  letter-spacing: 0;
+}
 .ledger-page .lp-masthead nav {
   display: flex;
-  gap: 26px;
+  gap: 24px;
+  flex-wrap: wrap;
   color: var(--lp-muted);
   font-size: 13px;
+}
+.ledger-page .lp-masthead [aria-current] {
+  color: var(--lp-primary);
+  font-weight: 650;
 }
 .ledger-page .lp-masthead a:hover {
   color: var(--lp-primary);
@@ -177,8 +271,9 @@
   cursor: not-allowed;
 }
 .ledger-page .lp-main {
-  max-width: 1328px;
-  padding: 32px 24px 20px;
+  width: 100%;
+  max-width: 1840px;
+  padding: 24px;
   margin: auto;
 }
 .ledger-page .lp-account-heading {
@@ -186,12 +281,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 28px;
+  margin-bottom: 22px;
 }
 .ledger-page .lp-caption,
 .ledger-page .lp-muted {
   color: var(--lp-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 .ledger-page .lp-account-tabs {
   display: flex;
@@ -234,25 +329,25 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .ledger-page :is(.lp-income, .lp-records, .lp-management) {
   background: var(--lp-surface);
   border: 1px solid var(--lp-rule);
-  border-radius: 6px;
+  border-radius: 8px;
   min-width: 0;
 }
 .ledger-page .lp-income {
-  padding: 22px 26px 16px;
-  margin-bottom: 24px;
+  padding: 20px;
+  margin-bottom: 16px;
 }
 .ledger-page :is(.lp-income, .lp-annual) + .lp-holdings {
   background: var(--lp-surface);
   border: 1px solid var(--lp-rule);
-  border-radius: 6px;
+  border-radius: 8px;
   max-width: none;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 .ledger-page .lp-section-title {
   display: flex;
@@ -275,10 +370,10 @@ html.lp-tab-grabbing * {
   justify-content: center;
   height: 20px;
   padding: 0 8px;
-  border: 1px solid #c3d2bd;
-  border-radius: 10px;
-  background: #edf3e9;
-  color: #52644c;
+  border: 1px solid #9bb7cf;
+  border-radius: 4px;
+  background: var(--lp-tint);
+  color: #52667f;
   font-size: 11px;
   line-height: 1;
   cursor: help;
@@ -288,7 +383,7 @@ html.lp-tab-grabbing * {
   outline: 2px solid var(--lp-primary);
   outline-offset: 2px;
 }
-.ledger-page .lp-fx-tip {
+.ledger-page .lp-fx-badge .lp-fx-tip {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
@@ -299,8 +394,11 @@ html.lp-tab-grabbing * {
   visibility: hidden;
   transform: translateY(-4px);
   pointer-events: none;
-  border-radius: 4px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--lp-control-border);
+  border-radius: 6px;
+  background: var(--lp-surface);
+  color: var(--lp-text);
+  box-shadow: 0 8px 24px #13243c26;
   transition:
     opacity 0.15s ease,
     transform 0.15s ease,
@@ -315,10 +413,11 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-segment {
   display: inline-flex;
-  border: 1px solid var(--lp-rule);
+  border: 1px solid var(--lp-control-border);
   border-radius: 5px;
   padding: 3px;
   gap: 2px;
+  background: var(--lp-surface);
 }
 .ledger-page .lp-segment button {
   font-size: 13px;
@@ -328,7 +427,7 @@ html.lp-tab-grabbing * {
   border-radius: 3px;
 }
 .ledger-page .lp-segment button[aria-pressed="true"] {
-  background: #e9efe6;
+  background: var(--lp-tint);
   color: var(--lp-primary);
   font-weight: 600;
 }
@@ -357,18 +456,22 @@ html.lp-tab-grabbing * {
   font-size: 29px;
   font-weight: 600;
   line-height: 1.65;
-  letter-spacing: -0.6px;
+  letter-spacing: 0;
+  color: var(--lp-emphasis);
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 .ledger-page .lp-overview .lp-assets strong {
   font-size: 32px;
 }
+.ledger-page .lp-overview strong.lp-negative {
+  color: var(--lp-danger);
+}
 .ledger-page .lp-overview small {
   overflow-wrap: anywhere;
 }
 .ledger-page .lp-overview .lp-metric-status {
-  color: #805b1e;
+  color: var(--lp-warning);
   text-align: right;
   margin-top: 4px;
 }
@@ -393,8 +496,8 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-range button[aria-pressed="true"] {
   color: var(--lp-primary);
-  border-color: #b9cbb9;
-  background: #f0f4ed;
+  border-color: #9bb7cf;
+  background: var(--lp-tint);
 }
 .ledger-page .lp-chart {
   position: relative;
@@ -435,7 +538,7 @@ html.lp-tab-grabbing * {
   color: var(--lp-danger);
 }
 .ledger-page .lp-out {
-  color: var(--lp-primary);
+  color: var(--lp-down);
 }
 .ledger-page .lp-benchmark {
   display: inline-flex;
@@ -444,7 +547,7 @@ html.lp-tab-grabbing * {
   padding: 3px 10px;
   font-size: 12px;
   border: 1px solid var(--lp-rule);
-  border-radius: 999px;
+  border-radius: 5px;
   background: transparent;
   color: var(--lp-muted);
 }
@@ -453,8 +556,8 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-benchmark[aria-pressed="true"] {
   color: var(--lp-primary);
-  border-color: #b9cbb9;
-  background: #eef2ee;
+  border-color: #9bb7cf;
+  background: var(--lp-tint);
 }
 .ledger-page .lp-benchmark:disabled {
   opacity: 0.55;
@@ -484,11 +587,11 @@ html.lp-tab-grabbing * {
   color: var(--lp-muted);
 }
 .ledger-page .lp-annual {
-  padding: 22px 26px 18px;
-  margin-bottom: 24px;
+  padding: 20px;
+  margin-bottom: 16px;
   background: var(--lp-surface);
   border: 1px solid var(--lp-rule);
-  border-radius: 6px;
+  border-radius: 8px;
   min-width: 0;
 }
 .ledger-page .lp-annual-heading > div {
@@ -532,7 +635,7 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-annual-controls select {
   min-width: 160px;
   font-size: 13px;
-  color: #263b32;
+  color: var(--lp-text);
 }
 .ledger-page .lp-annual-status {
   display: flex;
@@ -544,6 +647,8 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-annual-scroll {
   overflow-x: auto;
+  border: 1px solid var(--lp-rule);
+  border-radius: 6px;
 }
 .ledger-page .lp-annual-table {
   width: 100%;
@@ -557,13 +662,13 @@ html.lp-tab-grabbing * {
   vertical-align: middle;
 }
 .ledger-page .lp-annual-table thead th {
-  color: var(--lp-muted);
+  color: #52667f;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 550;
 }
 .ledger-page .lp-annual-table th:first-child {
   text-align: left;
-  padding-left: 0;
+  padding-left: 13px;
   width: 36%;
 }
 .ledger-page .lp-annual-table th:not(:first-child),
@@ -572,7 +677,9 @@ html.lp-tab-grabbing * {
   width: 32%;
 }
 .ledger-page .lp-annual-table tbody th {
-  font-size: 15px;
+  background: transparent;
+  color: var(--lp-text);
+  font-size: 14px;
   font-weight: 600;
 }
 .ledger-page .lp-annual-table tbody th small,
@@ -588,10 +695,13 @@ html.lp-tab-grabbing * {
   white-space: nowrap;
 }
 .ledger-page .lp-annual-table td.lp-annual-down {
-  color: #24745b;
+  color: var(--lp-down);
 }
 .ledger-page .lp-annual-table tr:last-child > * {
   border-bottom: 0;
+}
+.ledger-page .lp-annual-table tbody tr:last-child {
+  background: var(--lp-tint);
 }
 .ledger-page .lp-annual-note {
   color: var(--lp-muted);
@@ -600,7 +710,7 @@ html.lp-tab-grabbing * {
   margin: 12px 0 0;
 }
 .ledger-page .lp-annual-full {
-  padding: 14px 28px 28px;
+  padding: 16px 20px 20px;
 }
 .ledger-page .lp-annual-full .lp-annual-table th:first-child {
   width: 40%;
@@ -611,26 +721,28 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-reference,
 .ledger-page .ledger-notice,
 .ledger-page .ledger-pending {
-  padding: 10px 12px;
-  border-left: 2px solid #a5bba0;
-  background: #f0f3ec;
+  padding: 12px 16px;
+  border-left: 3px solid var(--lp-primary);
+  border-radius: 4px;
+  background: var(--lp-tint);
   font-size: 12px;
-  color: #52644c;
+  color: var(--lp-emphasis);
 }
 .ledger-page .lp-notice,
 .ledger-page .ledger-success {
-  padding: 10px 14px;
-  border: 1px solid #c3d2bd;
+  padding: 12px 16px;
+  border-left: 3px solid var(--lp-primary);
   border-radius: 4px;
-  background: #edf3e9;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
   font-size: 13px;
   margin-bottom: 20px;
 }
 .ledger-page .lp-records > .lp-section-title {
-  padding: 19px 24px;
+  padding: 16px 20px;
 }
 .ledger-page .lp-record-summary {
-  padding: 19px 24px;
+  padding: 16px 20px;
 }
 .ledger-page .lp-record-summary h2 {
   display: inline;
@@ -673,7 +785,7 @@ html.lp-tab-grabbing * {
   border: 1px solid var(--lp-rule);
   border-radius: 5px;
   background: var(--lp-surface);
-  box-shadow: 0 8px 24px #263b3214;
+  box-shadow: 0 8px 24px #13243c26;
 }
 .ledger-page .lp-filter-menu fieldset {
   display: grid;
@@ -703,24 +815,24 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-record-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
   table-layout: fixed;
   white-space: normal;
 }
 .ledger-page .lp-record-table th,
 .ledger-page .lp-record-table td {
-  padding: 14px 12px;
-  border-bottom: 1px solid #e7ebe4;
+  padding: 13px;
+  border-bottom: 1px solid #e5eaf0;
   text-align: left;
   vertical-align: middle;
   overflow-wrap: anywhere;
 }
 .ledger-page .lp-record-table th {
   position: static;
-  background: #f3f5f0;
-  font-weight: 400;
+  background: var(--lp-table-heading);
+  font-weight: 550;
   font-size: 12px;
-  color: var(--lp-muted);
+  color: #52667f;
 }
 .ledger-page .lp-record-table th:first-child,
 .ledger-page .lp-record-table td:first-child {
@@ -766,12 +878,12 @@ html.lp-tab-grabbing * {
   white-space: nowrap;
 }
 .ledger-page .lp-record-table tr.lp-highlighted {
-  background: #edf3e7;
-  box-shadow: inset 3px 0 #285b46;
+  background: var(--lp-tint);
+  box-shadow: inset 3px 0 var(--lp-primary);
 }
 .ledger-page .lp-record-table tr.lp-voided {
-  color: #829086;
-  background: #f4f5f1;
+  color: #95a2b3;
+  background: #f6f8fb;
 }
 .ledger-page .lp-voided .lp-kind {
   text-decoration: line-through;
@@ -819,15 +931,15 @@ html.lp-tab-grabbing * {
   align-items: center;
 }
 .ledger-page .lp-page-footer {
-  margin-top: 0;
-  border: 0;
+  margin-top: 28px;
+  border-top: 1px solid var(--lp-rule);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 26px;
+  padding-top: 16px;
   color: var(--lp-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .ledger-page .lp-table-footer > span,
 .ledger-page .lp-page-footer > span {
@@ -837,16 +949,18 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-management-tabs {
   display: flex;
-  gap: 25px;
-  padding: 0 26px;
+  gap: 24px;
+  padding: 0 20px;
+  overflow-x: auto;
   border-bottom: 1px solid var(--lp-rule);
 }
 .ledger-page .lp-management-tabs button {
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   border-radius: 0;
   background: transparent;
-  padding: 17px 0;
+  padding: 12px 4px;
+  white-space: nowrap;
 }
 .ledger-page .lp-management-tabs button[aria-pressed="true"] {
   border-bottom-color: var(--lp-primary);
@@ -854,8 +968,8 @@ html.lp-tab-grabbing * {
   font-weight: 600;
 }
 .ledger-page .lp-management-body {
-  padding: 28px;
-  max-width: 950px;
+  padding: 20px;
+  min-width: 0;
 }
 .ledger-page .lp-management-body > .lp-section-title {
   margin-bottom: 20px;
@@ -868,7 +982,7 @@ html.lp-tab-grabbing * {
   grid-template-columns: 115px minmax(0, 1fr);
   gap: 15px;
   padding: 12px 0;
-  border-bottom: 1px solid #e7ebe4;
+  border-bottom: 1px solid #e5eaf0;
 }
 .ledger-page .lp-info dt {
   color: var(--lp-muted);
@@ -924,7 +1038,7 @@ html.lp-tab-grabbing * {
   align-items: baseline;
   gap: 20px;
   padding: 15px 0;
-  border-bottom: 1px solid #e7ebe4;
+  border-bottom: 1px solid #e5eaf0;
 }
 .ledger-page .lp-business-list li > div {
   min-width: 0;
@@ -943,54 +1057,69 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-dialog {
   position: fixed;
-  inset: 0 0 0 auto;
-  margin: 0;
-  width: min(520px, 100%);
-  max-width: 100%;
-  height: 100%;
-  max-height: 100dvh;
+  inset: 0;
+  margin: auto;
+  width: min(880px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  height: fit-content;
+  max-height: calc(100dvh - 40px);
   padding: 0;
-  color: #263b32;
-  border: 0;
-  border-left: 1px solid var(--lp-rule);
-  border-radius: 0;
+  color: var(--lp-text);
+  border: 1px solid var(--lp-control-border);
+  border-radius: 10px;
   background: var(--lp-surface);
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-shadow: 0 18px 70px #13243c33;
+}
+.ledger-page .lp-dialog:has(.lp-annual-full, .ledger-table) {
+  width: min(1440px, calc(100vw - 40px));
 }
 .ledger-page .lp-dialog::backdrop {
-  background: #20352c66;
+  background: #14243c80;
 }
 .ledger-page .lp-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 25px 28px 22px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--lp-rule);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--lp-surface);
 }
 .ledger-page .lp-dialog-header h2 {
-  font-size: 22px;
-  margin-top: 5px;
+  font-size: 19px;
+  margin: 0;
+}
+.ledger-page .lp-dialog-header .lp-caption:empty {
+  display: none;
 }
 .ledger-page .lp-close {
   border: 0;
   background: transparent;
-  font-size: 26px;
+  font-size: 25px;
+  line-height: 1;
+  min-width: 36px;
   padding: 2px 10px;
 }
 .ledger-page .lp-form,
 .ledger-page .lp-form > fieldset {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
 }
 .ledger-page .lp-form {
-  padding: 26px 28px;
+  padding: 20px;
 }
-.ledger-page .lp-form label > :is(input, select, textarea) {
+.ledger-page
+  .lp-form
+  label
+  > :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
   width: 100%;
-  font-size: 15px;
+  font-size: 14px;
 }
 .ledger-page .lp-form-tabs {
   align-self: stretch;
@@ -1018,7 +1147,7 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-dropzone-active {
   border-color: var(--lp-primary);
   border-style: solid;
-  background: #edf3e9;
+  background: var(--lp-tint);
 }
 .ledger-page .lp-dropzone-hint {
   margin: 0;
@@ -1038,13 +1167,14 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-dialog-footer {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
   padding-top: 22px;
   margin-top: 8px;
   border-top: 1px solid var(--lp-rule);
 }
 .ledger-page .lp-dialog-body {
-  padding: 22px 28px;
+  padding: 20px;
 }
 .ledger-page .lp-dialog-body .lp-form {
   padding: 15px 0 0;
@@ -1053,27 +1183,33 @@ html.lp-tab-grabbing * {
   margin-top: 0;
 }
 .ledger-page .lp-danger-button {
-  color: #a6423d;
-  border-color: #dbb6b1;
-  background: #fbf2f0;
+  color: var(--lp-danger);
+  border-color: #e0bcb6;
+  background: #fff1ed;
+}
+.ledger-page .lp-danger-button:hover:not(:disabled) {
+  color: var(--lp-danger);
+  border-color: var(--lp-danger);
+  background: #fce4dd;
 }
 .ledger-page .lp-error,
 .ledger-page .ledger-error {
-  color: #a13b35;
-  padding: 12px;
-  border: 1px solid #e0bcb6;
-  background: #fcf0ec;
+  color: var(--lp-danger);
+  padding: 12px 16px;
+  border-left: 3px solid var(--lp-danger);
+  border-radius: 4px;
+  background: #fff1ed;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
 .ledger-page .lp-dialog > .lp-error {
-  margin: 16px 28px;
+  margin: 16px 20px;
 }
 .ledger-page .lp-discard {
-  margin: 18px 28px 0;
+  margin: 18px 20px 0;
   padding: 15px;
-  background: #f7eee8;
-  border: 1px solid #d6bfb0;
+  background: #fff1ed;
+  border: 1px solid #e0bcb6;
   border-radius: 4px;
 }
 .ledger-page .lp-discard p {
@@ -1202,7 +1338,7 @@ html.lp-tab-grabbing * {
   table-layout: fixed;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: 12px;
   white-space: normal;
 }
 .ledger-page .lp-positions-table :is(th, td) {
@@ -1213,15 +1349,15 @@ html.lp-tab-grabbing * {
   overflow-wrap: anywhere;
 }
 .ledger-page .lp-positions-table th {
-  background: #f3f5f0;
-  color: var(--lp-muted);
-  font-weight: 400;
+  background: var(--lp-table-heading);
+  color: #52667f;
+  font-weight: 550;
   font-size: 12px;
 }
 .ledger-page .lp-positions-table :is(th, td):first-child {
   text-align: left;
   width: 24%;
-  padding-left: 0;
+  padding-left: 13px;
 }
 .ledger-page .lp-positions-table th:nth-child(2) {
   width: 12%;
@@ -1259,7 +1395,7 @@ html.lp-tab-grabbing * {
   max-width: 240px;
 }
 .ledger-page .lp-position-edit-row {
-  background: #f0f4ed;
+  background: var(--lp-tint);
 }
 .ledger-page .lp-add-position {
   padding: 20px 0;
@@ -1375,7 +1511,7 @@ html.lp-tab-grabbing * {
   align-items: center;
 }
 .ledger-page .lp-holding-columns {
-  background: #f0f4ef;
+  background: var(--lp-table-heading);
   border-block: 1px solid var(--lp-rule);
   padding: 12px;
   color: var(--lp-muted);
@@ -1401,7 +1537,7 @@ html.lp-tab-grabbing * {
   font-variant-numeric: tabular-nums;
 }
 .ledger-page .lp-holding-row:hover {
-  background: #f4f7f2;
+  background: var(--lp-hover);
 }
 .ledger-page .lp-holding-row > span {
   min-width: 0;
@@ -1428,7 +1564,7 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-market-tag {
   display: inline-block;
   font-size: 10px;
-  background: #eaf0e6;
+  background: var(--lp-tint);
   color: var(--lp-primary);
   border-radius: 2px;
   padding: 1px 4px;
@@ -1655,7 +1791,9 @@ html.lp-tab-grabbing * {
 .ledger-page .ledger-form label {
   margin: 14px 0;
 }
-.ledger-page .ledger-form :is(input, select, textarea) {
+.ledger-page
+  .ledger-form
+  :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
   width: 100%;
 }
 .ledger-page .ledger-form p {
@@ -1663,7 +1801,7 @@ html.lp-tab-grabbing * {
   color: var(--lp-muted);
 }
 .ledger-page .ledger-form [role="alert"] {
-  color: #a13b35;
+  color: var(--lp-danger);
 }
 .ledger-page .ledger-grid {
   display: grid;
@@ -1698,6 +1836,7 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .fx-fields {
   border: 1px solid var(--lp-rule);
+  border-radius: 6px;
   padding: 14px;
   margin: 14px 0;
 }
@@ -1730,28 +1869,34 @@ html.lp-tab-grabbing * {
 }
 @media (max-width: 720px) {
   .ledger-page .lp-masthead {
-    padding: 12px 18px;
+    padding: 14px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
   .ledger-page .lp-masthead .brand {
-    gap: 7px;
-    font-size: 18px;
+    gap: 10px;
+    font-size: 20px;
   }
   .ledger-page .lp-masthead .brand-sub,
   .ledger-page .lp-masthead .brand-divider {
-    display: none;
+    display: inline;
   }
   .ledger-page .lp-masthead nav {
-    gap: 15px;
-    font-size: 12px;
+    gap: 18px;
+    font-size: 13px;
   }
   .ledger-page .lp-main {
-    padding: 24px 16px 20px;
+    padding: 20px 14px;
+  }
+  .ledger-page h1 {
+    font-size: 23px;
   }
   .ledger-page .lp-income {
-    padding: 18px 18px 14px;
+    padding: 15px;
   }
   .ledger-page .lp-annual {
-    padding: 18px;
+    padding: 15px;
   }
   .ledger-page .lp-overview {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1789,6 +1934,13 @@ html.lp-tab-grabbing * {
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
+  }
+  .ledger-page .lp-dialog,
+  .ledger-page .lp-dialog:has(.lp-annual-full, .ledger-table) {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 8px;
   }
 }
 @media (max-width: 599px) {
@@ -1855,7 +2007,7 @@ html.lp-tab-grabbing * {
   }
   .ledger-page .lp-overview strong,
   .ledger-page .lp-overview .lp-assets strong {
-    font-size: 26px;
+    font-size: clamp(20px, 5.5vw, 24px);
   }
   .ledger-page .lp-overview small {
     font-size: 11px;
@@ -1989,16 +2141,19 @@ html.lp-tab-grabbing * {
     grid-template-columns: 85px minmax(0, 1fr);
   }
   .ledger-page .lp-dialog-header {
-    padding: 20px;
+    padding: 12px;
+  }
+  .ledger-page .lp-dialog-header h2 {
+    font-size: 17px;
   }
   .ledger-page .lp-form,
   .ledger-page .lp-dialog-body {
-    padding: 22px 20px;
+    padding: 15px;
   }
   .ledger-page .lp-dialog > .lp-error,
   .ledger-page .lp-discard {
-    margin-left: 20px;
-    margin-right: 20px;
+    margin-left: 15px;
+    margin-right: 15px;
   }
   .ledger-page .lp-dialog-footer {
     padding-bottom: env(safe-area-inset-bottom);
@@ -2010,5 +2165,6 @@ html.lp-tab-grabbing * {
 @media (prefers-reduced-motion: reduce) {
   .ledger-page * {
     scroll-behavior: auto !important;
+    transition: none !important;
   }
 }

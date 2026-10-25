@@ -70,7 +70,7 @@ function render() {
         connectNulls: false,
         smooth: false,
         lineStyle: {
-          color: "#24745b",
+          color: "#1766b6",
           type: "solid",
         },
       },
@@ -78,7 +78,7 @@ function render() {
         type: "scatter",
         symbol: "circle",
         symbolSize: 8,
-        itemStyle: { color: "#24745b" },
+        itemStyle: { color: "#1766b6" },
         data: props.result.curve
           .filter((p) => p[key.value].value !== null)
           .map((p) => ({
@@ -96,7 +96,7 @@ function render() {
       yAxisIndex: 1,
       symbol: out ? "diamond" : "triangle",
       symbolSize: 10,
-      itemStyle: { color: out ? "#24745b" : "#bc514c" },
+      itemStyle: { color: out ? "#365c4a" : "#b4482d" },
       data: props.points
         .filter(
           (f) =>
@@ -119,6 +119,11 @@ function render() {
       {
         animation: false,
         useUTC: true,
+        textStyle: {
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
+          color: "#62748b",
+        },
         grid: [
           { left: 70, right: 20, top: 35, height: 200 },
           { left: 70, right: 20, top: 285, height: 45 },
@@ -127,6 +132,10 @@ function render() {
           trigger: "item",
           renderMode: "richText",
           confine: true,
+          backgroundColor: "#fff",
+          borderColor: "#ccd7e2",
+          padding: [10, 12],
+          textStyle: { color: "#263445", fontSize: 12 },
           formatter: (p: unknown) =>
             (p as { data?: { text?: string } }).data?.text ?? "",
         },
@@ -135,12 +144,19 @@ function render() {
           gridIndex,
           min: min ? Date.parse(`${min}T00:00:00Z`) - 43200000 : undefined,
           max: max ? Date.parse(`${max}T00:00:00Z`) + 43200000 : undefined,
-          axisLabel: { hideOverlap: true, formatter: "{yyyy}-{MM}-{dd}" },
+          axisLabel: {
+            hideOverlap: true,
+            formatter: "{yyyy}-{MM}-{dd}",
+            color: "#62748b",
+          },
+          axisLine: { lineStyle: { color: "#ccd7e2" } },
         })),
         yAxis: [
           {
             type: "value",
             scale: true,
+            axisLabel: { color: "#62748b" },
+            splitLine: { lineStyle: { color: "#e5eaf0", type: "dashed" } },
             name:
               key.value === "profit"
                 ? "收益坐标（近似）"
@@ -149,7 +165,16 @@ function render() {
           { type: "category", gridIndex: 1, data: ["转出", "转入"] },
         ],
         dataZoom: [
-          { type: "slider", xAxisIndex: [0, 1], bottom: 5, filterMode: "none" },
+          {
+            type: "slider",
+            xAxisIndex: [0, 1],
+            bottom: 5,
+            filterMode: "none",
+            borderColor: "#ccd7e2",
+            fillerColor: "#1766b61a",
+            textStyle: { color: "#62748b" },
+            handleStyle: { color: "#fff", borderColor: "#1766b6" },
+          },
         ],
         series: [...series, ...events],
       },

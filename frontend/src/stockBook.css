@@ -1,10 +1,15 @@
 .ledger-page .stock-book {
-  margin: 18px 0 26px;
-  padding: 20px 24px;
+  margin: 16px 0;
+  padding: 20px;
   border: 1px solid var(--lp-rule);
   background: var(--lp-surface);
   border-radius: 8px;
   scroll-margin-top: 20px;
+}
+.ledger-page .lp-holdings > .stock-book {
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .stock-heading,
 .stock-heading-title,
@@ -106,9 +111,11 @@
   font-weight: 600;
 }
 .stock-list-labels {
-  color: var(--lp-muted);
+  color: #52667f;
+  background: var(--lp-table-heading);
   font-size: 12px;
-  padding: 10px 0;
+  padding: 12px 13px;
+  border-radius: 6px 6px 0 0;
 }
 .stock-list-labels > :first-child,
 .stock-identity {
@@ -119,11 +126,12 @@
   border-top: 1px solid var(--lp-rule);
   border-radius: 0;
   background: transparent;
-  padding: 16px 0;
+  padding: 13px;
   cursor: pointer;
 }
 .ledger-page .stock-row:hover:not(:disabled) {
-  background: #edf2eb;
+  background: var(--lp-hover);
+  color: var(--lp-text);
 }
 .stock-row > span:not(.stock-chevron) {
   display: flex;
@@ -132,7 +140,7 @@
   gap: 3px;
 }
 .stock-row strong {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
@@ -147,16 +155,18 @@
   border: 1px solid var(--lp-rule);
   padding: 0 3px;
   border-radius: 2px;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
 }
 .stock-chevron {
   color: var(--lp-muted);
   font-size: 22px;
 }
 .ledger-page .stock-gain {
-  color: #b7413c;
+  color: var(--lp-danger);
 }
 .ledger-page .stock-loss {
-  color: #21764d;
+  color: var(--lp-down);
 }
 .stock-detail-heading {
   margin: 18px 0;
@@ -178,7 +188,7 @@
   color: var(--lp-muted);
 }
 .stock-quote strong {
-  color: #263b32;
+  color: var(--lp-emphasis);
   font-size: 26px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
@@ -368,7 +378,7 @@
   .ledger-page .stock-sort-mobile button {
     padding: 4px 9px;
     font-size: 12px;
-    border-radius: 999px;
+    border-radius: 5px;
   }
   .stock-totals {
     gap: 4px 18px;
@@ -382,6 +392,7 @@
     gap: 10px 8px;
     text-align: left;
     position: relative;
+    padding: 16px 0;
   }
   .stock-row .stock-identity {
     grid-column: 1/-1;

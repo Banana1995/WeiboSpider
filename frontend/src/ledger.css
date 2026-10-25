@@ -2331,3 +2331,43 @@ html.lp-tab-grabbing * {
     transition: none !important;
   }
 }
+
+.ledger-page .lp-record-filterbar {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-record-filters fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ledger-page .lp-record-filters label {
+  width: 190px;
+  font-size: 12px;
+}
+.ledger-page .lp-record-filters label.lp-check {
+  width: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 10px;
+}
+.ledger-page .lp-record-filters button {
+  min-height: 36px;
+}
+.ledger-page .lp-record-filters .lp-error {
+  margin: 10px 0 0;
+}
+@media (max-width: 720px) {
+  .ledger-page .lp-record-filterbar {
+    padding: 14px;
+  }
+  .ledger-page .lp-record-filters label {
+    width: calc(50% - 6px);
+  }
+  .ledger-page .lp-record-filters label.lp-check {
+    width: 100%;
+    padding-bottom: 0;
+  }
+}

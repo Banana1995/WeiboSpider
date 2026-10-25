@@ -14,7 +14,6 @@ const rows = reactive(useLedgerRead<Page<AccountRecord>>());
 const from = ref("");
 const to = ref("");
 const showVoided = ref(false);
-const filterMenu = ref<HTMLDetailsElement>();
 const filterError = ref("");
 const notice = ref("");
 const highlighted = ref("");
@@ -69,7 +68,6 @@ function filter() {
   highlighted.value = "";
   notice.value = "";
   cursors.value = [""];
-  if (filterMenu.value) filterMenu.value.open = false;
   load();
 }
 function reset() {
@@ -107,7 +105,6 @@ async function locate(event: { id: string; date: string; accountId: string }) {
   highlighted.value = "";
   filterError.value = "";
   notice.value = "正在定位这笔记录…";
-  if (filterMenu.value) filterMenu.value.open = false;
   const history = [""];
   let foundPage = 0;
   let found = false;
@@ -188,7 +185,6 @@ watch(
     highlighted.value = "";
     notice.value = "";
     filterError.value = "";
-    if (filterMenu.value) filterMenu.value.open = false;
   },
   { immediate: true },
 );
@@ -221,44 +217,21 @@ onBeforeUnmount(() => {
     <summary class="lp-record-summary">
       <h2 id="records-title">账户记录</h2>
     </summary>
-    <div class="lp-section-title">
-      <div class="lp-record-tools">
-        <details ref="filterMenu" class="lp-filter-menu">
-          <summary>
-            筛选<span
-              v-if="applied.from || applied.to || applied.status === 'all'"
-              class="lp-filter-dot"
-            />
-          </summary>
-          <form @submit.prevent="filter">
-            <fieldset :disabled="locked">
-              <strong>仅筛选下方记录</strong>
-              <label>记录开始日期<LedgerDate v-model="from" /></label
-              ><label>记录结束日期<LedgerDate v-model="to" /></label>
-              <label class="lp-check"
-                ><input v-model="showVoided" type="checkbox" />显示已作废</label
-              >
-              <p v-if="filterError" class="lp-error" role="alert">
-                {{ filterError }}
-              </p>
-              <div class="lp-actions">
-                <button type="submit">应用筛选</button
-                ><button type="button" @click="reset">清除</button>
-              </div>
-            </fieldset>
-          </form>
-        </details>
-        <button
-          class="lp-text-button"
-          :disabled="locked || rows.loading"
-          @click="
-            cursors = [''];
-            load();
-          "
-        >
-          刷新
-        </button>
-      </div>
+    <div class="lp-record-filterbar">
+      <form class="lp-record-filters" @submit.prevent="filter">
+        <fieldset :disabled="locked">
+          <label>记录开始日期<LedgerDate v-model="from" /></label>
+          <label>记录结束日期<LedgerDate v-model="to" /></label>
+          <label class="lp-check"
+            ><input v-model="showVoided" type="checkbox" />显示已作废</label
+          >
+          <button type="submit">应用筛选</button>
+          <button type="button" @click="reset">清除</button>
+        </fieldset>
+        <p v-if="filterError" class="lp-error" role="alert">
+          {{ filterError }}
+        </p>
+      </form>
     </div>
     <p
       v-if="applied.from || applied.to || applied.status === 'all'"

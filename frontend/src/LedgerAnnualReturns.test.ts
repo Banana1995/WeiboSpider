@@ -8,7 +8,11 @@ import {
 } from "./useLedgerWorkspace";
 import type { Account } from "./ledger";
 import type { AnnualReturnRow, AnnualReturns } from "./ledgerAnnualReturns";
-import { validateAnnualReturns, yearDescription } from "./ledgerAnnualReturns";
+import {
+  showAnnualPeriod,
+  validateAnnualReturns,
+  yearDescription,
+} from "./ledgerAnnualReturns";
 import type { ReturnMetric } from "./ledgerReturns";
 
 const account: Account = {
@@ -109,11 +113,12 @@ it("shows recent years and lifetime, including carried returns without a referen
     "/api/platform/ledger/accounts/sample/annual-returns?benchmark=H00300",
   ]);
   const rows = wrapper.findAll(".lp-annual > .lp-annual-scroll tbody tr");
-  expect(rows).toHaveLength(4);
+  expect(rows).toHaveLength(5);
   expect(rows.map((item) => item.find("th").text())).toEqual([
     "年化收益率",
-    "2025年 全年",
-    "2026年 年初 至 09-01",
+    "2024年 08-01 至 年末",
+    "2025年",
+    "2026年",
     "记账以来",
   ]);
   expect(rows[1]!.text()).toContain("+13.00%");
@@ -121,15 +126,27 @@ it("shows recent years and lifetime, including carried returns without a referen
   await wrapper.get("button.lp-text-button").trigger("click");
   expect(wrapper.find("dialog").exists()).toBe(true);
   expect(wrapper.findAll(".lp-annual-full tbody tr")).toHaveLength(5);
-  expect(wrapper.find(".lp-annual-full").text()).toContain(
-    "2024年08-01 至 年末",
-  );
+  expect(wrapper.find(".lp-annual-full").text()).toContain("2024年");
+  expect(wrapper.find(".lp-annual-full").text()).toContain("08-01 至 年末");
   await wrapper.findAll("dialog select")[1]!.setValue("H00922");
   await flushPromises();
   expect(wrapper.find("dialog").exists()).toBe(true);
   expect(wrapper.find(".lp-annual-full").text()).toContain("中证红利全收益");
   await wrapper.get(".lp-close").trigger("click");
   expect(wrapper.find("dialog").exists()).toBe(false);
+});
+
+it("shows a cutoff only for a stale trailing year", () => {
+  const years = [
+    row(2024, "2024-08-01", "2024-12-31"),
+    row(2025, "2024-12-31", "2025-12-31"),
+    row(2026, "2025-12-31", "2026-09-01"),
+  ];
+  expect(showAnnualPeriod(years[0]!, years, "2026-09-06")).toBe(true);
+  expect(showAnnualPeriod(years[1]!, years, "2026-09-06")).toBe(false);
+  expect(showAnnualPeriod(years[2]!, years, "2026-09-06")).toBe(false);
+  expect(showAnnualPeriod(years[2]!, years, "2026-12-01")).toBe(false);
+  expect(showAnnualPeriod(years[2]!, years, "2026-12-02")).toBe(true);
 });
 
 it("changes the benchmark and syncs the annual perspective with the overview", async () => {

@@ -123,3 +123,32 @@ export function yearDescription(row: AnnualReturnRow): string {
   const last = row.to === `${year}-12-31` ? "年末" : row.to.slice(5);
   return first === "年初" && last === "年末" ? "全年" : `${first} 至 ${last}`;
 }
+
+// The first year always shows its start; later years only reveal a cutoff when
+// the most recent record is more than three months old and the year is partial.
+// A gap followed by a later record is continuous bookkeeping, so it stays hidden.
+export function showAnnualPeriod(
+  row: AnnualReturnRow,
+  years: AnnualReturnRow[],
+  asOf: string,
+): boolean {
+  if (!row.year || !years.length) return false;
+  if (row.year === years[0]!.year) return true;
+  if (row.year !== years[years.length - 1]!.year) return false;
+  if (!row.to || row.to === `${row.year}-12-31`) return false;
+  return asOf > threeMonthsAfter(row.to);
+}
+
+function threeMonthsAfter(day: string): string {
+  let year = Number(day.slice(0, 4));
+  let month = Number(day.slice(5, 7)) + 3;
+  const date = Number(day.slice(8, 10));
+  if (month > 12) {
+    month -= 12;
+    year += 1;
+  }
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const lengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const last = lengths[month - 1]!;
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(Math.min(date, last)).padStart(2, "0")}`;
+}

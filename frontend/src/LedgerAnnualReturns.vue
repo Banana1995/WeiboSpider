@@ -8,6 +8,7 @@ import {
   type ReturnMetric,
 } from "./ledgerReturns";
 import {
+  showAnnualPeriod,
   validateAnnualReturns,
   yearDescription,
   type AnnualReturnRow,
@@ -39,9 +40,16 @@ const modalView = ref<"personal" | "manager">(props.view);
 const expanded = ref(false);
 const switching = ref(false);
 const modalSwitching = ref(false);
-const latest = computed(() => read.data?.years.slice(-2) ?? []);
+const recentYears = computed(() => {
+  const years = read.data?.years ?? [];
+  const recent = years.slice(-5);
+  const first = years[0];
+  return first && !recent.includes(first) ? [first, ...recent] : recent;
+});
 const shortRows = computed(() =>
-  read.data ? [read.data.annualized, ...latest.value, read.data.since] : [],
+  read.data
+    ? [read.data.annualized, ...recentYears.value, read.data.since]
+    : [],
 );
 const modalRows = computed(() =>
   modalRead.data
@@ -78,6 +86,10 @@ const period = (row: AnnualReturnRow) =>
     : row.from && row.to && row.to > row.from
       ? `${row.from} 至 ${row.to}`
       : "暂无有效区间";
+const periodVisible = (
+  row: AnnualReturnRow,
+  data: AnnualReturns | undefined = read.data,
+) => Boolean(data && showAnnualPeriod(row, data.years, data.as_of));
 
 function requestFor(
   selected: BenchmarkCode,
@@ -250,9 +262,7 @@ watch(expanded, (open) => {
             <tr v-for="row in shortRows" :key="row.year || title(row)">
               <th scope="row">
                 {{ title(row) }}
-                <small v-if="row.year || (row.from && row.to)">{{
-                  period(row)
-                }}</small>
+                <small v-if="periodVisible(row)">{{ period(row) }}</small>
               </th>
               <td
                 :class="{
@@ -348,7 +358,7 @@ watch(expanded, (open) => {
                 >
                   <th scope="row">
                     {{ title(row, modalRead.data)
-                    }}<small v-if="row.year || (row.from && row.to)">{{
+                    }}<small v-if="periodVisible(row, modalRead.data)">{{
                       period(row)
                     }}</small>
                   </th>

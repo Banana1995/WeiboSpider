@@ -2505,4 +2505,15 @@ html.lp-tab-grabbing * {
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--lp-rule);
+  flex-wrap: wrap;
+}
+.ledger-page .lp-danger-solid {
+  background: #b4482d;
+  border-color: #b4482d;
+  color: #fff;
+}
+.ledger-page .lp-danger-solid:hover:not(:disabled) {
+  background: #97381f;
+  border-color: #97381f;
+  color: #fff;
 }

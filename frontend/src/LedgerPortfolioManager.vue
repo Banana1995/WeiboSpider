@@ -29,6 +29,8 @@ const editing = computed(() =>
 );
 const savingId = ref("");
 const membershipError = ref("");
+const draft = ref<string[]>([]);
+const draftError = ref("");
 
 function load() {
   void list.load(async (signal) => {
@@ -53,29 +55,47 @@ function openCreate() {
 function toggle(portfolio: Portfolio) {
   if (locked.value) return;
   membershipError.value = "";
-  expandedId.value = expandedId.value === portfolio.id ? "" : portfolio.id;
+  draftError.value = "";
+  if (expandedId.value === portfolio.id) {
+    expandedId.value = "";
+    draft.value = [];
+    return;
+  }
+  expandedId.value = portfolio.id;
+  draft.value = [...portfolio.account_ids];
 }
-async function toggleMember(
-  portfolio: Portfolio,
-  accountId: string,
-  event: Event,
-) {
+const dirtyFor = (portfolio: Portfolio) =>
+  expandedId.value === portfolio.id &&
+  [...draft.value].sort().join(",") !==
+    [...portfolio.account_ids].sort().join(",");
+function toggleMember(accountId: string, event: Event) {
   const input = event.target as HTMLInputElement;
   if (locked.value || savingId.value) return;
-  const live = portfolio.account_ids.filter((id) =>
-    props.accounts.some((account) => account.id === id),
-  );
-  const member = portfolio.account_ids.includes(accountId);
-  if (member && live.length <= 1) {
+  draftError.value = "";
+  if (input.checked) {
+    if (!draft.value.includes(accountId))
+      draft.value = [...draft.value, accountId].sort();
+    return;
+  }
+  if (draft.value.length <= 1) {
     input.checked = true;
-    membershipError.value =
+    draftError.value =
       "组合至少需要保留一个账户；如需清空，请直接删除整个组合。";
     return;
   }
-  const accountIds = (
-    member ? live.filter((id) => id !== accountId) : [...live, accountId]
-  ).sort();
+  draft.value = draft.value.filter((id) => id !== accountId);
+}
+async function saveMembers(portfolio: Portfolio) {
+  if (locked.value || savingId.value) return;
+  const accountIds = draft.value
+    .filter((id) => props.accounts.some((account) => account.id === id))
+    .sort();
+  if (!accountIds.length) {
+    draftError.value = "组合至少需要保留一个账户。";
+    return;
+  }
   savingId.value = portfolio.id;
+  draftError.value = "";
   membershipError.value = "";
   try {
     const updated = await request<Portfolio>(
@@ -100,14 +120,15 @@ async function toggleMember(
       list.data = list.data.map((item) =>
         item.id === portfolio.id ? updated : item,
       );
+    draft.value = [...updated.account_ids];
     emit("changed");
   } catch (e) {
-    input.checked = member;
     membershipError.value = errorText(failure(e));
   } finally {
     savingId.value = "";
   }
 }
+
 function openDelete(portfolio: Portfolio) {
   if (locked.value) return;
   targetId.value = portfolio.id;
@@ -210,7 +231,7 @@ function reload() {
             v-if="expandedId === portfolio.id"
             class="lp-portfolio-entry-panel"
           >
-            <p class="lp-field-hint">勾选要汇总的账户，修改后立即保存。</p>
+            <p class="lp-field-hint">勾选要汇总的账户，点击保存后生效。</p>
             <div
               class="lp-portfolio-members"
               role="group"
@@ -219,9 +240,9 @@ function reload() {
               <label v-for="item in accounts" :key="item.id">
                 <input
                   type="checkbox"
-                  :checked="portfolio.account_ids.includes(item.id)"
+                  :checked="draft.includes(item.id)"
                   :disabled="locked || savingId === portfolio.id"
-                  @change="toggleMember(portfolio, item.id, $event)"
+                  @change="toggleMember(item.id, $event)"
                 />
                 <span
                   ><strong>{{ item.name }}</strong
@@ -231,21 +252,40 @@ function reload() {
                 >
               </label>
             </div>
+            <p v-if="draftError" class="lp-error" role="alert">
+              {{ draftError }}
+            </p>
             <p v-if="membershipError" class="lp-error" role="alert">
               {{ membershipError }}
             </p>
             <div class="lp-portfolio-panel-footer">
               <span class="lp-muted" role="status">{{
-                savingId === portfolio.id ? "正在保存…" : "修改立即生效"
+                savingId === portfolio.id
+                  ? "正在保存…"
+                  : dirtyFor(portfolio)
+                    ? "有未保存的修改"
+                    : "尚未修改"
               }}</span>
-              <button
-                class="lp-text-button"
-                :disabled="locked || savingId === portfolio.id"
-                :aria-label="`删除${portfolio.name}`"
-                @click="openDelete(portfolio)"
-              >
-                删除组合
-              </button>
+              <div class="lp-actions">
+                <button
+                  class="lp-danger-solid"
+                  :disabled="locked || savingId === portfolio.id"
+                  :aria-label="`删除${portfolio.name}`"
+                  @click="openDelete(portfolio)"
+                >
+                  删除组合
+                </button>
+                <button
+                  class="lp-primary"
+                  :disabled="
+                    locked || savingId === portfolio.id || !dirtyFor(portfolio)
+                  "
+                  :aria-label="`保存${portfolio.name}的成员`"
+                  @click="saveMembers(portfolio)"
+                >
+                  保存
+                </button>
+              </div>
             </div>
           </div>
         </li>

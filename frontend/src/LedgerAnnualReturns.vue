@@ -32,15 +32,24 @@ const props = defineProps<{
 const emit = defineEmits<{ view: [value: "personal" | "manager"] }>();
 const { locked, accountCache, cacheEpoch } = useLedgerWorkspace();
 const read = reactive(useLedgerCachedRead<AnnualReturns>(accountCache));
+const modalRead = reactive(useLedgerCachedRead<AnnualReturns>(accountCache));
 const code = ref<BenchmarkCode>("H00300");
+const modalCode = ref<BenchmarkCode>("H00300");
+const modalView = ref<"personal" | "manager">(props.view);
 const expanded = ref(false);
 const switching = ref(false);
+const modalSwitching = ref(false);
 const latest = computed(() => read.data?.years.slice(-2) ?? []);
 const shortRows = computed(() =>
   read.data ? [read.data.annualized, ...latest.value, read.data.since] : [],
 );
-const selectedMetric = (row: AnnualReturnRow) =>
-  props.view === "personal" ? row.money_weighted : row.time_weighted;
+const modalRows = computed(() =>
+  modalRead.data
+    ? [modalRead.data.annualized, ...modalRead.data.years, modalRead.data.since]
+    : [],
+);
+const selectedMetric = (row: AnnualReturnRow, mode = props.view) =>
+  mode === "personal" ? row.money_weighted : row.time_weighted;
 const percent = (value: ReturnMetric) =>
   value.value === null
     ? "—"
@@ -67,19 +76,16 @@ const period = (row: AnnualReturnRow) =>
       ? `${row.from} 至 ${row.to}`
       : "暂无有效区间";
 
-function load(options: { preserve?: boolean } = {}) {
-  const preserve = options.preserve === true && Boolean(read.data);
-  if (!preserve) read.clear();
-  if (locked.value) return;
-  switching.value = preserve;
+function requestFor(
+  selected: BenchmarkCode,
+): CachedLedgerRequest<AnnualReturns> {
   const account = props.account;
-  const selected = code.value;
-  const cachedRequest: CachedLedgerRequest<AnnualReturns> = props.portfolio
+  return props.portfolio
     ? {
         key: `portfolio-annual|${account.id}|${account.currency}|${props.refreshKey}|${selected}|${todayShanghai()}`,
         read: async (signal: AbortSignal) => {
           const data = await request<AnnualReturns>(
-            `/${props.portfolio ? "portfolios" : "accounts"}/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
+            `/portfolios/${encodeURIComponent(account.id)}/annual-returns${query({ benchmark: selected })}`,
             { signal },
           );
           try {
@@ -90,18 +96,51 @@ function load(options: { preserve?: boolean } = {}) {
         },
       }
     : annualReturnsRequest(account, selected);
-  void read.load(cachedRequest, true, preserve).finally(() => {
+}
+function load(options: { preserve?: boolean } = {}) {
+  const preserve = options.preserve === true && Boolean(read.data);
+  if (!preserve) read.clear();
+  if (locked.value) return;
+  switching.value = preserve;
+  void read.load(requestFor(code.value), true, preserve).finally(() => {
     if (switching.value) switching.value = false;
   });
 }
+function loadModal(options: { preserve?: boolean } = {}) {
+  const preserve = options.preserve === true && Boolean(modalRead.data);
+  if (!preserve) modalRead.clear();
+  if (locked.value) return;
+  modalSwitching.value = preserve;
+  void modalRead
+    .load(requestFor(modalCode.value), true, preserve)
+    .finally(() => {
+      if (modalSwitching.value) modalSwitching.value = false;
+    });
+}
 watch(
   [() => props.account.id, () => props.refreshKey, cacheEpoch, locked],
-  () => load(),
+  () => {
+    load();
+    if (expanded.value) loadModal();
+  },
   {
     immediate: true,
   },
 );
 watch(code, () => load({ preserve: true }));
+watch(modalCode, () => {
+  if (expanded.value) loadModal({ preserve: true });
+});
+watch(expanded, (open) => {
+  if (!open) return;
+  modalView.value = props.view;
+  if (modalCode.value === code.value) {
+    loadModal();
+    return;
+  }
+  modalRead.clear();
+  modalCode.value = code.value;
+});
 </script>
 
 <template>
@@ -248,24 +287,14 @@ watch(code, () => load({ preserve: true }));
         <div class="lp-annual-controls">
           <label
             >收益视角
-            <select
-              :value="view"
-              :disabled="locked"
-              @change="
-                emit(
-                  'view',
-                  ($event.target as HTMLSelectElement).value as
-                    'personal' | 'manager',
-                )
-              "
-            >
+            <select v-model="modalView" :disabled="locked">
               <option value="personal">资金加权收益率</option>
               <option value="manager">时间加权收益率</option>
             </select>
           </label>
           <label
             >对比指数
-            <select v-model="code" :disabled="locked">
+            <select v-model="modalCode" :disabled="locked">
               <option
                 v-for="definition in benchmarkDefinitions"
                 :key="definition.code"
@@ -276,22 +305,23 @@ watch(code, () => load({ preserve: true }));
             </select>
           </label>
         </div>
-        <p v-if="read.loading" class="lp-annual-status" role="status">
+        <p v-if="modalRead.loading" class="lp-annual-status" role="status">
           <span class="lp-spinner" aria-hidden="true" />
           {{
-            switching
+            modalSwitching
               ? "正在切换指数…"
-              : read.data
+              : modalRead.data
                 ? "已显示上次年度结果，正在核对…"
                 : "正在计算年度收益…"
           }}
         </p>
-        <p v-if="read.error" class="lp-error" role="alert">
-          {{ errorText(read.error) }} <button @click="load()">重新读取</button>
+        <p v-if="modalRead.error" class="lp-error" role="alert">
+          {{ errorText(modalRead.error) }}
+          <button @click="loadModal()">重新读取</button>
         </p>
-        <template v-if="read.data">
+        <template v-if="modalRead.data">
           <p
-            v-if="read.data.benchmark_error"
+            v-if="modalRead.data.benchmark_error"
             class="lp-annual-note"
             role="status"
           >
@@ -307,14 +337,7 @@ watch(code, () => load({ preserve: true }));
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="row in [
-                    read.data.annualized,
-                    ...read.data.years,
-                    read.data.since,
-                  ]"
-                  :key="row.year || title(row)"
-                >
+                <tr v-for="row in modalRows" :key="row.year || title(row)">
                   <th scope="row">
                     {{ title(row)
                     }}<small v-if="row.year">{{ period(row) }}</small>

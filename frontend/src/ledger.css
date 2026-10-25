@@ -681,14 +681,14 @@ html.lp-tab-grabbing * {
   font-weight: 550;
 }
 .ledger-page .lp-annual-table th:first-child {
-  text-align: left;
-  padding-left: 13px;
-  width: 36%;
+  text-align: center;
+  padding-left: 10px;
+  width: 34%;
 }
 .ledger-page .lp-annual-table th:not(:first-child),
 .ledger-page .lp-annual-table td {
-  text-align: right;
-  width: 32%;
+  text-align: center;
+  width: 33%;
 }
 .ledger-page .lp-annual-table tbody th {
   background: transparent;
@@ -713,6 +713,9 @@ html.lp-tab-grabbing * {
 }
 .ledger-page .lp-annual-table tr:last-child > * {
   border-bottom: 0;
+}
+.ledger-page .lp-annual-table tbody tr:nth-child(even) {
+  background: #f7f9fc;
 }
 .ledger-page .lp-annual-table tbody tr:last-child {
   background: var(--lp-tint);

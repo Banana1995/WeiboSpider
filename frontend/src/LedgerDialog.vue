@@ -16,27 +16,10 @@ const { locked, pending, busy, error, retry, label, dialogs } =
   useLedgerWorkspace();
 const dialog = ref<HTMLDialogElement>();
 const titleId = useId();
-const discard = ref(false);
 let opener: HTMLElement | null = null;
-let resumeTarget: HTMLElement | null = null;
-function requestClose(dirty: boolean) {
+function requestClose() {
   if (locked.value) return;
-  if (dirty) {
-    resumeTarget =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    discard.value = true;
-    void nextTick(() =>
-      dialog.value
-        ?.querySelector<HTMLButtonElement>(".lp-discard button")
-        ?.focus(),
-    );
-  } else emit("close");
-}
-function resume() {
-  discard.value = false;
-  void nextTick(() => resumeTarget?.isConnected && resumeTarget.focus());
+  emit("close");
 }
 watch(error, (value) => {
   if (value && props.showWriteStatus !== false)
@@ -44,7 +27,7 @@ watch(error, (value) => {
       dialog.value?.querySelector<HTMLElement>(".lp-error")?.focus(),
     );
 });
-function backdrop(event: MouseEvent, dirty: boolean) {
+function backdrop(event: MouseEvent) {
   const element = dialog.value;
   if (!element || event.target !== element) return;
   const r = element.getBoundingClientRect();
@@ -54,7 +37,7 @@ function backdrop(event: MouseEvent, dirty: boolean) {
     event.clientY < r.top ||
     event.clientY > r.bottom
   )
-    requestClose(dirty);
+    requestClose();
 }
 function beforeUnload(event: BeforeUnloadEvent) {
   if (locked.value || props.dirty) {
@@ -107,8 +90,8 @@ onBeforeUnmount(() => {
     class="lp-dialog"
     :aria-labelledby="titleId"
     :aria-busy="showWriteStatus !== false && busy && !!pending"
-    @cancel.prevent="requestClose(!!dirty)"
-    @click="backdrop($event, !!dirty)"
+    @cancel.prevent="requestClose"
+    @click="backdrop"
   >
     <header class="lp-dialog-header">
       <div>
@@ -120,7 +103,7 @@ onBeforeUnmount(() => {
         class="lp-close"
         aria-label="关闭弹窗"
         :disabled="locked"
-        @click="requestClose(!!dirty)"
+        @click="requestClose"
       >
         ×
       </button>
@@ -152,21 +135,6 @@ onBeforeUnmount(() => {
         按原请求重试确认
       </button>
     </div>
-    <div v-if="discard" class="lp-discard" role="alert">
-      <strong>放弃尚未保存的修改？</strong>
-      <p>关闭后，本次填写的内容不会保留。</p>
-      <div class="lp-actions">
-        <button type="button" @click="resume">继续编辑</button>
-        <button
-          type="button"
-          class="lp-danger-button"
-          :disabled="locked"
-          @click="emit('close')"
-        >
-          放弃修改
-        </button>
-      </div>
-    </div>
-    <slot :request-close="() => requestClose(!!dirty)" />
+    <slot :request-close="requestClose" />
   </dialog>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import LedgerPortfolioDialog from "./LedgerPortfolioDialog.vue";
+import PortfolioForm from "./PortfolioForm.vue";
 import { all, errorText, LedgerError, type Account } from "./ledger";
 import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
 import { useLedgerRead } from "./useLedgerRead";
@@ -82,14 +82,26 @@ function reload() {
       <div class="lp-actions">
         <button
           class="lp-primary"
-          :disabled="locked || list.loading"
+          :disabled="locked || list.loading || !!modal"
           @click="openCreate"
         >
           ＋ 新建组合
         </button>
       </div>
     </header>
-    <p v-if="list.loading && !list.data" class="lp-empty" role="status">
+    <div v-if="modal" class="lp-management lp-inline-editor">
+      <PortfolioForm
+        inline
+        :accounts="accounts"
+        :portfolio="editing"
+        :remove="modal === 'delete'"
+        @close="close"
+        @saved="saved"
+        @deleted="deleted"
+        @reload="reload"
+      />
+    </div>
+    <p v-else-if="list.loading && !list.data" class="lp-empty" role="status">
       正在读取账户组合…
     </p>
     <div v-else-if="list.error" class="lp-empty">
@@ -142,16 +154,5 @@ function reload() {
       <h3>还没有账户组合</h3>
       <p>新建组合并选择成员，就能合并查看多个账户的收益。</p>
     </div>
-    <LedgerPortfolioDialog
-      v-if="modal"
-      :key="`${modal}-${targetId}`"
-      :accounts="accounts"
-      :portfolio="editing"
-      :remove="modal === 'delete'"
-      @close="close"
-      @saved="saved"
-      @deleted="deleted"
-      @reload="reload"
-    />
   </section>
 </template>

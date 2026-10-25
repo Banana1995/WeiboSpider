@@ -2384,3 +2384,28 @@ html.lp-tab-grabbing * {
   > .lp-management-tabs {
   margin-top: 0;
 }
+
+.ledger-page .lp-inline-editor {
+  padding: 4px 20px 20px;
+}
+.ledger-page .lp-inline-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-inline-editor-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.ledger-page .lp-inline-editor .lp-form {
+  padding: 0;
+}
+.ledger-page .lp-inline-editor .lp-dialog-footer {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--lp-rule);
+}

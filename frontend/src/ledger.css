@@ -2517,3 +2517,23 @@ html.lp-tab-grabbing * {
   border-color: #97381f;
   color: #fff;
 }
+
+.ledger-page .lp-account-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ledger-page .lp-account-name input {
+  max-width: 320px;
+}
+.ledger-page .lp-account-name small {
+  flex-basis: 100%;
+  margin: 0;
+}
+.ledger-page .lp-account-portfolios {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}

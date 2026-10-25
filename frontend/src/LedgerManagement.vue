@@ -3,7 +3,18 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import ImportAccount from "./ImportAccount.vue";
 import LedgerPortfolioManager from "./LedgerPortfolioManager.vue";
-import { PendingWrite, type Account, type Instrument } from "./ledger";
+import {
+  all,
+  errorText,
+  failure,
+  LedgerError,
+  newID,
+  PendingWrite,
+  request,
+  type Account,
+  type Instrument,
+} from "./ledger";
+import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
 import type { ImportResult } from "./ledgerImport";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
@@ -23,8 +34,23 @@ const emit = defineEmits<{
   instruments: [];
   changed: [];
   deleted: [];
+  updated: [];
 }>();
 const { locked, error, send } = useLedgerWorkspace();
+function loadPortfolios() {
+  void all<Portfolio>("/portfolios", new AbortController().signal)
+    .then((items) => {
+      if (items.every((item) => validPortfolio(item))) portfolios.value = items;
+    })
+    .catch(() => {
+      portfolios.value = [];
+    });
+}
+watch(() => props.refreshKey, loadPortfolios, { immediate: true });
+const portfolioNames = (accountId: string) =>
+  portfolios.value
+    .filter((portfolio) => portfolio.account_ids.includes(accountId))
+    .map((portfolio) => portfolio.name);
 const section = ref<"accounts" | "portfolios">("accounts");
 const detailId = ref(props.account?.id ?? "");
 const detailAccount = computed(
@@ -34,6 +60,11 @@ const detailAccount = computed(
 );
 const importOpen = ref(props.initialTab === "import");
 const importDirty = ref(false);
+const editId = ref("");
+const nameDraft = ref("");
+const nameError = ref("");
+const savingName = ref(false);
+const portfolios = ref<Portfolio[]>([]);
 const deleteTarget = ref<Account>();
 const remaining = ref(5);
 let deleteDeadline = 0;
@@ -51,6 +82,61 @@ function closeDetail() {
   if (locked.value) return;
   closeDelete();
   detailId.value = "";
+  editId.value = "";
+  nameError.value = "";
+}
+function startEdit(account: Account) {
+  if (locked.value) return;
+  editId.value = account.id;
+  nameDraft.value = account.name;
+  nameError.value = "";
+}
+function cancelEdit() {
+  editId.value = "";
+  nameError.value = "";
+}
+async function saveName(account: Account) {
+  if (locked.value || savingName.value) return;
+  const name = nameDraft.value.trim();
+  if (!name) {
+    nameError.value = "账户名称不能为空。";
+    return;
+  }
+  if (name === account.name) {
+    cancelEdit();
+    return;
+  }
+  savingName.value = true;
+  nameError.value = "";
+  try {
+    const updated = await request<Account>(
+      `/accounts/${encodeURIComponent(account.id)}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": newID(),
+        },
+        body: JSON.stringify({
+          name,
+          expected_version: account.version,
+        }),
+      },
+    );
+    if (
+      !updated ||
+      updated.id !== account.id ||
+      updated.name !== name ||
+      updated.version !== (BigInt(account.version) + 1n).toString()
+    )
+      throw new LedgerError("invalid_response");
+    editId.value = "";
+    emit("updated");
+  } catch (e) {
+    nameError.value = errorText(failure(e));
+  } finally {
+    savingName.value = false;
+  }
 }
 function openImport() {
   if (locked.value) return;
@@ -191,7 +277,47 @@ watch(
               <dl class="lp-info">
                 <div>
                   <dt>账户名称</dt>
-                  <dd>{{ item.name }}</dd>
+                  <dd class="lp-account-name">
+                    <template v-if="editId === item.id">
+                      <input
+                        v-model="nameDraft"
+                        maxlength="160"
+                        :disabled="savingName"
+                        @keyup.enter="saveName(item)"
+                        @keyup.esc="cancelEdit"
+                      />
+                      <button
+                        class="lp-primary"
+                        :disabled="savingName || locked"
+                        @click="saveName(item)"
+                      >
+                        {{ savingName ? "保存中…" : "保存" }}
+                      </button>
+                      <button
+                        class="lp-text-button"
+                        :disabled="savingName"
+                        @click="cancelEdit"
+                      >
+                        取消
+                      </button>
+                    </template>
+                    <template v-else>
+                      <span>{{ item.name }}</span>
+                      <button
+                        class="lp-text-button"
+                        :disabled="locked"
+                        @click="startEdit(item)"
+                      >
+                        编辑
+                      </button>
+                    </template>
+                    <small
+                      v-if="nameError && editId === item.id"
+                      class="lp-error"
+                      role="alert"
+                      >{{ nameError }}</small
+                    >
+                  </dd>
                 </div>
                 <div>
                   <dt>记账币种</dt>
@@ -202,13 +328,20 @@ watch(
                   <dd>{{ item.opening_date }}</dd>
                 </div>
                 <div>
-                  <dt>持仓来源</dt>
-                  <dd>独立维护当前现金与持仓</dd>
+                  <dt>所属组合</dt>
+                  <dd class="lp-account-portfolios">
+                    <template v-if="portfolioNames(item.id).length">
+                      <span
+                        v-for="name in portfolioNames(item.id)"
+                        :key="name"
+                        class="lp-pm-chip"
+                        >{{ name }}</span
+                      >
+                    </template>
+                    <span v-else class="lp-muted">未加入组合</span>
+                  </dd>
                 </div>
               </dl>
-              <p class="lp-muted">
-                账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
-              </p>
               <div class="lp-management-secondary">
                 <div>
                   <h3>删除账户</h3>

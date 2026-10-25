@@ -336,6 +336,10 @@ function created(id: string) {
   manage.value = false;
   void loadAccounts(id);
 }
+async function accountUpdated() {
+  refreshKey.value++;
+  await loadAccounts(selected.value);
+}
 function deleted() {
   managementTab.value = "info";
   importedAccount.value = "";

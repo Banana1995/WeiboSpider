@@ -107,6 +107,38 @@ func saveReceipt(ctx context.Context, tx *sql.Tx, key, kind, request, response s
 
 func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload, key string, auditID int64) error {
 	switch c := intent.(type) {
+	case accountProfileIntent:
+		expected, err := positiveInteger(c.ExpectedVersion)
+		if err != nil || expected == 9223372036854775807 {
+			return ErrCorrupt
+		}
+		version := expected + 1
+		var result accountJSON
+		if decodeReceipt(payload, &result) != nil || result.ID != c.AccountID || result.Name != c.Name || result.Version != strconv.FormatInt(version, 10) {
+			return ErrCorrupt
+		}
+		var current int64
+		if err := tx.QueryRowContext(ctx, `SELECT version FROM accounts WHERE id=?`, c.AccountID).Scan(&current); err != nil {
+			return ErrCorrupt
+		}
+		if current != version {
+			return ErrCorrupt
+		}
+		var matches bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log WHERE id=?
+			AND entity_type='account' AND entity_id=? AND account_id=? AND action='replace'
+			AND version=? AND source='human' AND correlation_id=? AND after_json=?)`,
+			auditID, c.AccountID, c.AccountID, version, key, payload).Scan(&matches); err != nil {
+			return err
+		}
+		if !matches {
+			return ErrCorrupt
+		}
+		info, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, c.AccountID))
+		if err != nil || !reflect.DeepEqual(publicAccount(info), result) {
+			return ErrCorrupt
+		}
+		return nil
 	case accountDeleteIntent:
 		var result AccountDeletion
 		if decodeReceipt(payload, &result) != nil || result.AccountID != c.AccountID || !result.Deleted {

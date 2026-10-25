@@ -67,7 +67,7 @@ func TestSchemaOpenIdempotentAndIndependentLiquor(t *testing.T) {
 		require.Contains(t, history, "001_init.sql:")
 		var count int
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-		require.Equal(t, 5, count)
+		require.Equal(t, 6, count)
 		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM account_records").Scan(&count))
 		require.Equal(t, 1, count)
 		duplicate, err := ledger.Open(t.Context(), root)
@@ -109,7 +109,7 @@ func TestSchemaUpgradeAddsBenchmarkHistoryWithoutChangingAccounts(t *testing.T) 
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM benchmark_closes").Scan(&count))
 	require.Zero(t, count)
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count))
-	require.Equal(t, 5, count)
+	require.Equal(t, 6, count)
 }
 
 func TestSchemaFreshInstallShape(t *testing.T) {

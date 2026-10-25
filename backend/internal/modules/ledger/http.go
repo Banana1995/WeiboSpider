@@ -242,7 +242,15 @@ func (h Handler) accounts(w http.ResponseWriter, r *http.Request) {
 	httpapi.Write(w, 200, result)
 }
 func (h Handler) account(w http.ResponseWriter, r *http.Request) {
-	if !method(w, r, "GET", "HEAD", "DELETE") {
+	if !method(w, r, "GET", "HEAD", "DELETE", "PATCH") {
+		return
+	}
+	if r.Method == http.MethodPatch {
+		key, ok := writeKey(w, r)
+		if !ok {
+			return
+		}
+		h.accountName(w, r, key)
 		return
 	}
 	if r.Method == http.MethodDelete {

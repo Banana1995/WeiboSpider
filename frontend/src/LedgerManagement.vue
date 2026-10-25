@@ -45,7 +45,7 @@ function closeDelete() {
 }
 function openDetail(account: Account) {
   if (locked.value) return;
-  detailId.value = account.id;
+  detailId.value = detailId.value === account.id ? "" : account.id;
 }
 function closeDetail() {
   if (locked.value) return;
@@ -169,7 +169,8 @@ watch(
             <button
               class="lp-account-entry"
               :disabled="locked"
-              :aria-label="`查看${item.name}账户资料`"
+              :aria-label="`${detailId === item.id ? '收起' : '查看'}${item.name}账户资料`"
+              :aria-expanded="detailId === item.id"
               @click="openDetail(item)"
             >
               <strong class="lp-account-entry-name">{{ item.name }}</strong>
@@ -180,9 +181,48 @@ watch(
                 ><small>开始记录</small>{{ item.opening_date }}</span
               >
               <span class="lp-account-entry-action" aria-hidden="true"
-                >查看资料 ›</span
+                >{{ detailId === item.id ? "收起资料" : "查看资料" }} ›</span
               >
             </button>
+            <div
+              v-if="detailAccount?.id === item.id"
+              class="lp-account-detail-panel"
+            >
+              <dl class="lp-info">
+                <div>
+                  <dt>账户名称</dt>
+                  <dd>{{ item.name }}</dd>
+                </div>
+                <div>
+                  <dt>记账币种</dt>
+                  <dd>{{ item.currency }}</dd>
+                </div>
+                <div>
+                  <dt>开始记录</dt>
+                  <dd>{{ item.opening_date }}</dd>
+                </div>
+                <div>
+                  <dt>持仓来源</dt>
+                  <dd>独立维护当前现金与持仓</dd>
+                </div>
+              </dl>
+              <p class="lp-muted">
+                账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
+              </p>
+              <div class="lp-management-secondary">
+                <div>
+                  <h3>删除账户</h3>
+                  <p>删除此账户及其账本数据，不影响其他账户。</p>
+                </div>
+                <button
+                  class="lp-danger-button"
+                  :disabled="locked"
+                  @click="openDelete"
+                >
+                  删除账户
+                </button>
+              </div>
+            </div>
           </li>
         </ul>
       </div>
@@ -197,52 +237,6 @@ watch(
       :refresh-key="refreshKey"
       @changed="emit('changed')"
     />
-    <LedgerDialog
-      v-if="detailAccount"
-      :key="detailAccount.id"
-      :title="detailAccount.name"
-      caption="账户资料"
-      class="lp-account-details-dialog"
-      :show-write-status="false"
-      @close="closeDetail"
-    >
-      <div class="lp-management-body">
-        <dl class="lp-info">
-          <div>
-            <dt>账户名称</dt>
-            <dd>{{ detailAccount.name }}</dd>
-          </div>
-          <div>
-            <dt>记账币种</dt>
-            <dd>{{ detailAccount.currency }}</dd>
-          </div>
-          <div>
-            <dt>开始记录</dt>
-            <dd>{{ detailAccount.opening_date }}</dd>
-          </div>
-          <div>
-            <dt>持仓来源</dt>
-            <dd>独立维护当前现金与持仓</dd>
-          </div>
-        </dl>
-        <p class="lp-muted">
-          账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
-        </p>
-        <div class="lp-management-secondary">
-          <div>
-            <h3>删除账户</h3>
-            <p>删除此账户及其账本数据，不影响其他账户。</p>
-          </div>
-          <button
-            class="lp-danger-button"
-            :disabled="locked"
-            @click="openDelete"
-          >
-            删除账户
-          </button>
-        </div>
-      </div>
-    </LedgerDialog>
     <LedgerDialog v-if="deleteTarget" title="确认删除账户" @close="closeDelete">
       <div class="lp-dialog-body">
         <p>确定删除账户「{{ deleteTarget.name }}」吗？</p>

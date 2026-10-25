@@ -2410,3 +2410,16 @@ html.lp-tab-grabbing * {
   padding-top: 16px;
   border-top: 1px solid var(--lp-rule);
 }
+
+.ledger-page .lp-account-detail-panel {
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--lp-rule);
+  background: #f8fbfe;
+}
+.ledger-page .lp-account-detail-panel .lp-info {
+  margin-top: 0;
+}
+.ledger-page .lp-account-detail-panel .lp-management-secondary {
+  margin-top: 12px;
+  padding-top: 14px;
+}

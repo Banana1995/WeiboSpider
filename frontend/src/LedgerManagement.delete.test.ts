@@ -62,8 +62,9 @@ async function click(text: string) {
 }
 it("waits the full five seconds and requires an explicit second confirmation", async () => {
   await click("删除账户");
-  expect(wrapper.get("dialog").text()).toContain(account.name);
-  expect(wrapper.get("dialog").text()).toContain(
+  const confirmDialog = wrapper.findAll("dialog").at(-1)!;
+  expect(confirmDialog.text()).toContain(account.name);
+  expect(confirmDialog.text()).toContain(
     "组合中会同步移除此账户；没有剩余成员的组合也会删除。",
   );
   expect(workspace.navigationLocked.value).toBe(true);
@@ -121,7 +122,8 @@ it("keeps the dialog and shows a definitive failure without claiming deletion", 
   expect(wrapper.emitted("deleted")).toBeUndefined();
   expect(workspace.locked.value).toBe(false);
   await click("取消");
-  expect(wrapper.find("dialog").exists()).toBe(false);
+  expect(wrapper.findAll("dialog")).toHaveLength(1);
+  expect(wrapper.get("dialog").text()).toContain(account.name);
 });
 it("discards the target on account changes and cleans up its timer", async () => {
   await click("删除账户");

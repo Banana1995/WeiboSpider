@@ -2,10 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import ImportAccount from "./ImportAccount.vue";
-import LedgerAutoUpdates from "./LedgerAutoUpdates.vue";
+import LedgerPortfolioManager from "./LedgerPortfolioManager.vue";
 import { PendingWrite, type Account, type Instrument } from "./ledger";
 import type { ImportResult } from "./ledgerImport";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
+
 const props = defineProps<{
   account?: Account;
   accounts: Account[];
@@ -24,13 +25,13 @@ const emit = defineEmits<{
   deleted: [];
 }>();
 const { locked, navigationLocked, error, send } = useLedgerWorkspace();
+const section = ref<"accounts" | "portfolios">("accounts");
 const detailId = ref(props.account?.id ?? "");
 const detailAccount = computed(
   () =>
     props.accounts.find((account) => account.id === detailId.value) ??
     (props.account?.id === detailId.value ? props.account : undefined),
 );
-const tab = ref(props.initialTab === "import" ? "info" : props.initialTab);
 const importOpen = ref(props.initialTab === "import");
 const importDirty = ref(false);
 const deleteTarget = ref<Account>();
@@ -45,7 +46,6 @@ function closeDelete() {
 function openDetail(account: Account) {
   if (navigationLocked.value) return;
   detailId.value = account.id;
-  tab.value = "info";
 }
 function closeDetail() {
   if (locked.value) return;
@@ -111,65 +111,92 @@ onBeforeUnmount(() => clearInterval(deleteTimer));
 watch(
   () => props.initialTab,
   (value) => {
-    tab.value = value === "import" ? "info" : value;
-    if (value === "import") importOpen.value = true;
+    if (value === "import") {
+      section.value = "accounts";
+      importOpen.value = true;
+    }
   },
 );
 </script>
 
 <template>
-  <section class="lp-account-manager" aria-label="账户管理">
-    <header class="lp-manager-heading">
-      <div>
-        <h2>管理账户</h2>
-        <p class="lp-muted">
-          共 {{ accounts.length }} 个账户，点击查看详细资料
-        </p>
-      </div>
-      <div class="lp-actions">
-        <button :disabled="navigationLocked" @click="openImport">
-          导入 Excel 账本
-        </button>
-        <button
-          class="lp-primary"
-          data-ledger-focus
-          :disabled="navigationLocked"
-          @click="emit('create')"
-        >
-          新建账户
-        </button>
-      </div>
-    </header>
-    <div v-if="accounts.length" class="lp-management lp-account-directory">
-      <div class="lp-account-directory-heading" aria-hidden="true">
-        <span>账户名称</span><span>记账币种</span><span>开始记录</span><span />
-      </div>
-      <ul>
-        <li v-for="item in accounts" :key="item.id">
-          <button
-            class="lp-account-entry"
-            :disabled="navigationLocked"
-            :aria-label="`查看${item.name}账户资料`"
-            @click="openDetail(item)"
-          >
-            <strong class="lp-account-entry-name">{{ item.name }}</strong>
-            <span class="lp-account-entry-currency"
-              ><small>币种</small>{{ item.currency }}</span
-            >
-            <span class="lp-account-entry-date"
-              ><small>开始记录</small>{{ item.opening_date }}</span
-            >
-            <span class="lp-account-entry-action" aria-hidden="true"
-              >查看资料 ›</span
-            >
+  <section class="lp-account-manager" aria-label="管理账户">
+    <div class="lp-management-tabs" aria-label="管理范围">
+      <button
+        :aria-pressed="section === 'accounts'"
+        :disabled="navigationLocked"
+        @click="section = 'accounts'"
+      >
+        账户
+      </button>
+      <button
+        :aria-pressed="section === 'portfolios'"
+        :disabled="navigationLocked"
+        @click="section = 'portfolios'"
+      >
+        账户组合
+      </button>
+    </div>
+    <template v-if="section === 'accounts'">
+      <header class="lp-manager-heading">
+        <div>
+          <h2>账户</h2>
+          <p class="lp-muted">
+            共 {{ accounts.length }} 个账户，点击查看详细资料
+          </p>
+        </div>
+        <div class="lp-actions">
+          <button :disabled="navigationLocked" @click="openImport">
+            导入 Excel 账本
           </button>
-        </li>
-      </ul>
-    </div>
-    <div v-else class="lp-management lp-empty">
-      <h3>还没有账户</h3>
-      <p>在上方新建账户，或导入 Excel 账本开始记录。</p>
-    </div>
+          <button
+            class="lp-primary"
+            data-ledger-focus
+            :disabled="navigationLocked"
+            @click="emit('create')"
+          >
+            新建账户
+          </button>
+        </div>
+      </header>
+      <div v-if="accounts.length" class="lp-management lp-account-directory">
+        <div class="lp-account-directory-heading" aria-hidden="true">
+          <span>账户名称</span><span>记账币种</span><span>开始记录</span
+          ><span />
+        </div>
+        <ul>
+          <li v-for="item in accounts" :key="item.id">
+            <button
+              class="lp-account-entry"
+              :disabled="navigationLocked"
+              :aria-label="`查看${item.name}账户资料`"
+              @click="openDetail(item)"
+            >
+              <strong class="lp-account-entry-name">{{ item.name }}</strong>
+              <span class="lp-account-entry-currency"
+                ><small>币种</small>{{ item.currency }}</span
+              >
+              <span class="lp-account-entry-date"
+                ><small>开始记录</small>{{ item.opening_date }}</span
+              >
+              <span class="lp-account-entry-action" aria-hidden="true"
+                >查看资料 ›</span
+              >
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div v-else class="lp-management lp-empty">
+        <h3>还没有账户</h3>
+        <p>在上方新建账户，或导入 Excel 账本开始记录。</p>
+      </div>
+    </template>
+    <LedgerPortfolioManager
+      v-else
+      :accounts="accounts"
+      :refresh-key="refreshKey"
+      @changed="emit('changed')"
+    />
     <LedgerDialog
       v-if="detailAccount"
       :key="detailAccount.id"
@@ -179,21 +206,7 @@ watch(
       :show-write-status="false"
       @close="closeDetail"
     >
-      <div class="lp-management-tabs" aria-label="管理栏目">
-        <button
-          v-for="item in [
-            ['info', '账户资料'],
-            ['weekly', '自动更新记录'],
-          ]"
-          :key="item[0]"
-          :aria-pressed="tab === item[0]"
-          :disabled="locked"
-          @click="tab = item[0]!"
-        >
-          {{ item[1] }}
-        </button>
-      </div>
-      <div v-if="tab === 'info'" class="lp-management-body">
+      <div class="lp-management-body">
         <dl class="lp-info">
           <div>
             <dt>账户名称</dt>
@@ -228,9 +241,6 @@ watch(
             删除账户
           </button>
         </div>
-      </div>
-      <div v-else class="lp-management-body">
-        <LedgerAutoUpdates :account="detailAccount" />
       </div>
     </LedgerDialog>
     <LedgerDialog v-if="deleteTarget" title="确认删除账户" @close="closeDelete">

@@ -1033,6 +1033,58 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-account-details-dialog .lp-info {
   margin-top: 0;
 }
+.ledger-page .lp-account-manager > .lp-management-tabs {
+  margin-bottom: 18px;
+}
+.ledger-page .lp-portfolio-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ledger-page .lp-portfolio-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-portfolio-entry:first-child {
+  border-top: 0;
+}
+.ledger-page .lp-portfolio-entry-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ledger-page .lp-portfolio-entry-main strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-portfolio-entry-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ledger-page .lp-pm-chip {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--lp-rule);
+  border-radius: 4px;
+  padding: 1px 8px;
+  background: var(--lp-tint);
+  color: var(--lp-emphasis);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .ledger-page .lp-portfolio-entry {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 16px;
+  }
+}
 @media (max-width: 600px) {
   .ledger-page .lp-manager-heading {
     align-items: flex-start;

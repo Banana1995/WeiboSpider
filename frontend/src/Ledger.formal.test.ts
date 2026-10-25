@@ -398,12 +398,10 @@ it.each([false, true])(
     await flushPromises();
     expect(wrapper.find("#account-tab-a").exists()).toBe(false);
     expect(wrapper.findComponent(manager).exists()).toBe(true);
-    expect(
-      wrapper.get('.lp-workspace-switch [aria-pressed="true"]').text(),
-    ).toBe("管理账户");
+    expect(wrapper.get(".lp-account-heading").text()).toContain("返回账户");
     await wrapper
       .findAll("button")
-      .find((button) => button.text() === "单账户")!
+      .find((button) => button.text() === "返回账户")!
       .trigger("click");
     await flushPromises();
     if (!last)
@@ -456,15 +454,18 @@ it("shows account holdings immediately above records without automatically savin
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 
-it("places management in workspace navigation and recording inside the selected account", async () => {
+it("opens management from the page heading and keeps recording inside the selected account", async () => {
   await ledger();
   const navigation = wrapper.get('.lp-workspace-switch[aria-label="账本导航"]');
   expect(navigation.findAll("button").map((button) => button.text())).toEqual([
     "单账户",
     "账户组合",
+  ]);
+  const heading = wrapper.get(".lp-account-heading");
+  expect(heading.get("h1").text()).toBe("投资账本");
+  expect(heading.findAll("button").map((button) => button.text())).toEqual([
     "管理账户",
   ]);
-  expect(wrapper.get(".lp-account-heading").findAll("button")).toHaveLength(0);
   const recordButton = () =>
     wrapper.get('[role="tabpanel"] .lp-account-toolbar .lp-primary');
   expect(recordButton().text()).toBe("＋ 记一笔");
@@ -478,21 +479,30 @@ it("places management in workspace navigation and recording inside the selected 
   expect(wrapper.get("dialog").text()).toContain(accounts[1]!.name);
   await wrapper.get("dialog .lp-close").trigger("click");
   await flushPromises();
-  await navigation
+  await wrapper
+    .get(".lp-account-heading")
     .findAll("button")
     .find((button) => button.text() === "管理账户")!
     .trigger("click");
-  expect(navigation.get('[aria-pressed="true"]').text()).toBe("管理账户");
+  await flushPromises();
+  expect(wrapper.get(".lp-account-heading h1").text()).toBe("管理账户");
+  expect(
+    wrapper
+      .get(".lp-account-heading")
+      .findAll("button")
+      .map((b) => b.text()),
+  ).toEqual(["返回账户"]);
   expect(
     wrapper.find('[role="tabpanel"] .lp-account-toolbar .lp-primary').exists(),
   ).toBe(false);
   expect(wrapper.findComponent(manager).exists()).toBe(true);
-  await navigation
+  await wrapper
+    .get(".lp-account-heading")
     .findAll("button")
-    .find((button) => button.text() === "单账户")!
+    .find((button) => button.text() === "返回账户")!
     .trigger("click");
   await flushPromises();
-  expect(navigation.get('[aria-pressed="true"]').text()).toBe("单账户");
+  expect(wrapper.get(".lp-account-heading h1").text()).toBe("投资账本");
   expect(wrapper.get("#account-panel-b .lp-account-toolbar").text()).toContain(
     "＋ 记一笔",
   );
@@ -824,22 +834,27 @@ it("clears stale account metrics and does not move focus when an old request fin
   );
 });
 
-it("locks account switching and navigation while a write is pending", async () => {
+it("locks workspace navigation while a write is pending", async () => {
   await ledger();
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "管理账户")!
     .trigger("click");
+  await flushPromises();
   workspace.pending.value = new PendingWrite("/accounts/a/records", "POST", {});
   await nextTick();
   expect(
     wrapper
-      .findAll('[role="tab"]')
+      .get(".lp-workspace-switch")
+      .findAll("button")
       .every((tab) => tab.attributes("disabled") !== undefined),
   ).toBe(true);
-  await wrapper.get("#account-tab-b").trigger("click");
-  await wrapper.get("#account-tab-a").trigger("keydown", { key: "End" });
-  expect(wrapper.get('[role="tab"]').attributes("aria-selected")).toBe("true");
+  expect(
+    wrapper
+      .get(".lp-account-heading")
+      .findAll("button")
+      .every((button) => button.attributes("disabled") !== undefined),
+  ).toBe(true);
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
   const event = new MouseEvent("click", { bubbles: true, cancelable: true });
   wrapper.get('a[href="/liquor"]').element.dispatchEvent(event);

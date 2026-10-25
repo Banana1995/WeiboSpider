@@ -338,6 +338,7 @@ function created(id: string) {
 function deleted() {
   managementTab.value = "info";
   importedAccount.value = "";
+  refreshKey.value++;
   void loadAccounts(selected.value);
 }
 async function locate(event: { id: string; date: string; accountId: string }) {
@@ -401,11 +402,29 @@ onBeforeUnmount(() => {
     </header>
     <main class="lp-main">
       <div class="lp-account-heading">
-        <h1>投资账本</h1>
+        <h1>{{ manage ? "管理账户" : "投资账本" }}</h1>
+        <div class="lp-actions">
+          <button
+            v-if="manage"
+            data-ledger-focus
+            :disabled="navigationLocked"
+            @click="manage = false"
+          >
+            返回账户
+          </button>
+          <button
+            v-else
+            class="lp-text-button"
+            :disabled="navigationLocked"
+            @click="manageAccount()"
+          >
+            管理账户
+          </button>
+        </div>
       </div>
       <div class="lp-segment lp-workspace-switch" aria-label="账本导航">
         <button
-          :aria-pressed="workspaceView === 'accounts' && !manage"
+          :aria-pressed="workspaceView === 'accounts'"
           :disabled="navigationLocked"
           @click="selectWorkspace('accounts')"
         >
@@ -417,13 +436,6 @@ onBeforeUnmount(() => {
           @click="selectWorkspace('portfolios')"
         >
           账户组合
-        </button>
-        <button
-          :aria-pressed="workspaceView === 'accounts' && manage"
-          :disabled="navigationLocked"
-          @click="manageAccount()"
-        >
-          管理账户
         </button>
       </div>
       <p v-if="returnPortfolio && workspaceView === 'accounts' && !manage">

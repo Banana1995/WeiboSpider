@@ -63,10 +63,13 @@ const detail = (metric: ReturnMetric) =>
           ? "指数暂时不可用"
           : "缺少该区间的指数收盘点位"))
     : "";
-const title = (row: AnnualReturnRow) =>
-  row === read.data?.annualized
+const title = (
+  row: AnnualReturnRow,
+  data: AnnualReturns | undefined = read.data,
+) =>
+  row === data?.annualized
     ? "年化收益率"
-    : row === read.data?.since
+    : row === data?.since
       ? "记账以来"
       : `${row.year}年`;
 const period = (row: AnnualReturnRow) =>
@@ -247,7 +250,9 @@ watch(expanded, (open) => {
             <tr v-for="row in shortRows" :key="row.year || title(row)">
               <th scope="row">
                 {{ title(row) }}
-                <small v-if="row.year">{{ period(row) }}</small>
+                <small v-if="row.year || (row.from && row.to)">{{
+                  period(row)
+                }}</small>
               </th>
               <td
                 :class="{
@@ -337,10 +342,15 @@ watch(expanded, (open) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in modalRows" :key="row.year || title(row)">
+                <tr
+                  v-for="row in modalRows"
+                  :key="row.year || title(row, modalRead.data)"
+                >
                   <th scope="row">
-                    {{ title(row)
-                    }}<small v-if="row.year">{{ period(row) }}</small>
+                    {{ title(row, modalRead.data)
+                    }}<small v-if="row.year || (row.from && row.to)">{{
+                      period(row)
+                    }}</small>
                   </th>
                   <td
                     :class="{

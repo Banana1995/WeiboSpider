@@ -4,7 +4,7 @@ import LedgerDialog from "./LedgerDialog.vue";
 import StockTradeDialog from "./StockTradeDialog.vue";
 import StockSyncStatus from "./StockSyncStatus.vue";
 import { errorText, request, type Account } from "./ledger";
-import { holdingNumber } from "./holdings";
+import { holdingMoney, holdingNumber } from "./holdings";
 import {
   stockLabels,
   stockTone,
@@ -133,7 +133,7 @@ function view(id: string) {
 const signed = (s: string | null) =>
   s == null
     ? "—"
-    : `${stockTone(s) === "stock-gain" ? "+" : ""}${holdingNumber(s, 2)}`;
+    : `${stockTone(s) === "stock-gain" ? "+" : ""}${holdingMoney(s)}`;
 const percent = (s: string | null) => (s == null ? "—" : `${s}%`);
 const settlement = (e: StockEntry) =>
   !e.event
@@ -273,7 +273,7 @@ defineExpose({ load });
               ></span
             >
             <span
-              ><strong>{{ holdingNumber(row.market_value, 2) }}</strong
+              ><strong>{{ holdingMoney(row.market_value) }}</strong
               ><small
                 >{{ holdingNumber(row.quantity) }} 股 ·
                 {{ row.instrument.currency }}</small
@@ -287,7 +287,7 @@ defineExpose({ load });
             >
             <span
               ><strong>{{ holdingNumber(row.price) }}</strong
-              ><small>{{ holdingNumber(row.metrics.cost, 2) }}</small></span
+              ><small>{{ holdingMoney(row.metrics.cost) }}</small></span
             >
             <span :class="stockTone(row.metrics.profit)"
               ><strong>{{ signed(row.metrics.profit) }}</strong
@@ -339,7 +339,7 @@ defineExpose({ load });
             <div class="stock-metrics">
               <div>
                 <span>持仓市值</span
-                ><strong>{{ holdingNumber(detail.market_value, 2) }}</strong>
+                ><strong>{{ holdingMoney(detail.market_value) }}</strong>
               </div>
               <div>
                 <span>持仓盈亏</span
@@ -359,12 +359,12 @@ defineExpose({ load });
               </div>
               <div>
                 <span>持仓成本</span
-                ><strong>{{ holdingNumber(detail.metrics.cost, 2) }}</strong>
+                ><strong>{{ holdingMoney(detail.metrics.cost) }}</strong>
               </div>
               <div>
                 <span>摊薄成本</span
                 ><strong>{{
-                  holdingNumber(detail.metrics.diluted_cost, 2)
+                  holdingMoney(detail.metrics.diluted_cost)
                 }}</strong>
               </div>
             </div>

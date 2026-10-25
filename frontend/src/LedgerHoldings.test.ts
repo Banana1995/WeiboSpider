@@ -106,7 +106,7 @@ it("opens each stock with its costs and profits, preserving a visibly stale list
   expect(detail.text()).toContain("个股累计盈亏");
   expect(detail.text()).toContain("86,720.00");
   failed = true;
-  await detail
+  await wrapper
     .findAll("button")
     .find((b) => b.text() === "刷新")!
     .trigger("click");

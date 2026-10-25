@@ -45,6 +45,20 @@ export function holdingNumber(
   const digits = fraction.replace(/0+$/, "").padEnd(fractionDigits, "0");
   return money(whole + (digits ? `.${digits}` : ""));
 }
+// Round an exact decimal string to two places for display, without floating
+// point. Half away from zero, matching the financial rounding used elsewhere.
+export function holdingMoney(value: string | null | undefined) {
+  if (value == null || value === "") return money(value);
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = value.replace("-", "").split(".");
+  const digits = fraction.padEnd(3, "0");
+  let cents = BigInt(whole || "0") * 100n + BigInt(digits.slice(0, 2));
+  if (digits[2]! >= "5") cents += 1n;
+  const sign = negative && cents !== 0n ? "-" : "";
+  return money(
+    `${sign}${cents / 100n}.${(cents % 100n).toString().padStart(2, "0")}`,
+  );
+}
 const number = (v: unknown, scale: number): v is string =>
   typeof v === "string" && decimal(v, scale) && !v.startsWith("-");
 const nullable = (v: unknown, scale: number) => v === null || number(v, scale);

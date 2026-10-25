@@ -622,6 +622,7 @@ onBeforeUnmount(() => {
           @instruments="loadInstruments"
           @changed="refreshKey++"
           @deleted="deleted"
+          @updated="accountUpdated"
         />
       </div>
     </LedgerDialog>

@@ -287,7 +287,7 @@ defineExpose({ load });
             >
             <span
               ><strong>{{ holdingNumber(row.price) }}</strong
-              ><small>{{ holdingNumber(row.metrics.cost) }}</small></span
+              ><small>{{ holdingNumber(row.metrics.cost, 2) }}</small></span
             >
             <span :class="stockTone(row.metrics.profit)"
               ><strong>{{ signed(row.metrics.profit) }}</strong
@@ -329,27 +329,11 @@ defineExpose({ load });
                 <p class="stock-quote">
                   最新价 <strong>{{ holdingNumber(detail.price) }}</strong>
                   {{ detail.instrument.currency
-                  }}<small v-if="detail.quote"
-                    >{{ detail.quote.date }} · {{ detail.quote.source }}</small
+                  }}<small v-if="detail.quote">{{ detail.quote.date }}</small
                   ><small v-else>{{
                     detail.quantity === "0.000000" ? "已清仓" : "行情暂不可用"
                   }}</small>
                 </p>
-              </div>
-              <div class="stock-actions">
-                <button
-                  class="stock-cash"
-                  :disabled="locked || read.loading || !!read.error"
-                  @click="open('cash')"
-                >
-                  <small>现金</small>
-                  <strong>{{ holdingNumber(read.data.cash, 2) }}</strong>
-                  <small>{{ account.currency }}</small
-                  ><span aria-hidden="true"> ✎</span>
-                </button>
-                <button :disabled="locked || read.loading" @click="load">
-                  {{ read.loading ? "刷新中…" : "刷新" }}
-                </button>
               </div>
             </header>
             <div class="stock-metrics">
@@ -375,12 +359,12 @@ defineExpose({ load });
               </div>
               <div>
                 <span>持仓成本</span
-                ><strong>{{ holdingNumber(detail.metrics.cost) }}</strong>
+                ><strong>{{ holdingNumber(detail.metrics.cost, 2) }}</strong>
               </div>
               <div>
                 <span>摊薄成本</span
                 ><strong>{{
-                  holdingNumber(detail.metrics.diluted_cost)
+                  holdingNumber(detail.metrics.diluted_cost, 2)
                 }}</strong>
               </div>
             </div>

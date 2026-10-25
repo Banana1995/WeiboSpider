@@ -2462,3 +2462,47 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-portfolio-entry-panel .lp-actions {
   padding-top: 12px;
 }
+
+.ledger-page .lp-portfolio-entry-panel {
+  display: block;
+  padding: 0 20px 16px;
+}
+.ledger-page .lp-portfolio-members {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 4px;
+}
+.ledger-page .lp-portfolio-members label {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ledger-page .lp-portfolio-members label:hover {
+  background: var(--lp-hover);
+}
+.ledger-page .lp-portfolio-members input {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+.ledger-page .lp-portfolio-members span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ledger-page .lp-portfolio-members small {
+  display: block;
+}
+.ledger-page .lp-portfolio-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--lp-rule);
+}

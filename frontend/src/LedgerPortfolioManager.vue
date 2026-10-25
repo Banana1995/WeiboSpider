@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import PortfolioForm from "./PortfolioForm.vue";
-import { all, errorText, LedgerError, type Account } from "./ledger";
+import {
+  all,
+  errorText,
+  failure,
+  LedgerError,
+  newID,
+  request,
+  type Account,
+} from "./ledger";
 import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
@@ -10,15 +18,17 @@ const props = defineProps<{ accounts: Account[]; refreshKey: number }>();
 const emit = defineEmits<{ changed: [] }>();
 const { locked } = useLedgerWorkspace();
 const list = reactive(useLedgerRead<Portfolio[]>());
-const modal = ref<"" | "create" | "edit" | "delete">("");
+const modal = ref<"" | "create" | "delete">("");
 const targetId = ref("");
 const expandedId = ref("");
 const current = computed(() =>
   list.data?.find((portfolio) => portfolio.id === targetId.value),
 );
 const editing = computed(() =>
-  modal.value === "create" ? undefined : current.value,
+  modal.value === "delete" ? current.value : undefined,
 );
+const savingId = ref("");
+const membershipError = ref("");
 
 function load() {
   void list.load(async (signal) => {
@@ -42,13 +52,61 @@ function openCreate() {
 }
 function toggle(portfolio: Portfolio) {
   if (locked.value) return;
+  membershipError.value = "";
   expandedId.value = expandedId.value === portfolio.id ? "" : portfolio.id;
 }
-function openEdit(portfolio: Portfolio) {
-  if (locked.value) return;
-  targetId.value = portfolio.id;
-  expandedId.value = portfolio.id;
-  modal.value = "edit";
+async function toggleMember(
+  portfolio: Portfolio,
+  accountId: string,
+  event: Event,
+) {
+  const input = event.target as HTMLInputElement;
+  if (locked.value || savingId.value) return;
+  const live = portfolio.account_ids.filter((id) =>
+    props.accounts.some((account) => account.id === id),
+  );
+  const member = portfolio.account_ids.includes(accountId);
+  if (member && live.length <= 1) {
+    input.checked = true;
+    membershipError.value =
+      "组合至少需要保留一个账户；如需清空，请直接删除整个组合。";
+    return;
+  }
+  const accountIds = (
+    member ? live.filter((id) => id !== accountId) : [...live, accountId]
+  ).sort();
+  savingId.value = portfolio.id;
+  membershipError.value = "";
+  try {
+    const updated = await request<Portfolio>(
+      `/portfolios/${encodeURIComponent(portfolio.id)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": newID(),
+        },
+        body: JSON.stringify({
+          name: portfolio.name,
+          currency: portfolio.currency,
+          account_ids: accountIds,
+          expected_version: portfolio.version,
+        }),
+      },
+    );
+    if (!validPortfolio(updated) || updated.id !== portfolio.id)
+      throw new LedgerError("invalid_response");
+    if (list.data)
+      list.data = list.data.map((item) =>
+        item.id === portfolio.id ? updated : item,
+      );
+    emit("changed");
+  } catch (e) {
+    input.checked = member;
+    membershipError.value = errorText(failure(e));
+  } finally {
+    savingId.value = "";
+  }
 }
 function openDelete(portfolio: Portfolio) {
   if (locked.value) return;
@@ -152,17 +210,37 @@ function reload() {
             v-if="expandedId === portfolio.id"
             class="lp-portfolio-entry-panel"
           >
-            <div class="lp-actions">
-              <button
-                :disabled="locked"
-                :aria-label="`调整${portfolio.name}的成员`"
-                @click="openEdit(portfolio)"
-              >
-                调整成员
-              </button>
+            <p class="lp-field-hint">勾选要汇总的账户，修改后立即保存。</p>
+            <div
+              class="lp-portfolio-members"
+              role="group"
+              :aria-label="`${portfolio.name}的成员账户`"
+            >
+              <label v-for="item in accounts" :key="item.id">
+                <input
+                  type="checkbox"
+                  :checked="portfolio.account_ids.includes(item.id)"
+                  :disabled="locked || savingId === portfolio.id"
+                  @change="toggleMember(portfolio, item.id, $event)"
+                />
+                <span
+                  ><strong>{{ item.name }}</strong
+                  ><small
+                    >{{ item.currency }} · 开始于 {{ item.opening_date }}</small
+                  ></span
+                >
+              </label>
+            </div>
+            <p v-if="membershipError" class="lp-error" role="alert">
+              {{ membershipError }}
+            </p>
+            <div class="lp-portfolio-panel-footer">
+              <span class="lp-muted" role="status">{{
+                savingId === portfolio.id ? "正在保存…" : "修改立即生效"
+              }}</span>
               <button
                 class="lp-text-button"
-                :disabled="locked"
+                :disabled="locked || savingId === portfolio.id"
                 :aria-label="`删除${portfolio.name}`"
                 @click="openDelete(portfolio)"
               >

@@ -43,6 +43,10 @@ func (s *Store) UpdateAccountName(ctx context.Context, key, id, name, expected s
 		next := publicAccount(info)
 		next.Name = name
 		next.Version = strconv.FormatInt(version+1, 10)
+		auditID, err := appendAudit(ctx, tx, key, "replace", "account", id, id, version+1, stamp, "human", publicAccount(info), next, nil)
+		if err != nil {
+			return nil, 0, err
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE accounts SET name=?,version=? WHERE id=? AND version=?`, name, version+1, id, version)
 		if err != nil {
 			return nil, 0, constraintError(err)
@@ -53,10 +57,6 @@ func (s *Store) UpdateAccountName(ctx context.Context, key, id, name, expected s
 		}
 		if changed != 1 {
 			return nil, 0, ErrVersion
-		}
-		auditID, err := appendAudit(ctx, tx, key, "replace", "account", id, id, version+1, stamp, "human", publicAccount(info), next, nil)
-		if err != nil {
-			return nil, 0, err
 		}
 		return next, auditID, nil
 	})

@@ -907,7 +907,7 @@ html.lp-tab-grabbing * {
   border-top: 0;
   padding: 15px 24px;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   gap: 15px;
   font-size: 12px;
@@ -916,10 +916,15 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-pagination {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
   font-size: 12px;
+}
+.ledger-page .lp-page-info {
+  min-width: 148px;
+  text-align: center;
+  color: var(--lp-muted);
 }
 .ledger-page .lp-pagination button {
   font-size: 12px;
@@ -2273,10 +2278,7 @@ html.lp-tab-grabbing * {
   }
   .ledger-page .lp-pagination {
     width: 100%;
-    justify-content: flex-end;
-  }
-  .ledger-page .lp-pagination span {
-    margin-right: auto;
+    justify-content: center;
   }
   .ledger-page .lp-management-tabs {
     gap: 20px;

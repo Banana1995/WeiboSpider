@@ -220,7 +220,6 @@ onBeforeUnmount(() => {
   >
     <summary class="lp-record-summary">
       <h2 id="records-title">账户记录</h2>
-      <span v-if="rows.data">本页 {{ rows.data.items.length }} 笔</span>
     </summary>
     <div class="lp-section-title">
       <div class="lp-record-tools">
@@ -358,15 +357,17 @@ onBeforeUnmount(() => {
       <p>从上方“记一笔”开始，或调整记录日期、显示已作废记录。</p>
     </div>
     <footer class="lp-table-footer">
-      <span>按日期、同日记录顺序从新到旧 · 未填写的总资产不沿用前值</span>
       <div class="lp-pagination">
-        <span>第 {{ page + 1 }} 页</span
-        ><button
+        <button
           :disabled="locked || rows.loading || page === 0"
           @click="load(cursors[page - 1]!, page - 1)"
         >
           上一页
         </button>
+        <span class="lp-page-info"
+          >第 {{ page + 1 }} 页 · 本页
+          {{ rows.data?.items.length ?? 0 }} 笔</span
+        >
         <button
           :disabled="
             locked || rows.loading || !!rows.error || !rows.data?.next_cursor

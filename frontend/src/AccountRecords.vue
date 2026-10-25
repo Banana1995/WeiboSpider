@@ -29,25 +29,33 @@ function toggle() {
   expanded.value = open;
   if (open && !rows.data && !rows.loading) load();
 }
-function load(cursor = "", index = 0) {
-  generation++;
-  rows.clear();
-  page.value = index;
+function load(cursor = "", index = 0, keep = false) {
+  const current = ++generation;
+  if (!keep) {
+    rows.clear();
+    page.value = index;
+  }
   const id = props.account.id,
     filters = { ...applied };
-  void rows.load(async (signal) =>
-    recordPage(
-      await request<Page<AccountRecord>>(
-        `/accounts/${encodeURIComponent(id)}/records${query({ ...filters, limit: "10", cursor })}`,
-        { signal },
+  // A page turn keeps the current rows visible so the records box and the page
+  // scroll position do not collapse and jump while the next page loads.
+  void rows
+    .load(async (signal) =>
+      recordPage(
+        await request<Page<AccountRecord>>(
+          `/accounts/${encodeURIComponent(id)}/records${query({ ...filters, limit: "10", cursor })}`,
+          { signal },
+        ),
+        id,
+        filters.from,
+        filters.to,
+        filters.status,
+        cursor,
       ),
-      id,
-      filters.from,
-      filters.to,
-      filters.status,
-      cursor,
-    ),
-  );
+    )
+    .then(() => {
+      if (current === generation && keep && !rows.error) page.value = index;
+    });
 }
 function filter() {
   if (locked.value) return;
@@ -80,7 +88,7 @@ function next() {
   const cursor = rows.data?.next_cursor;
   if (locked.value || rows.loading || !cursor) return;
   cursors.value.splice(page.value + 1, Infinity, cursor);
-  load(cursor, page.value + 1);
+  load(cursor, page.value + 1, true);
 }
 async function locate(event: { id: string; date: string; accountId: string }) {
   if (
@@ -216,6 +224,12 @@ onBeforeUnmount(() => {
   >
     <summary class="lp-record-summary">
       <h2 id="records-title">账户记录</h2>
+      <span
+        v-if="rows.loading && rows.data"
+        class="lp-spinner lp-record-spinner"
+        role="status"
+        aria-label="正在读取账户记录"
+      />
     </summary>
     <div class="lp-record-filterbar">
       <form class="lp-record-filters" @submit.prevent="filter">
@@ -244,11 +258,13 @@ onBeforeUnmount(() => {
       </button>
     </p>
     <p v-if="notice" class="lp-filter-summary" role="status">{{ notice }}</p>
-    <p v-if="rows.loading" class="lp-empty" role="status">正在读取账户记录…</p>
-    <p v-else-if="rows.error" class="lp-error" role="alert">
+    <p v-if="rows.loading && !rows.data" class="lp-empty" role="status">
+      正在读取账户记录…
+    </p>
+    <p v-if="rows.error" class="lp-error" role="alert">
       {{ errorText(rows.error) }}
     </p>
-    <table v-else-if="rows.data?.items.length" class="lp-record-table">
+    <table v-if="rows.data?.items.length" class="lp-record-table">
       <thead>
         <tr>
           <th scope="col">日期</th>
@@ -325,7 +341,7 @@ onBeforeUnmount(() => {
         </tr>
       </tbody>
     </table>
-    <div v-else class="lp-empty">
+    <div v-else-if="!rows.loading && !rows.error" class="lp-empty">
       <h3>没有符合条件的记录</h3>
       <p>从上方“记一笔”开始，或调整记录日期、显示已作废记录。</p>
     </div>
@@ -333,7 +349,7 @@ onBeforeUnmount(() => {
       <div class="lp-pagination">
         <button
           :disabled="locked || rows.loading || page === 0"
-          @click="load(cursors[page - 1]!, page - 1)"
+          @click="load(cursors[page - 1]!, page - 1, true)"
         >
           上一页
         </button>

@@ -769,6 +769,11 @@ html.lp-tab-grabbing * {
   font-size: 12px;
   color: var(--lp-muted);
 }
+.ledger-page .lp-record-summary > .lp-record-spinner {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 2px;
+}
 .ledger-page .lp-records[open] > .lp-record-summary {
   border-bottom: 1px solid var(--lp-rule);
 }

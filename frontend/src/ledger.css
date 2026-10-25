@@ -968,6 +968,101 @@ html.lp-tab-grabbing * {
   overflow-x: auto;
   border-bottom: 1px solid var(--lp-rule);
 }
+.ledger-page .lp-manager-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.ledger-page .lp-manager-heading p {
+  margin: 4px 0 0;
+}
+.ledger-page .lp-account-directory {
+  overflow: hidden;
+}
+.ledger-page .lp-account-directory ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ledger-page .lp-account-directory-heading,
+.ledger-page .lp-account-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 150px 100px;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  padding: 16px 20px;
+  text-align: left;
+}
+.ledger-page .lp-account-directory-heading {
+  background: var(--lp-table-heading);
+  color: #52667f;
+  font-size: 12px;
+}
+.ledger-page .lp-account-entry {
+  border: 0;
+  border-top: 1px solid var(--lp-rule);
+  border-radius: 0;
+  font-size: 13px;
+}
+.ledger-page .lp-account-entry:hover:not(:disabled) {
+  border-color: var(--lp-rule);
+  background: var(--lp-hover);
+  color: var(--lp-text);
+}
+.ledger-page .lp-account-entry-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-account-entry small {
+  display: none;
+}
+.ledger-page .lp-account-entry-action {
+  color: var(--lp-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+.ledger-page .lp-account-details-dialog .lp-dialog-header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ledger-page .lp-account-details-dialog .lp-info {
+  margin-top: 0;
+}
+@media (max-width: 600px) {
+  .ledger-page .lp-manager-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ledger-page .lp-account-directory-heading {
+    display: none;
+  }
+  .ledger-page .lp-account-entry {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 16px;
+  }
+  .ledger-page .lp-account-entry-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .ledger-page .lp-account-entry-action {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ledger-page .lp-account-entry-date {
+    text-align: right;
+  }
+  .ledger-page .lp-account-entry small {
+    display: inline;
+    margin-right: 6px;
+  }
+}
 .ledger-page .lp-management-tabs button {
   border: 0;
   border-bottom: 3px solid transparent;

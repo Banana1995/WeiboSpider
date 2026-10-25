@@ -397,7 +397,15 @@ it.each([false, true])(
     wrapper.findComponent(manager).vm.$emit("deleted");
     await flushPromises();
     expect(wrapper.find("#account-tab-a").exists()).toBe(false);
-    expect(wrapper.findComponent(manager).exists()).toBe(false);
+    expect(wrapper.findComponent(manager).exists()).toBe(true);
+    expect(
+      wrapper.get('.lp-workspace-switch [aria-pressed="true"]').text(),
+    ).toBe("管理账户");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "单账户")!
+      .trigger("click");
+    await flushPromises();
     if (!last)
       expect(wrapper.get("#account-tab-b").attributes("aria-selected")).toBe(
         "true",

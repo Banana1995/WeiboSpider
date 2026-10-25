@@ -89,11 +89,12 @@ it("cancels safely and starts a fresh countdown on every opening", async () => {
   await vi.advanceTimersByTimeAsync(4000);
   await click("取消");
   expect(vi.getTimerCount()).toBe(0);
-  expect(workspace.navigationLocked.value).toBe(false);
+  expect(workspace.navigationLocked.value).toBe(true);
+  expect(wrapper.findAll("dialog")).toHaveLength(1);
   await click("删除账户");
   expect(button("确认删除（5 秒）").attributes("disabled")).toBeDefined();
-  await wrapper.get("dialog").trigger("cancel");
-  expect(wrapper.find("dialog").exists()).toBe(false);
+  await wrapper.findAll("dialog").at(-1)!.trigger("cancel");
+  expect(wrapper.findAll("dialog")).toHaveLength(1);
   expect(fetcher).not.toHaveBeenCalled();
 });
 it("locks an uncertain deletion and retries with the original identity", async () => {
@@ -125,7 +126,7 @@ it("keeps the dialog and shows a definitive failure without claiming deletion", 
 it("discards the target on account changes and cleans up its timer", async () => {
   await click("删除账户");
   await wrapper.setProps({ account: { ...account, id: "b" } });
-  expect(wrapper.find("dialog").exists()).toBe(false);
+  expect(wrapper.findAll("dialog")).toHaveLength(1);
   expect(vi.getTimerCount()).toBe(0);
   await click("删除账户");
   wrapper.unmount();

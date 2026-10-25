@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import ImportAccount from "./ImportAccount.vue";
 import LedgerAutoUpdates from "./LedgerAutoUpdates.vue";
@@ -24,6 +24,12 @@ const emit = defineEmits<{
   deleted: [];
 }>();
 const { locked, navigationLocked, error, send } = useLedgerWorkspace();
+const detailId = ref(props.account?.id ?? "");
+const detailAccount = computed(
+  () =>
+    props.accounts.find((account) => account.id === detailId.value) ??
+    (props.account?.id === detailId.value ? props.account : undefined),
+);
 const tab = ref(props.initialTab === "import" ? "info" : props.initialTab);
 const importOpen = ref(props.initialTab === "import");
 const importDirty = ref(false);
@@ -36,10 +42,26 @@ function closeDelete() {
   clearInterval(deleteTimer);
   deleteTarget.value = undefined;
 }
-function openDelete() {
-  if (navigationLocked.value || !props.account) return;
+function openDetail(account: Account) {
+  if (navigationLocked.value) return;
+  detailId.value = account.id;
+  tab.value = "info";
+}
+function closeDetail() {
+  if (locked.value) return;
+  closeDelete();
+  detailId.value = "";
+}
+function openImport() {
+  if (navigationLocked.value) return;
+  importDirty.value = false;
   error.value = "";
-  deleteTarget.value = { ...props.account };
+  importOpen.value = true;
+}
+function openDelete() {
+  if (locked.value || !detailAccount.value) return;
+  error.value = "";
+  deleteTarget.value = { ...detailAccount.value };
   remaining.value = 5;
   deleteDeadline = performance.now() + 5000;
   clearInterval(deleteTimer);
@@ -70,11 +92,21 @@ function deleteAccount() {
     (result) => result?.account_id === target.id && result.deleted === true,
     () => {
       closeDelete();
+      detailId.value = "";
       emit("deleted");
     },
   );
 }
-watch(() => props.account?.id, closeDelete);
+watch(
+  () => props.account?.id,
+  (id) => {
+    closeDelete();
+    detailId.value = id ?? "";
+  },
+);
+watch(detailAccount, (account) => {
+  if (!account) closeDetail();
+});
 onBeforeUnmount(() => clearInterval(deleteTimer));
 watch(
   () => props.initialTab,
@@ -86,84 +118,121 @@ watch(
 </script>
 
 <template>
-  <section class="lp-management" aria-label="账户管理">
-    <div class="lp-management-tabs" aria-label="管理栏目">
-      <button
-        v-for="item in [
-          ['info', '账户资料'],
-          ['weekly', '自动更新记录'],
-        ]"
-        :key="item[0]"
-        :aria-pressed="tab === item[0]"
-        :disabled="navigationLocked"
-        @click="tab = item[0]!"
-      >
-        {{ item[1] }}
-      </button>
-    </div>
-    <div v-if="tab === 'info'" class="lp-management-body">
-      <h2>账户资料</h2>
-      <dl v-if="account" class="lp-info">
-        <div>
-          <dt>账户名称</dt>
-          <dd>{{ account.name }}</dd>
-        </div>
-        <div>
-          <dt>记账币种</dt>
-          <dd>{{ account.currency }}</dd>
-        </div>
-        <div>
-          <dt>开始记录</dt>
-          <dd>{{ account.opening_date }}</dd>
-        </div>
-        <div>
-          <dt>持仓来源</dt>
-          <dd>独立维护当前现金与持仓</dd>
-        </div>
-      </dl>
-      <p class="lp-muted">
-        账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
-      </p>
-      <div class="lp-management-secondary">
-        <div>
-          <h3>开启另一份计划</h3>
-          <p>账户之间独立记录，不合并资金和持仓。</p>
-        </div>
-        <button :disabled="locked" @click="emit('create')">新建账户</button>
+  <section class="lp-account-manager" aria-label="账户管理">
+    <header class="lp-manager-heading">
+      <div>
+        <h2>管理账户</h2>
+        <p class="lp-muted">
+          共 {{ accounts.length }} 个账户，点击查看详细资料
+        </p>
       </div>
-      <div class="lp-management-secondary">
-        <div>
-          <h3>从文件开始</h3>
-          <p>导入 Excel 历史记录，可新建账户或导入到空账户。</p>
-        </div>
-        <button
-          :disabled="locked"
-          @click="
-            importOpen = true;
-            importDirty = false;
-            error = '';
-          "
-        >
+      <div class="lp-actions">
+        <button :disabled="navigationLocked" @click="openImport">
           导入 Excel 账本
         </button>
-      </div>
-      <div v-if="account" class="lp-management-secondary">
-        <div>
-          <h3>删除账户</h3>
-          <p>删除当前账户及其账本数据，此操作不可恢复，不影响其他账户。</p>
-        </div>
         <button
-          class="lp-danger-button"
+          class="lp-primary"
+          data-ledger-focus
           :disabled="navigationLocked"
-          @click="openDelete"
+          @click="emit('create')"
         >
-          删除账户
+          新建账户
         </button>
       </div>
+    </header>
+    <div v-if="accounts.length" class="lp-management lp-account-directory">
+      <div class="lp-account-directory-heading" aria-hidden="true">
+        <span>账户名称</span><span>记账币种</span><span>开始记录</span><span />
+      </div>
+      <ul>
+        <li v-for="item in accounts" :key="item.id">
+          <button
+            class="lp-account-entry"
+            :disabled="navigationLocked"
+            :aria-label="`查看${item.name}账户资料`"
+            @click="openDetail(item)"
+          >
+            <strong class="lp-account-entry-name">{{ item.name }}</strong>
+            <span class="lp-account-entry-currency"
+              ><small>币种</small>{{ item.currency }}</span
+            >
+            <span class="lp-account-entry-date"
+              ><small>开始记录</small>{{ item.opening_date }}</span
+            >
+            <span class="lp-account-entry-action" aria-hidden="true"
+              >查看资料 ›</span
+            >
+          </button>
+        </li>
+      </ul>
     </div>
-    <div v-else class="lp-management-body">
-      <LedgerAutoUpdates :account="account" />
+    <div v-else class="lp-management lp-empty">
+      <h3>还没有账户</h3>
+      <p>在上方新建账户，或导入 Excel 账本开始记录。</p>
     </div>
+    <LedgerDialog
+      v-if="detailAccount"
+      :key="detailAccount.id"
+      :title="detailAccount.name"
+      caption="账户资料"
+      class="lp-account-details-dialog"
+      :show-write-status="false"
+      @close="closeDetail"
+    >
+      <div class="lp-management-tabs" aria-label="管理栏目">
+        <button
+          v-for="item in [
+            ['info', '账户资料'],
+            ['weekly', '自动更新记录'],
+          ]"
+          :key="item[0]"
+          :aria-pressed="tab === item[0]"
+          :disabled="locked"
+          @click="tab = item[0]!"
+        >
+          {{ item[1] }}
+        </button>
+      </div>
+      <div v-if="tab === 'info'" class="lp-management-body">
+        <dl class="lp-info">
+          <div>
+            <dt>账户名称</dt>
+            <dd>{{ detailAccount.name }}</dd>
+          </div>
+          <div>
+            <dt>记账币种</dt>
+            <dd>{{ detailAccount.currency }}</dd>
+          </div>
+          <div>
+            <dt>开始记录</dt>
+            <dd>{{ detailAccount.opening_date }}</dd>
+          </div>
+          <div>
+            <dt>持仓来源</dt>
+            <dd>独立维护当前现金与持仓</dd>
+          </div>
+        </dl>
+        <p class="lp-muted">
+          账户名称、币种和开始日期创建后不可修改。历史记录可在账户页单独编辑。
+        </p>
+        <div class="lp-management-secondary">
+          <div>
+            <h3>删除账户</h3>
+            <p>删除此账户及其账本数据，不影响其他账户。</p>
+          </div>
+          <button
+            class="lp-danger-button"
+            :disabled="locked"
+            @click="openDelete"
+          >
+            删除账户
+          </button>
+        </div>
+      </div>
+      <div v-else class="lp-management-body">
+        <LedgerAutoUpdates :account="detailAccount" />
+      </div>
+    </LedgerDialog>
     <LedgerDialog v-if="deleteTarget" title="确认删除账户" @close="closeDelete">
       <div class="lp-dialog-body">
         <p>确定删除账户「{{ deleteTarget.name }}」吗？</p>

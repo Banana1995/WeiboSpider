@@ -173,6 +173,7 @@ function loadInstruments() {
 function refresh() {
   if (navigationLocked.value) return;
   refreshKey.value++;
+  if (manage.value) void loadAccounts(selected.value);
 }
 function selectAccount(id: string) {
   if (navigationLocked.value) return;
@@ -335,10 +336,9 @@ function created(id: string) {
   void loadAccounts(id);
 }
 function deleted() {
-  manage.value = false;
   managementTab.value = "info";
   importedAccount.value = "";
-  void loadAccounts("");
+  void loadAccounts(selected.value);
 }
 async function locate(event: { id: string; date: string; accountId: string }) {
   if (locked.value) return;
@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
           管理账户
         </button>
       </div>
-      <p v-if="returnPortfolio && workspaceView === 'accounts'">
+      <p v-if="returnPortfolio && workspaceView === 'accounts' && !manage">
         <button
           class="lp-text-button"
           :disabled="navigationLocked"
@@ -436,7 +436,7 @@ onBeforeUnmount(() => {
         </button>
       </p>
       <div
-        v-if="workspaceView === 'accounts' && accounts.data?.length"
+        v-if="workspaceView === 'accounts' && !manage && accounts.data?.length"
         ref="tablist"
         class="lp-account-tabs lp-reorderable"
         role="tablist"
@@ -460,15 +460,6 @@ onBeforeUnmount(() => {
           @click="selectAccountTab(a.id)"
         >
           {{ a.name }}
-        </button>
-      </div>
-      <div
-        v-if="workspaceView === 'accounts' && manage"
-        class="lp-account-toolbar"
-      >
-        <h2>账户管理</h2>
-        <button :disabled="navigationLocked" @click="manage = false">
-          返回账户
         </button>
       </div>
       <p v-if="notice" class="lp-notice" role="status">{{ notice }}</p>
@@ -500,73 +491,55 @@ onBeforeUnmount(() => {
         <button :disabled="locked" @click="loadAccounts()">重新读取账户</button>
       </div>
       <div
-        v-else-if="workspaceView === 'accounts' && account"
+        v-else-if="workspaceView === 'accounts' && !manage && account"
         :id="`account-panel-${account.id}`"
         role="tabpanel"
         :aria-labelledby="`account-tab-${account.id}`"
       >
-        <template v-if="!manage">
-          <div class="lp-account-toolbar">
-            <h2>{{ account.name }}</h2>
-            <button
-              class="lp-primary"
-              data-ledger-focus
-              :disabled="navigationLocked"
-              @click="openRecord('create')"
-            >
-              ＋ 记一笔
-            </button>
-          </div>
-          <LedgerOverview
-            :key="account.id"
-            :account="account"
-            :refresh-key="refreshKey"
-            @locate="locate"
-            @ready="readyAccount = $event"
-            @loading="readyAccount = ''"
-          />
-          <LedgerHoldings
-            :key="account.id"
-            :account="account"
-            :accounts="accounts.data ?? []"
-            :instruments="instruments.data ?? []"
-            :instruments-error="instruments.error"
-            :instruments-loading="instruments.loading"
-            :refresh-key="refreshKey"
-            @locked="workspace.externalLock.value = $event"
-            @create="openAccount"
-            @instruments="loadInstruments"
-            @changed="refreshKey++"
-          />
-          <AccountRecords
-            :key="account.id"
-            ref="records"
-            :account="account"
-            :refresh-key="refreshKey"
-            @edit="openRecord('edit', $event)"
-            @detail="openRecord('detail', $event)"
-          />
-        </template>
-        <LedgerManagement
-          v-else
-          @deleted="deleted"
+        <div class="lp-account-toolbar">
+          <h2>{{ account.name }}</h2>
+          <button
+            class="lp-primary"
+            data-ledger-focus
+            :disabled="navigationLocked"
+            @click="openRecord('create')"
+          >
+            ＋ 记一笔
+          </button>
+        </div>
+        <LedgerOverview
+          :key="account.id"
+          :account="account"
+          :refresh-key="refreshKey"
+          @locate="locate"
+          @ready="readyAccount = $event"
+          @loading="readyAccount = ''"
+        />
+        <LedgerHoldings
+          :key="account.id"
           :account="account"
           :accounts="accounts.data ?? []"
           :instruments="instruments.data ?? []"
           :instruments-error="instruments.error"
           :instruments-loading="instruments.loading"
-          :initial-tab="managementTab"
           :refresh-key="refreshKey"
           @locked="workspace.externalLock.value = $event"
           @create="openAccount"
-          @imported="imported"
           @instruments="loadInstruments"
           @changed="refreshKey++"
+        />
+        <AccountRecords
+          :key="account.id"
+          ref="records"
+          :account="account"
+          :refresh-key="refreshKey"
+          @edit="openRecord('edit', $event)"
+          @detail="openRecord('detail', $event)"
         />
       </div>
       <LedgerManagement
         v-else-if="workspaceView === 'accounts' && manage"
-        :accounts="accounts.data ?? []"
+        :accounts="orderedAccounts"
         :instruments="instruments.data ?? []"
         :instruments-error="instruments.error"
         :instruments-loading="instruments.loading"
@@ -577,6 +550,7 @@ onBeforeUnmount(() => {
         @imported="imported"
         @instruments="loadInstruments"
         @changed="refreshKey++"
+        @deleted="deleted"
       />
       <section
         v-else-if="workspaceView === 'accounts'"
@@ -599,7 +573,7 @@ onBeforeUnmount(() => {
       />
       <template v-for="a in accounts.data" :key="a.id"
         ><div
-          v-if="a.id !== selected"
+          v-if="workspaceView === 'accounts' && !manage && a.id !== selected"
           :id="`account-panel-${a.id}`"
           role="tabpanel"
           :aria-labelledby="`account-tab-${a.id}`"

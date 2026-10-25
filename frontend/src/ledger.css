@@ -1054,7 +1054,7 @@ html.lp-tab-grabbing * {
   padding: 16px 20px;
   border-top: 1px solid var(--lp-rule);
 }
-.ledger-page .lp-portfolio-entry:first-child {
+.ledger-page .lp-portfolio-list li:first-child .lp-portfolio-entry {
   border-top: 0;
 }
 .ledger-page .lp-portfolio-entry-main {
@@ -2422,4 +2422,40 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-account-detail-panel .lp-management-secondary {
   margin-top: 12px;
   padding-top: 14px;
+}
+
+.ledger-page .lp-portfolio-entry {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--lp-rule);
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ledger-page .lp-portfolio-entry:hover:not(:disabled) {
+  background: var(--lp-hover);
+  border-color: var(--lp-rule);
+  color: inherit;
+}
+.ledger-page .lp-portfolio-list li:first-child .lp-portfolio-entry {
+  border-top: 0;
+}
+.ledger-page .lp-portfolio-entry-action {
+  flex: none;
+  color: var(--lp-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ledger-page .lp-portfolio-entry-panel {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 20px 16px;
+  background: #f8fbfe;
+  border-top: 1px solid var(--lp-rule);
+}
+.ledger-page .lp-portfolio-entry-panel .lp-actions {
+  padding-top: 12px;
 }

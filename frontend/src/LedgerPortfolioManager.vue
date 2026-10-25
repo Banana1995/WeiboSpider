@@ -12,6 +12,7 @@ const { locked } = useLedgerWorkspace();
 const list = reactive(useLedgerRead<Portfolio[]>());
 const modal = ref<"" | "create" | "edit" | "delete">("");
 const targetId = ref("");
+const expandedId = ref("");
 const current = computed(() =>
   list.data?.find((portfolio) => portfolio.id === targetId.value),
 );
@@ -39,14 +40,20 @@ function openCreate() {
   targetId.value = "";
   modal.value = "create";
 }
+function toggle(portfolio: Portfolio) {
+  if (locked.value) return;
+  expandedId.value = expandedId.value === portfolio.id ? "" : portfolio.id;
+}
 function openEdit(portfolio: Portfolio) {
   if (locked.value) return;
   targetId.value = portfolio.id;
+  expandedId.value = portfolio.id;
   modal.value = "edit";
 }
 function openDelete(portfolio: Portfolio) {
   if (locked.value) return;
   targetId.value = portfolio.id;
+  expandedId.value = portfolio.id;
   modal.value = "delete";
 }
 function close() {
@@ -55,12 +62,14 @@ function close() {
 }
 function saved(id: string) {
   targetId.value = id;
+  expandedId.value = id;
   modal.value = "";
   load();
   emit("changed");
 }
 function deleted() {
   close();
+  expandedId.value = "";
   load();
   emit("changed");
 }
@@ -113,7 +122,13 @@ function reload() {
     <div v-else-if="list.data?.length" class="lp-management">
       <ul class="lp-portfolio-list">
         <li v-for="portfolio in list.data" :key="portfolio.id">
-          <div class="lp-portfolio-entry">
+          <button
+            class="lp-portfolio-entry"
+            :disabled="locked"
+            :aria-expanded="expandedId === portfolio.id"
+            :aria-label="`${expandedId === portfolio.id ? '收起' : '管理'}${portfolio.name}组合`"
+            @click="toggle(portfolio)"
+          >
             <div class="lp-portfolio-entry-main">
               <strong>{{ portfolio.name }}</strong>
               <span class="lp-muted"
@@ -129,6 +144,14 @@ function reload() {
                 >
               </div>
             </div>
+            <span class="lp-portfolio-entry-action"
+              >{{ expandedId === portfolio.id ? "收起" : "管理" }} ›</span
+            >
+          </button>
+          <div
+            v-if="expandedId === portfolio.id"
+            class="lp-portfolio-entry-panel"
+          >
             <div class="lp-actions">
               <button
                 :disabled="locked"
@@ -143,7 +166,7 @@ function reload() {
                 :aria-label="`删除${portfolio.name}`"
                 @click="openDelete(portfolio)"
               >
-                删除
+                删除组合
               </button>
             </div>
           </div>

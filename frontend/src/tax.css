@@ -548,8 +548,12 @@
   border-top: 1px solid #dce4ec;
 }
 .tax-page .tax-detail-table {
+  --tax-detail-group-border: 2px solid #9bb7cf;
   width: 100%;
   font-size: 12px;
+  /* Keep borders attached to sticky cells while scrolling. */
+  border-collapse: separate;
+  border-spacing: 0;
 }
 .tax-detail-table thead {
   position: sticky;
@@ -598,30 +602,33 @@
   background: #e3eef9;
   color: #245988;
   text-align: center;
-  border-right: 2px solid #9bb7cf;
 }
 .tax-page .tax-detail-table .tax-close-band {
   background: #e8f2ed;
   color: #365c4a;
   text-align: center;
-  border-right: 2px solid #9bb7cf;
 }
-.tax-page .tax-detail-table th.tax-open-end,
-.tax-page .tax-detail-table td.tax-open-end,
-.tax-page .tax-detail-table th.tax-close-end,
-.tax-page .tax-detail-table td.tax-close-end {
-  border-right: 2px solid #9bb7cf;
+.tax-page
+  .tax-detail-table
+  :is(
+    .tax-detail-security,
+    .tax-close-band,
+    .tax-close-end,
+    .tax-open-band,
+    .tax-open-end
+  ) {
+  border-right: var(--tax-detail-group-border);
 }
-.tax-page .tax-detail-table th.tax-close-start,
-.tax-page .tax-detail-table td.tax-close-start {
-  border-left: 2px solid #9bb7cf;
+.tax-page .tax-detail-table .tax-entry-group {
+  --tax-entry-background: #fff;
+}
+.tax-page .tax-detail-table .tax-entry-group:nth-of-type(even) {
+  --tax-entry-background: #f7f9fc;
 }
 .tax-page .tax-detail-table .tax-entry-group td {
+  /* One stripe per numbered record, including paired lots and sticky cells. */
+  background: var(--tax-entry-background);
   border-bottom: 1px solid #dce4ec;
-  border-right: 1px solid #eef2f7;
-}
-.tax-entry-group:nth-of-type(even) {
-  background: #f7f9fc;
 }
 .tax-page .tax-detail-table .tax-detail-account {
   min-width: 170px;
@@ -631,10 +638,6 @@
 }
 .tax-detail-account small {
   white-space: nowrap;
-}
-.tax-page .tax-detail-table .tax-pair-summary td {
-  background: #f7f9fc;
-  border-bottom: 1px solid #dce4ec;
 }
 .tax-page .tax-detail-table .tax-pair-summary-label {
   color: #62748b;
@@ -682,14 +685,12 @@
   width: 132px;
   min-width: 132px;
   max-width: 132px;
-  background: #fff;
   z-index: 1;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 .tax-page .tax-detail-table .tax-result-profit {
   right: 132px;
-  border-left: 1px solid #9bb7cf;
 }
 .tax-page .tax-detail-table .tax-result-dividend {
   right: 0;
@@ -697,25 +698,12 @@
 .tax-page .tax-detail-table .tax-index {
   position: sticky;
   left: 0;
-  background: #fff;
   z-index: 1;
 }
 .tax-page .tax-detail-table .tax-detail-security {
   position: sticky;
   left: 44px;
-  background: #fff;
   z-index: 1;
-}
-.tax-page
-  .tax-detail-table
-  thead
-  :is(
-    .tax-index,
-    .tax-detail-security,
-    .tax-result-profit,
-    .tax-result-dividend
-  ) {
-  background: #edf2f7;
 }
 @media (max-width: 700px) {
   .tax-page

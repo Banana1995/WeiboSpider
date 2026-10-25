@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import {
   taxRequest,
@@ -419,10 +420,8 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
               {{ a.name }} · {{ a.id.slice(-4) }}
             </option>
           </select></label
-        ><label
-          >开始日期<input v-model="from" type="date" :disabled="busy" /></label
-        ><label
-          >结束日期<input v-model="to" type="date" :disabled="busy" /></label
+        ><label>开始日期<LedgerDate v-model="from" :disabled="busy" /></label
+        ><label>结束日期<LedgerDate v-model="to" :disabled="busy" /></label
         ><button
           :disabled="busy"
           @click="

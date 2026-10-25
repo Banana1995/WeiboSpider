@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { init, use, type EChartsType } from "echarts/core";
 import { LineChart, ScatterChart } from "echarts/charts";
@@ -256,13 +257,12 @@ onBeforeUnmount(() => {
       aria-label="总资产走势和资金日志事件带，等价键盘操作及精确金额见下方可展开的日期表"
     />
     <label
-      >点选日期（键盘 / 手机）<input
-        type="date"
+      >点选日期（键盘 / 手机）<LedgerDate
         name="chart_day"
-        :value="selected"
+        :model-value="selected"
         :min="from"
         :max="to"
-        @change="choose(($event.target as HTMLInputElement).value)"
+        @update:model-value="choose"
     /></label>
     <details data-test="asset-date-data">
       <summary>查看资产日期数据</summary>

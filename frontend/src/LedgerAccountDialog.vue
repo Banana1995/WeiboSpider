@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, ref } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import {
@@ -75,9 +76,7 @@ function save() {
               <option>USD</option>
             </select></label
           >
-          <label
-            >开始日期<input v-model="openingDate" type="date" required
-          /></label>
+          <label>开始日期<LedgerDate v-model="openingDate" required /></label>
         </div>
         <p class="lp-field-hint">
           名称、币种和开始日期创建后不可修改。创建后可添加历史记录和当前持仓。

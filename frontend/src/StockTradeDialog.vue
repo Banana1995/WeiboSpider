@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, ref } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import LedgerSecurityDialog from "./LedgerSecurityDialog.vue";
@@ -321,10 +322,9 @@ function save() {
           <template v-else>
             <div class="lp-two-fields">
               <label
-                >交易日期<input
+                >交易日期<LedgerDate
                   v-model="date"
                   name="date"
-                  type="date"
                   required
                   :max="todayShanghai()"
                   :disabled="!!entry?.event"

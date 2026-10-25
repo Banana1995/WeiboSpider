@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { defineAsyncComponent, reactive, ref, watch } from "vue";
 import { decimal, LedgerError, query, request } from "./ledger";
 import { useLedgerRead } from "./useLedgerRead";
@@ -151,10 +152,8 @@ watch(
   <section data-test="analysis-basis">
     <h3>资产走势与收益分析</h3>
     <form class="ledger-grid" @submit.prevent="load">
-      <label
-        >开始日期<input v-model="from" name="basis_from" type="date"
-      /></label>
-      <label>截止日期<input v-model="to" name="basis_to" type="date" /></label>
+      <label>开始日期<LedgerDate v-model="from" name="basis_from" /></label>
+      <label>截止日期<LedgerDate v-model="to" name="basis_to" /></label>
       <button :disabled="basis.loading || (!!from && !!to && from > to)">
         查看 / 刷新分析依据
       </button>

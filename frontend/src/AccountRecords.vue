@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { errorText, query, request, type Account, type Page } from "./ledger";
 import type { AccountRecord } from "./accountRecords";
@@ -233,8 +234,8 @@ onBeforeUnmount(() => {
           <form @submit.prevent="filter">
             <fieldset :disabled="locked">
               <strong>仅筛选下方记录</strong>
-              <label>记录开始日期<input v-model="from" type="date" /></label
-              ><label>记录结束日期<input v-model="to" type="date" /></label>
+              <label>记录开始日期<LedgerDate v-model="from" /></label
+              ><label>记录结束日期<LedgerDate v-model="to" /></label>
               <label class="lp-check"
                 ><input v-model="showVoided" type="checkbox" />显示已作废</label
               >

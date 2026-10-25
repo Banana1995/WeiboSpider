@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { reactive, ref, watch } from "vue";
 import { LedgerError, query, request, type Page } from "./ledger";
 import type { ImportedRow, ImportedSummary } from "./ledgerImport";
@@ -92,10 +93,10 @@ watch(
           @submit.prevent="filter"
         >
           <label
-            >起始日期（含）<input v-model="from" type="date" name="import_from"
+            >起始日期（含）<LedgerDate v-model="from" name="import_from"
           /></label>
           <label
-            >结束日期（含）<input v-model="to" type="date" name="import_to"
+            >结束日期（含）<LedgerDate v-model="to" name="import_to"
           /></label>
           <button type="submit" :disabled="!!from && !!to && from > to">
             筛选导入记录

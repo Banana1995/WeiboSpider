@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import LedgerChannelEditor from "./LedgerChannelEditor.vue";
@@ -582,7 +583,7 @@ function nextHistory() {
             </button>
           </div>
           <p v-else class="lp-reference">编辑原有备注，不改变记录类型。</p>
-          <label>记录日期<input v-model="date" type="date" required /></label>
+          <label>记录日期<LedgerDate v-model="date" required /></label>
           <label v-if="kind === 'in' || kind === 'out'"
             >{{ kind === "in" ? "转入金额" : "转出金额" }}
             <small>{{ account.currency }}</small

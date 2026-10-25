@@ -631,3 +631,88 @@ footer > span {
     font-size: 11px;
   }
 }
+
+/* Select controls: modern trigger; the native picker is restyled where the
+   browser supports customizable select, and stays functional elsewhere. */
+.ledger-page select,
+.tax-page select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px !important;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%2362748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.ledger-page select:hover:not(:disabled),
+.tax-page select:hover:not(:disabled) {
+  border-color: #9bb7cf;
+}
+@supports (appearance: base-select) {
+  .ledger-page select,
+  .ledger-page select::picker(select),
+  .tax-page select,
+  .tax-page select::picker(select) {
+    appearance: base-select;
+  }
+  .ledger-page select,
+  .tax-page select {
+    background-image: none;
+    gap: 8px;
+  }
+  .ledger-page select::picker-icon,
+  .tax-page select::picker-icon {
+    margin-left: auto;
+    color: #62748b;
+    font-size: 14px;
+  }
+  .ledger-page select::picker(select),
+  .tax-page select::picker(select) {
+    margin-top: 6px;
+    padding: 6px;
+    border: 1px solid #ccd7e2;
+    border-radius: 10px;
+    background: #fff;
+    color: #263445;
+    box-shadow: 0 14px 36px #13243c26;
+    font:
+      13px/1.5 -apple-system,
+      BlinkMacSystemFont,
+      "PingFang SC",
+      "Microsoft YaHei",
+      sans-serif;
+  }
+  .ledger-page select option,
+  .tax-page select option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 2px 0;
+    padding: 9px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+  .ledger-page select option:hover,
+  .ledger-page select option:focus-visible,
+  .tax-page select option:hover,
+  .tax-page select option:focus-visible {
+    background: #f5f9ff;
+  }
+  .ledger-page select option:checked,
+  .tax-page select option:checked {
+    background: #eaf3fb;
+    color: #144f85;
+    font-weight: 650;
+  }
+  .ledger-page select option::checkmark,
+  .tax-page select option::checkmark {
+    order: 2;
+    color: #1766b6;
+    font-size: 13px;
+  }
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import { errorText, LedgerError, query, request, type Account } from "./ledger";
 import type { EffectiveSummary } from "./accountRecords";
@@ -637,16 +638,14 @@ watch([() => props.refreshKey, cacheEpoch], () => {
     </div>
     <div v-if="range === 'custom'" class="lp-date-range">
       <label
-        >收益开始日期<input
+        >收益开始日期<LedgerDate
           v-model="customFrom"
-          type="date"
           :max="today"
           :disabled="locked" /></label
       ><span>至</span>
       <label
-        >收益结束日期<input
+        >收益结束日期<LedgerDate
           v-model="customTo"
-          type="date"
           :max="today"
           :disabled="locked"
       /></label>

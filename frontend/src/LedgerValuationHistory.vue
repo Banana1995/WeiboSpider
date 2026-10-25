@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LedgerDate from "./LedgerDate.vue";
 import { reactive, ref, watch } from "vue";
 import LedgerValuation from "./LedgerValuation.vue";
 import {
@@ -96,16 +97,14 @@ watch(() => props.refreshKey, first);
     </p>
     <form class="ledger-form" @submit.prevent="applyFilters">
       <label
-        >账本日期起（as_of，含当天）<input
+        >账本日期起（as_of，含当天）<LedgerDate
           v-model="filters.from"
           name="history_from"
-          type="date"
       /></label>
       <label
-        >账本日期止（as_of，含当天）<input
+        >账本日期止（as_of，含当天）<LedgerDate
           v-model="filters.to"
           name="history_to"
-          type="date"
           :min="filters.from || undefined"
       /></label>
       <button

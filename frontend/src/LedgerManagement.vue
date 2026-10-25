@@ -191,7 +191,8 @@ watch(
   },
 );
 watch(detailAccount, (account) => {
-  if (!account) closeDetail();
+  // Accounts are briefly empty while a rename reloads them; keep the panel.
+  if (!account && props.accounts.length > 0) closeDetail();
 });
 onBeforeUnmount(() => clearInterval(deleteTimer));
 watch(

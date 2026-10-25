@@ -89,7 +89,7 @@ function reload() {
         </button>
       </div>
     </header>
-    <div v-if="modal" class="lp-management lp-inline-editor">
+    <div v-if="modal" class="lp-management lp-portfolio-inline">
       <PortfolioForm
         inline
         :accounts="accounts"

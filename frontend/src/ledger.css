@@ -2385,7 +2385,8 @@ html.lp-tab-grabbing * {
   margin-top: 0;
 }
 
-.ledger-page .lp-inline-editor {
+.ledger-page .lp-portfolio-inline {
+  display: block;
   padding: 4px 20px 20px;
 }
 .ledger-page .lp-inline-editor-head {
@@ -2401,10 +2402,10 @@ html.lp-tab-grabbing * {
   margin: 0;
   font-size: 16px;
 }
-.ledger-page .lp-inline-editor .lp-form {
+.ledger-page .lp-portfolio-inline .lp-form {
   padding: 0;
 }
-.ledger-page .lp-inline-editor .lp-dialog-footer {
+.ledger-page .lp-portfolio-inline .lp-dialog-footer {
   margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--lp-rule);

@@ -24,7 +24,7 @@ const emit = defineEmits<{
   changed: [];
   deleted: [];
 }>();
-const { locked, navigationLocked, error, send } = useLedgerWorkspace();
+const { locked, error, send } = useLedgerWorkspace();
 const section = ref<"accounts" | "portfolios">("accounts");
 const detailId = ref(props.account?.id ?? "");
 const detailAccount = computed(
@@ -44,7 +44,7 @@ function closeDelete() {
   deleteTarget.value = undefined;
 }
 function openDetail(account: Account) {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   detailId.value = account.id;
 }
 function closeDetail() {
@@ -53,7 +53,7 @@ function closeDetail() {
   detailId.value = "";
 }
 function openImport() {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   importDirty.value = false;
   error.value = "";
   importOpen.value = true;
@@ -124,14 +124,14 @@ watch(
     <div class="lp-management-tabs" aria-label="管理范围">
       <button
         :aria-pressed="section === 'accounts'"
-        :disabled="navigationLocked"
+        :disabled="locked"
         @click="section = 'accounts'"
       >
         账户
       </button>
       <button
         :aria-pressed="section === 'portfolios'"
-        :disabled="navigationLocked"
+        :disabled="locked"
         @click="section = 'portfolios'"
       >
         账户组合
@@ -146,13 +146,13 @@ watch(
           </p>
         </div>
         <div class="lp-actions">
-          <button :disabled="navigationLocked" @click="openImport">
+          <button :disabled="locked" @click="openImport">
             导入 Excel 账本
           </button>
           <button
             class="lp-primary"
             data-ledger-focus
-            :disabled="navigationLocked"
+            :disabled="locked"
             @click="emit('create')"
           >
             新建账户
@@ -168,7 +168,7 @@ watch(
           <li v-for="item in accounts" :key="item.id">
             <button
               class="lp-account-entry"
-              :disabled="navigationLocked"
+              :disabled="locked"
               :aria-label="`查看${item.name}账户资料`"
               @click="openDetail(item)"
             >

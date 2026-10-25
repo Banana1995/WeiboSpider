@@ -14,6 +14,7 @@ import LedgerPortfolios from "./LedgerPortfolios.vue";
 import AccountRecords from "./AccountRecords.vue";
 import LedgerRecordDialog from "./LedgerRecordDialog.vue";
 import LedgerAccountDialog from "./LedgerAccountDialog.vue";
+import LedgerDialog from "./LedgerDialog.vue";
 import LedgerManagement from "./LedgerManagement.vue";
 import LedgerHoldings from "./LedgerHoldings.vue";
 import {
@@ -308,7 +309,7 @@ function openRecord(mode: "create" | "edit" | "detail", id = "") {
   modal.value = mode;
 }
 function openAccount() {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   error.value = "";
   if (!instruments.data && !instruments.loading) loadInstruments();
   modal.value = "account";
@@ -402,18 +403,9 @@ onBeforeUnmount(() => {
     </header>
     <main class="lp-main">
       <div class="lp-account-heading">
-        <h1>{{ manage ? "管理账户" : "投资账本" }}</h1>
+        <h1>投资账本</h1>
         <div class="lp-actions">
           <button
-            v-if="manage"
-            data-ledger-focus
-            :disabled="navigationLocked"
-            @click="manage = false"
-          >
-            返回账户
-          </button>
-          <button
-            v-else
             class="lp-text-button"
             :disabled="navigationLocked"
             @click="manageAccount()"
@@ -438,7 +430,7 @@ onBeforeUnmount(() => {
           账户组合
         </button>
       </div>
-      <p v-if="returnPortfolio && workspaceView === 'accounts' && !manage">
+      <p v-if="returnPortfolio && workspaceView === 'accounts'">
         <button
           class="lp-text-button"
           :disabled="navigationLocked"
@@ -448,7 +440,7 @@ onBeforeUnmount(() => {
         </button>
       </p>
       <div
-        v-if="workspaceView === 'accounts' && !manage && accounts.data?.length"
+        v-if="workspaceView === 'accounts' && accounts.data?.length"
         ref="tablist"
         class="lp-account-tabs lp-reorderable"
         role="tablist"
@@ -503,7 +495,7 @@ onBeforeUnmount(() => {
         <button :disabled="locked" @click="loadAccounts()">重新读取账户</button>
       </div>
       <div
-        v-else-if="workspaceView === 'accounts' && !manage && account"
+        v-else-if="workspaceView === 'accounts' && account"
         :id="`account-panel-${account.id}`"
         role="tabpanel"
         :aria-labelledby="`account-tab-${account.id}`"
@@ -549,21 +541,6 @@ onBeforeUnmount(() => {
           @detail="openRecord('detail', $event)"
         />
       </div>
-      <LedgerManagement
-        v-else-if="workspaceView === 'accounts' && manage"
-        :accounts="orderedAccounts"
-        :instruments="instruments.data ?? []"
-        :instruments-error="instruments.error"
-        :instruments-loading="instruments.loading"
-        :initial-tab="managementTab"
-        :refresh-key="refreshKey"
-        @locked="workspace.externalLock.value = $event"
-        @create="openAccount"
-        @imported="imported"
-        @instruments="loadInstruments"
-        @changed="refreshKey++"
-        @deleted="deleted"
-      />
       <section
         v-else-if="workspaceView === 'accounts'"
         class="lp-income lp-empty"
@@ -585,7 +562,7 @@ onBeforeUnmount(() => {
       />
       <template v-for="a in accounts.data" :key="a.id"
         ><div
-          v-if="workspaceView === 'accounts' && !manage && a.id !== selected"
+          v-if="workspaceView === 'accounts' && a.id !== selected"
           :id="`account-panel-${a.id}`"
           role="tabpanel"
           :aria-labelledby="`account-tab-${a.id}`"
@@ -621,5 +598,28 @@ onBeforeUnmount(() => {
       @close="modal = ''"
       @created="created"
     />
+    <LedgerDialog
+      v-if="manage"
+      title="管理账户"
+      class="lp-account-manager-dialog"
+      @close="manage = false"
+    >
+      <div class="lp-dialog-body">
+        <LedgerManagement
+          :accounts="orderedAccounts"
+          :instruments="instruments.data ?? []"
+          :instruments-error="instruments.error"
+          :instruments-loading="instruments.loading"
+          :initial-tab="managementTab"
+          :refresh-key="refreshKey"
+          @locked="workspace.externalLock.value = $event"
+          @create="openAccount"
+          @imported="imported"
+          @instruments="loadInstruments"
+          @changed="refreshKey++"
+          @deleted="deleted"
+        />
+      </div>
+    </LedgerDialog>
   </div>
 </template>

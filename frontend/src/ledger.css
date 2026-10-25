@@ -2371,3 +2371,16 @@ html.lp-tab-grabbing * {
     padding-bottom: 0;
   }
 }
+
+.ledger-page .lp-dialog.lp-account-manager-dialog {
+  width: min(1200px, calc(100vw - 40px));
+}
+.ledger-page .lp-account-manager-dialog .lp-dialog-body {
+  padding: 20px;
+}
+.ledger-page
+  .lp-account-manager-dialog
+  .lp-account-manager
+  > .lp-management-tabs {
+  margin-top: 0;
+}

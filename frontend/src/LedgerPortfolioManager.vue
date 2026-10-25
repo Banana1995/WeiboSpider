@@ -8,7 +8,7 @@ import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
 const props = defineProps<{ accounts: Account[]; refreshKey: number }>();
 const emit = defineEmits<{ changed: [] }>();
-const { navigationLocked } = useLedgerWorkspace();
+const { locked } = useLedgerWorkspace();
 const list = reactive(useLedgerRead<Portfolio[]>());
 const modal = ref<"" | "create" | "edit" | "delete">("");
 const targetId = ref("");
@@ -35,17 +35,17 @@ watch(() => props.refreshKey, load, { immediate: true });
 const memberName = (id: string) =>
   props.accounts.find((account) => account.id === id)?.name ?? "已删除的账户";
 function openCreate() {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   targetId.value = "";
   modal.value = "create";
 }
 function openEdit(portfolio: Portfolio) {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   targetId.value = portfolio.id;
   modal.value = "edit";
 }
 function openDelete(portfolio: Portfolio) {
-  if (navigationLocked.value) return;
+  if (locked.value) return;
   targetId.value = portfolio.id;
   modal.value = "delete";
 }
@@ -82,7 +82,7 @@ function reload() {
       <div class="lp-actions">
         <button
           class="lp-primary"
-          :disabled="navigationLocked || list.loading"
+          :disabled="locked || list.loading"
           @click="openCreate"
         >
           ＋ 新建组合
@@ -94,7 +94,7 @@ function reload() {
     </p>
     <div v-else-if="list.error" class="lp-empty">
       <p class="lp-error" role="alert">{{ errorText(list.error) }}</p>
-      <button :disabled="navigationLocked || list.loading" @click="load">
+      <button :disabled="locked || list.loading" @click="load">
         重新读取组合
       </button>
     </div>
@@ -119,7 +119,7 @@ function reload() {
             </div>
             <div class="lp-actions">
               <button
-                :disabled="navigationLocked"
+                :disabled="locked"
                 :aria-label="`调整${portfolio.name}的成员`"
                 @click="openEdit(portfolio)"
               >
@@ -127,7 +127,7 @@ function reload() {
               </button>
               <button
                 class="lp-text-button"
-                :disabled="navigationLocked"
+                :disabled="locked"
                 :aria-label="`删除${portfolio.name}`"
                 @click="openDelete(portfolio)"
               >

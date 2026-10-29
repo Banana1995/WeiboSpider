@@ -100,6 +100,12 @@ class TestScheduler:
     def test_config_controls_jobs(self, scheduler):
         sch, calls = scheduler
         assert sch._is_schedule_enabled() is False
+        sch.update_config({'schedule_enabled': True})
+        assert {job.id for job in sch._scheduler.get_jobs()} == {
+            'tweet_crawl', 'comment_crawl', 'log_cleanup',
+        }
+        sch.update_config({'schedule_enabled': False})
+        assert sch._scheduler.get_jobs() == []
 
 
 class TestScheduleWindow:

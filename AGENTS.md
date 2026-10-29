@@ -8,6 +8,7 @@
 - **定位**：原微博/雪球内容管理服务，加上独立 Go 白酒行情后端和 Vue 单品趋势页；逐步演进为多数据源平台。
 - **技术栈**：微博使用 Python 3.9 / Scrapy 2.5 / Flask 2.3 / Waitress / APScheduler / SQLite / Headless Chrome（PDF）；白酒使用 Go 1.26 / CGO SQLite / Vue 3 / TypeScript / Vite / ECharts / Nginx。
 - **状态更新**：微博前端每 3s 普通轮询 `/api/crawl/status`（**不用 SSE 或长轮询**）；白酒页面仅在加载、手动刷新时读取同步状态，刷新不触发采集。
+- **微博 Cookie（2026-10-29）**：续期由本机 `local.weibo-cookie.watch` 每小时检查、失效后从浏览器同步；间隔配置在本机 LaunchAgent（`--interval 3600`），不随服务器部署更新。服务器只提供有效性探测和 ALF 到期信息，已移除定时/手动 Set-Cookie 保活。前端收到 `cookie_expired=false` 后自动关闭旧弹窗，并恢复下一次失效提示。
 - **微博评论**：定时增量按北京时间最近 8 小时筛选，已有 100 条一级评论才跳过（回复不计入额度）；与单条手动抓取一致，按游标翻页至 100 条一级评论或接口结束，不再固定两页。页面只显示本地已抓评论总数（不区分一级评论和回复），展开与手动抓取后均按热度排序，新增按 ID 去重统计。详见 [评论同步规则](docs/specs/2026-10-20-comment-sync.md)。
 - **License**：MIT
 - **仓库**：https://github.com/Banana1995/WeiboSpider（公有仓库，master 分支）
@@ -51,7 +52,7 @@ weibospider/
 ├── db.py               # SQLite 数据库操作 (TweetDB)
 ├── run.py              # 启动入口（--dev 热更新 / 生产 waitress）
 ├── scheduler.py        # 北京时间 [07:00,22:00)，微博62/评论47分钟 + 0至5分钟抖动
-├── keepalive.py        # Cookie 保活（Set-Cookie 刷新）
+├── keepalive.py        # Cookie 有效性探测、ALF 到期信息（只读）
 ├── settings.py         # Scrapy 全局配置
 ├── pipelines.py        # Scrapy 数据管道（写 SQLite）
 ├── middlewares.py      # Scrapy 中间件（代理、UA）

@@ -445,7 +445,7 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
       <select id="logs-category-filter" onchange="loadLogs(1)" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid #ddd;">
         <option value="">全部</option>
         <option value="crawl">抓取</option>
-        <option value="keepalive">保活</option>
+        <option value="keepalive">保活（历史）</option>
         <option value="annotation">标注</option>
         <option value="config">配置</option>
         <option value="schedule">调度</option>
@@ -1286,6 +1286,10 @@ async function pollCrawlStatus() {
 
   if (!anyRunning && data.cookie_expired && !cookieModalDismissed) {
     showCookieModal();
+  } else if (data.cookie_expired === false) {
+    // The local sync tool can restore the cookie while this page stays open.
+    $('cookie-modal').classList.remove('show');
+    cookieModalDismissed = false;
   } else if (!anyRunning && !cookieModalDismissed) {
     const lastRes = [data.tweet, data.comment, data.xueqiu, data.xueqiu_comment]
       .map(r => (r && r.last_result && r.last_result.error) || '')

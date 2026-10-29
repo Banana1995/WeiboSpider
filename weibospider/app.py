@@ -1411,17 +1411,6 @@ def api_crawl_cancel():
     return jsonify(SCHEDULER.cancel())
 
 
-@app.route('/api/cookie/keepalive', methods=['POST'])
-def api_cookie_keepalive():
-    """Manually trigger cookie keepalive (ping weibo.com, refresh Set-Cookie)."""
-    if SCHEDULER is None:
-        return jsonify({'error': 'Scheduler not available'}), 503
-    DB.insert_log('keepalive', 'manual_keepalive', user='web')
-    result = SCHEDULER.manual_keepalive()
-    code = 200 if result.get('status') == 'ok' else 400
-    return jsonify(result), code
-
-
 @app.route('/api/logs')
 def api_logs():
     """Return paginated operation logs."""
@@ -1755,15 +1744,11 @@ def create_app(db_path=None, debug=False):
     # - Dev with reloader (debug=True): start ONLY in reloaded child (WERKZEUG_RUN_MAIN=='true')
     if not debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         if SCHEDULER is None and not app.config.get('SCHEDULER_DISABLED'):
-            from keepalive import refresh_cookie
-            _keepalive = lambda: refresh_cookie(DB)
             SCHEDULER = CrawlScheduler(_crawl_tweets, _crawl_comments,
-                                       keepalive_func=_keepalive,
                                        crawl_xueqiu_func=_crawl_xueqiu,
                                        crawl_xueqiu_comments_func=_crawl_xueqiu_comments)
             SCHEDULER._log_to_db = lambda cat, act, detail=None, status=None, user='scheduler': \
                 DB.insert_log(cat, act, detail=detail, status=status, user=user)
-            SCHEDULER._get_cookie = lambda: DB.get_config('cookie', '') or ''
             SCHEDULER._cleanup_old_logs = lambda days=15: DB.cleanup_old_logs(days)
             SCHEDULER.update_config(_get_schedule_config())
             SCHEDULER.start()

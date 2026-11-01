@@ -909,11 +909,13 @@ def index():
 
 
 def _attach_annotations(tweets):
-    """Attach annotations and stored comment counts; comment bodies stay lazy-loaded."""
+    """Attach notes, favorites and comment counts; comment bodies stay lazy-loaded."""
     counts = DB.get_comment_counts([t['id'] for t in tweets])
+    favorites = DB.get_favorite_ids([t['id'] for t in tweets])
     for t in tweets:
         t['annotations_list'] = DB.get_annotations(t['id'])
         t['comment_counts'] = counts[t['id']]
+        t['is_favorited'] = t['id'] in favorites
 
 
 @app.route('/api/tweets')
@@ -945,8 +947,17 @@ def api_ps():
 
 @app.route('/api/notes')
 def api_notes():
-    """笔记 tab：返回所有有划线评论的非删除微博（附 annotations_list）。"""
-    tweets = DB.get_annotated_tweets()
+    """收藏与笔记 tab：筛选收藏和有划线评论的非删除内容，按微博去重。"""
+    try:
+        tweets = DB.get_saved_tweets(
+            kind=request.args.get('kind', 'all'),
+            q=request.args.get('q', ''),
+            platform=request.args.get('platform', 'all'),
+            start_date=request.args.get('start_date', ''),
+            end_date=request.args.get('end_date', ''),
+        )
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     _attach_annotations(tweets)
     return jsonify(tweets)
 
@@ -1002,11 +1013,25 @@ def api_get_tweet(tweet_id):
     tweet = DB.get_tweet(tweet_id)
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
+    tweet['is_favorited'] = tweet_id in DB.get_favorite_ids([tweet_id])
     # Match the crawl response: expanding a card must not silently switch from
     # heat order to chronological order just because the comments came from the DB.
     comments = DB.get_comments(tweet_id, sort='hot')
     counts = DB.get_comment_counts([tweet_id])[tweet_id]
     return jsonify({'tweet': tweet, 'comments': comments, 'comment_counts': counts})
+
+
+@app.route('/api/tweets/<tweet_id>/favorite', methods=['PUT'])
+def api_set_favorite(tweet_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or type(data.get('is_favorited')) is not bool:
+        return jsonify({'error': 'is_favorited 必须为布尔值'}), 400
+    result = DB.set_favorite(tweet_id, data['is_favorited'])
+    if result is None:
+        return jsonify({'error': 'tweet not found'}), 404
+    DB.insert_log('tweet', 'favorite' if result else 'unfavorite',
+                  detail=f'tweet={tweet_id}', status='success', user='web')
+    return jsonify({'id': tweet_id, 'is_favorited': result})
 
 
 @app.route('/api/tweets/<tweet_id>', methods=['DELETE'])

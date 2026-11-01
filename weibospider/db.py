@@ -9,6 +9,10 @@ from datetime import datetime
 from search import build_search_sql, highlight_all
 
 
+_PS_TWEET_CONDITION = """(content LIKE '%PS图%' OR EXISTS (
+    SELECT 1 FROM ps_marks WHERE ps_marks.tweet_id = tweets.id))"""
+
+
 class TweetDB:
     def __init__(self, db_path=None):
         if db_path is None:
@@ -133,6 +137,11 @@ class TweetDB:
         );
         CREATE INDEX IF NOT EXISTS idx_annotations_tweet_id ON annotations(tweet_id);
         CREATE TABLE IF NOT EXISTS favorites (
+            tweet_id    TEXT PRIMARY KEY,
+            created_at  TEXT NOT NULL,
+            FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS ps_marks (
             tweet_id    TEXT PRIMARY KEY,
             created_at  TEXT NOT NULL,
             FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
@@ -641,13 +650,10 @@ class TweetDB:
             return row[0]
 
     def get_ps_tweets(self):
-        """Return non-deleted monthly 'PS图' summary tweets (content contains 'PS图').
-
-        Used by the PS图 tab to show the blogger's monthly trading summaries.
-        """
+        """Return non-deleted PS图 posts, matched by keyword or manual mark."""
         with self._lock:
             rows = self.conn.execute(
-                "SELECT * FROM tweets WHERE deleted = 0 AND content LIKE '%PS图%' "
+                f"SELECT * FROM tweets WHERE deleted = 0 AND {_PS_TWEET_CONDITION} "
                 "ORDER BY created_at DESC"
             ).fetchall()
             results = []
@@ -659,6 +665,52 @@ class TweetDB:
                 d['deleted'] = bool(d.get('deleted'))
                 results.append(d)
             return results
+
+    def get_ps_states(self, tweet_ids):
+        """Return manual and effective classification using the PS feed's rule."""
+        ids = list(dict.fromkeys(tweet_ids))
+        states = {}
+        with self._lock:
+            for start in range(0, len(ids), 500):
+                batch = ids[start:start + 500]
+                placeholders = ','.join('?' for _ in batch)
+                rows = self.conn.execute(
+                    "SELECT id, EXISTS (SELECT 1 FROM ps_marks "
+                    "WHERE ps_marks.tweet_id = tweets.id) AS is_ps_manual, "
+                    f"{_PS_TWEET_CONDITION} AS is_ps FROM tweets "
+                    f"WHERE id IN ({placeholders})", batch,
+                ).fetchall()
+                for row in rows:
+                    states[row['id']] = {
+                        'is_ps_manual': bool(row['is_ps_manual']),
+                        'is_ps': bool(row['is_ps']),
+                    }
+        return states
+
+    def set_ps_mark(self, tweet_id, marked):
+        """Persist an explicit manual state independently of recrawled content."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (set_ps_mark)")
+            try:
+                if not self.conn.execute(
+                        "SELECT 1 FROM tweets WHERE id=?", (tweet_id,)).fetchone():
+                    return None
+                if marked:
+                    self.conn.execute(
+                        "INSERT INTO ps_marks (tweet_id, created_at) VALUES (?, ?) "
+                        "ON CONFLICT(tweet_id) DO NOTHING",
+                        (tweet_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    )
+                else:
+                    self.conn.execute("DELETE FROM ps_marks WHERE tweet_id=?", (tweet_id,))
+                self.conn.commit()
+                return self.get_ps_states([tweet_id])[tweet_id]
+            except Exception:
+                self.conn.rollback()
+                raise
+            finally:
+                self._release_file_lock()
 
     def get_annotated_tweets(self):
         """Return non-deleted tweets that have at least one annotation,
@@ -950,18 +1002,16 @@ class TweetDB:
     def get_xueqiu_tweets_for_comment_crawl(self, ps_only=True):
         """Return (id, xq_id) tuples for xueqiu tweets eligible for comment crawl.
 
-        ps_only=True limits to non-deleted xueqiu posts whose content mentions
-        'PS图' (the small-batch target for comment crawling). Returns stored id
+        ps_only=True limits to non-deleted xueqiu posts classified as PS图
+        by keyword or manual mark. Returns stored id
         (with 'xq' prefix) and the numeric xueqiu id.
         """
         with self._lock:
             sql = ("SELECT id FROM tweets WHERE platform='xueqiu' AND deleted=0")
-            params = []
             if ps_only:
-                sql += " AND content LIKE ?"
-                params.append('%PS图%')
+                sql += f" AND {_PS_TWEET_CONDITION}"
             sql += " ORDER BY created_at DESC"
-            rows = self.conn.execute(sql, params).fetchall()
+            rows = self.conn.execute(sql).fetchall()
             return [(r[0], r[0][2:]) for r in rows]
 
     def delete_xueqiu_comments(self, tweet_id):

@@ -921,13 +921,16 @@ def index():
 
 
 def _attach_annotations(tweets):
-    """Attach notes, favorites and comment counts; comment bodies stay lazy-loaded."""
-    counts = DB.get_comment_counts([t['id'] for t in tweets])
-    favorites = DB.get_favorite_ids([t['id'] for t in tweets])
+    """Attach notes, saved states and counts; comment bodies stay lazy-loaded."""
+    ids = [t['id'] for t in tweets]
+    counts = DB.get_comment_counts(ids)
+    favorites = DB.get_favorite_ids(ids)
+    ps_states = DB.get_ps_states(ids)
     for t in tweets:
         t['annotations_list'] = DB.get_annotations(t['id'])
         t['comment_counts'] = counts[t['id']]
         t['is_favorited'] = t['id'] in favorites
+        t.update(ps_states[t['id']])
 
 
 @app.route('/api/tweets')
@@ -951,7 +954,7 @@ def api_tweets():
 
 @app.route('/api/ps')
 def api_ps():
-    """PS图 tab：返回博主每月交易总结微博（内容含 'PS图'）。"""
+    """PS图 tab：返回正文含 'PS图' 或手动标记的非删除内容。"""
     tweets = DB.get_ps_tweets()
     _attach_annotations(tweets)
     return jsonify(tweets)
@@ -1026,6 +1029,7 @@ def api_get_tweet(tweet_id):
     if tweet is None:
         return jsonify({'error': 'tweet not found'}), 404
     tweet['is_favorited'] = tweet_id in DB.get_favorite_ids([tweet_id])
+    tweet.update(DB.get_ps_states([tweet_id])[tweet_id])
     # Match the crawl response: expanding a card must not silently switch from
     # heat order to chronological order just because the comments came from the DB.
     comments = DB.get_comments(tweet_id, sort='hot')
@@ -1044,6 +1048,19 @@ def api_set_favorite(tweet_id):
     DB.insert_log('tweet', 'favorite' if result else 'unfavorite',
                   detail=f'tweet={tweet_id}', status='success', user='web')
     return jsonify({'id': tweet_id, 'is_favorited': result})
+
+
+@app.route('/api/tweets/<tweet_id>/ps', methods=['PUT'])
+def api_set_ps_mark(tweet_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or type(data.get('is_ps_manual')) is not bool:
+        return jsonify({'error': 'is_ps_manual 必须为布尔值'}), 400
+    result = DB.set_ps_mark(tweet_id, data['is_ps_manual'])
+    if result is None:
+        return jsonify({'error': 'tweet not found'}), 404
+    DB.insert_log('tweet', 'mark_ps' if data['is_ps_manual'] else 'unmark_ps',
+                  detail=f'tweet={tweet_id}', status='success', user='web')
+    return jsonify({'id': tweet_id, **result})
 
 
 @app.route('/api/tweets/<tweet_id>', methods=['DELETE'])

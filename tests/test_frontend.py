@@ -289,7 +289,7 @@ def test_edit_annotation_fetches_raw_comment():
 
 def test_notes_tab_exists():
     assert 'data-tab="notes"' in INDEX_HTML
-    assert '>笔记</button>' in INDEX_HTML
+    assert '>收藏与笔记</button>' in INDEX_HTML
 
 
 def test_notes_tab_after_ps_tab():
@@ -300,7 +300,7 @@ def test_notes_tab_after_ps_tab():
 
 def test_load_notes_function_exists():
     assert 'async function loadNotes()' in INDEX_HTML
-    assert "fetch('/api/notes')" in INDEX_HTML
+    assert "fetch('/api/notes?' + params.toString())" in INDEX_HTML
     assert 'loadNotes();' in INDEX_HTML
 
 

@@ -535,7 +535,7 @@ class TestTweetDB:
         from datetime import datetime, timedelta, timezone
         now = datetime.now(timezone(timedelta(hours=8)))
         recent = (now - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
-        old = (now - timedelta(hours=20)).strftime('%Y-%m-%d %H:%M:%S')
+        old = (now - timedelta(hours=25)).strftime('%Y-%m-%d %H:%M:%S')
         # recent tweet, no comments → should be included
         db.insert_tweet({
             '_id': '1', 'mblogid': 'Mb1', 'user_id': 'u1',
@@ -544,7 +544,7 @@ class TestTweetDB:
             'pic_urls': '[]', 'pic_num': 0, 'source': '', 'ip_location': '',
             'is_retweet': 0, 'retweet_id': None, 'url': '', 'crawl_time': 0,
         })
-        # 10h-old tweet → should be excluded (outside 8h window)
+        # Overnight post remains eligible after the 9h scheduling pause.
         tenh = (now - timedelta(hours=10)).strftime('%Y-%m-%d %H:%M:%S')
         db.insert_tweet({
             '_id': '5', 'mblogid': 'Mb5', 'user_id': 'u1',
@@ -585,13 +585,14 @@ class TestTweetDB:
         })
         db.batch_delete(['4'])
 
-        results = db.get_tweets_for_comment_crawl(hours=8)
+        results = db.get_tweets_for_comment_crawl()
         ids = [r[0] for r in results]
         assert '1' in ids
         assert '2' not in ids
         assert '3' not in ids
         assert '4' not in ids
-        assert '5' not in ids
+        assert '5' in ids
+        assert ('5', 'Mb5') not in db.get_tweets_for_comment_crawl(hours=8)
 
     @pytest.mark.parametrize('tz', ['UTC', 'Asia/Shanghai', 'America/New_York'])
     def test_comment_window_is_beijing_time_in_any_container_timezone(self, db, monkeypatch, tz):
@@ -602,9 +603,9 @@ class TestTweetDB:
                 clock.setenv('TZ', tz)
                 time.tzset()
                 now = datetime.now(timezone(timedelta(hours=8)))
-                for tid, age in [('inside', timedelta(hours=7, minutes=59)),
-                                 ('outside', timedelta(hours=8, minutes=1)),
-                                 ('old', timedelta(hours=10))]:
+                for tid, age in [('inside', timedelta(hours=23, minutes=59)),
+                                 ('outside', timedelta(hours=24, minutes=1)),
+                                 ('old', timedelta(hours=26))]:
                     db.insert_tweet({'_id': tid, 'mblogid': tid, 'content': tid,
                                      'created_at': (now - age).strftime('%Y-%m-%d %H:%M:%S')})
                 assert db.get_tweets_for_comment_crawl() == [('inside', 'inside')]

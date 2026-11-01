@@ -312,11 +312,26 @@ def test_scheduled_comment_crawl_uses_same_outcome(client, monkeypatch, crawl_ou
 
 def test_scheduled_entry_point_fetches_beyond_two_pages(client, monkeypatch, crawl_output):
     import app
-    monkeypatch.setattr(app.DB, 'get_tweets_for_comment_crawl', lambda **kwargs: [('1', '1')])
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone(timedelta(hours=8)))
+    # Exercise real target selection: a partially synced evening post must still
+    # be revisited the next morning, while posts older than 24h are excluded.
+    for tid, age in [('1', 10), ('old', 25)]:
+        app.DB.insert_tweet({
+            '_id': tid, 'mblogid': tid, 'content': 'fixture',
+            'created_at': (now - timedelta(hours=age)).strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    # The client fixture already inserted tweet 1; production upserts correctly
+    # preserve its original publication time, so set the fixture's clock directly.
+    app.DB.conn.execute("UPDATE tweets SET created_at=? WHERE id=?", (
+        (now - timedelta(hours=10)).strftime('%Y-%m-%d %H:%M:%S'), '1'))
+    app.DB.conn.commit()
+    app.DB.insert_comment({'_id': '1', 'tweet_id': '1', 'content': 'already stored'})
 
     def helpers(*args):
         def run(cmd):
             # Run the real spider with the entry point's page budget, if any.
+            assert [arg for arg in cmd if arg.startswith('tweet_ids=')] == ['tweet_ids=1']
             max_pages = next((int(arg.split('=')[1]) for arg in cmd if arg.startswith('max_pages=')), None)
             path, output = crawl_output('paged', max_pages)
             Path(cmd[cmd.index('-o') + 1]).write_text(path.read_text())

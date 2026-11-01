@@ -132,6 +132,11 @@ class TweetDB:
             FOREIGN KEY (tweet_id) REFERENCES tweets(id)
         );
         CREATE INDEX IF NOT EXISTS idx_annotations_tweet_id ON annotations(tweet_id);
+        CREATE TABLE IF NOT EXISTS favorites (
+            tweet_id    TEXT PRIMARY KEY,
+            created_at  TEXT NOT NULL,
+            FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS operation_logs (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT NOT NULL,
@@ -659,13 +664,97 @@ class TweetDB:
         """Return non-deleted tweets that have at least one annotation,
         all platforms, ordered by created_at DESC.
 
-        Used by the 笔记 tab to show tweets that have 划线评论.
+        Compatibility helper for callers requesting notes without favorites.
         """
+        return self.get_saved_tweets(kind='notes')
+
+    def get_favorite_ids(self, tweet_ids):
+        if not tweet_ids:
+            return set()
+        with self._lock:
+            placeholders = ','.join('?' for _ in tweet_ids)
+            return {row[0] for row in self.conn.execute(
+                f"SELECT tweet_id FROM favorites WHERE tweet_id IN ({placeholders})",
+                list(tweet_ids),
+            )}
+
+    def set_favorite(self, tweet_id, favorited):
+        """Set an explicit state; retries never toggle or erase annotations."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError("DB file lock timeout (set_favorite)")
+            try:
+                if not self.conn.execute(
+                        "SELECT 1 FROM tweets WHERE id=?", (tweet_id,)).fetchone():
+                    return None
+                if favorited:
+                    self.conn.execute(
+                        "INSERT INTO favorites (tweet_id, created_at) VALUES (?, ?) "
+                        "ON CONFLICT(tweet_id) DO NOTHING",
+                        (tweet_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    )
+                else:
+                    self.conn.execute("DELETE FROM favorites WHERE tweet_id=?", (tweet_id,))
+                self.conn.commit()
+                return favorited
+            except Exception:
+                self.conn.rollback()
+                raise
+            finally:
+                self._release_file_lock()
+
+    def get_saved_tweets(self, kind='all', q='', platform='all',
+                         start_date='', end_date=''):
+        """Union of favorites and annotated posts, filtered before rendering."""
+        if kind not in ('all', 'favorites', 'notes'):
+            raise ValueError('无效的内容类型')
+        if platform not in ('all', 'weibo', 'xueqiu'):
+            raise ValueError('无效的平台')
+        q = (q or '').strip()
+        if len(q) > 200:
+            raise ValueError('关键词最多 200 个字符')
+        for date in (start_date, end_date):
+            if date:
+                try:
+                    valid = datetime.strptime(date, '%Y-%m-%d').strftime('%Y-%m-%d') == date
+                except ValueError:
+                    valid = False
+                if not valid:
+                    raise ValueError('日期格式应为 YYYY-MM-DD')
+        if start_date and end_date and start_date > end_date:
+            raise ValueError('开始日期不能晚于结束日期')
+
+        favorite = 'EXISTS (SELECT 1 FROM favorites f WHERE f.tweet_id=t.id)'
+        annotated = 'EXISTS (SELECT 1 FROM annotations a WHERE a.tweet_id=t.id)'
+        membership = {'all': f'({favorite} OR {annotated})',
+                      'favorites': favorite, 'notes': annotated}[kind]
+        conditions = ['t.deleted = 0', membership]
+        params = []
+        if platform != 'all':
+            conditions.append('t.platform = ?')
+            params.append(platform)
+        if start_date:
+            conditions.append('t.created_at >= ?')
+            params.append(start_date)
+        if end_date:
+            conditions.append('t.created_at <= ?')
+            params.append(end_date + ' 23:59:59')
+        if q:
+            # Literal substring matching also supports two-character Chinese
+            # keywords and treats %, _ and quotes as ordinary text.
+            conditions.append("""(
+                instr(lower(t.content), lower(?)) > 0
+                OR instr(lower(t.retweet_content), lower(?)) > 0
+                OR EXISTS (SELECT 1 FROM annotations a WHERE a.tweet_id=t.id
+                    AND (instr(lower(a.comment), lower(?)) > 0
+                         OR instr(lower(a.selected_text), lower(?)) > 0))
+            )""")
+            params.extend([q] * 4)
         with self._lock:
             rows = self.conn.execute(
-                "SELECT * FROM tweets WHERE deleted = 0 "
-                "AND id IN (SELECT DISTINCT tweet_id FROM annotations) "
-                "ORDER BY created_at DESC"
+                f"SELECT t.*, {favorite} AS is_favorited FROM tweets t WHERE "
+                + ' AND '.join(conditions) + ' ORDER BY t.created_at DESC, t.id DESC',
+                params,
             ).fetchall()
             results = []
             for row in rows:
@@ -674,6 +763,7 @@ class TweetDB:
                 d['retweet_pic_urls'] = json.loads(d.get('retweet_pic_urls', '[]') or '[]')
                 d['is_retweet'] = bool(d.get('is_retweet'))
                 d['deleted'] = bool(d.get('deleted'))
+                d['is_favorited'] = bool(d.get('is_favorited'))
                 results.append(d)
             return results
 
@@ -837,7 +927,7 @@ class TweetDB:
             ).fetchone()
             return row[0] if row else None
 
-    def get_tweets_for_comment_crawl(self, hours=8):
+    def get_tweets_for_comment_crawl(self, hours=24):
         """Return (id, mblogid) tuples for tweets eligible for comment crawl:
         non-deleted, within the last `hours` Beijing hours, and <100 top-level comments.
         """

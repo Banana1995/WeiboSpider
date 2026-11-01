@@ -20,7 +20,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-ghost { background: none; border: 1px solid #ccc; color: #666; font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
 .btn-ghost:hover { background: #fee; border-color: #e74c3c; color: #e74c3c; }
-.toolbar-actions { display: flex; gap: 6px; align-items: center; }
+.toolbar-actions { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; }
+.toolbar-actions .btn { white-space: nowrap; }
 
 /* Config row */
 .config-section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
@@ -37,8 +38,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .sticky-header { position: sticky; top: 0; z-index: 100; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
 /* Tabs */
-.tabs { display: flex; margin: 0; border-bottom: 2px solid #e0e0e0; padding: 0 16px; }
-.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border: none; background: none; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tabs { display: flex; flex-wrap: wrap; margin: 0; border-bottom: 2px solid #e0e0e0; padding: 0 16px; }
+.tab { flex-shrink: 0; white-space: nowrap; padding: 8px 16px; font-size: 13px; cursor: pointer; border: none; background: none; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
 .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
 
 /* Cards */
@@ -58,6 +59,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .weibo-short-link:has(mark) { background: #fff3bf; }
 .btn-del { background: #e74c3c; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 4px 12px; border-radius: 4px; font-weight: bold; line-height: 1; }
 .btn-del:hover { background: #c0392b; }
+.favorite-toggle { border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #666; padding: 4px 8px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.favorite-toggle[aria-pressed="true"] { color: #946000; border-color: #dfc47e; background: #fff8e5; }
+.favorite-toggle:disabled { opacity: 0.5; cursor: wait; }
+.favorite-toggle:focus-visible, .notes-filters :focus-visible { outline: 2px solid #4a9eff; outline-offset: 2px; }
 .card-content { line-height: 1.7; margin-bottom: 8px; color: #333; font-size: 14px; }
 .card-content, .retweet-content { white-space: pre-wrap; word-break: break-word; }
 .card-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -99,6 +104,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .hidden { display: none; }
 #cards-container.ps-mode .card > input[type=checkbox],
 #cards-container.ps-mode .card .btn-del { display: none; }
+.notes-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 14px 0; padding: 14px; background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; }
+.notes-filters label { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; color: #666; }
+.notes-filters input, .notes-filters select { min-width: 0; max-width: 100%; border: 1px solid #ccc; border-radius: 4px; padding: 6px 8px; background: #fff; color: #333; font: inherit; }
+.notes-keyword { flex: 1 1 220px; }
+.notes-filter-actions { display: flex; gap: 6px; }
+.notes-summary { flex-basis: 100%; font-size: 12px; color: #888; }
+.notes-empty { padding: 40px 16px; text-align: center; color: #888; font-size: 13px; line-height: 1.7; }
+@media (max-width: 600px) {
+  .notes-keyword { flex-basis: 100%; }
+  .notes-filters label:not(.notes-keyword) { flex: 1 1 40%; }
+}
 .platform-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; color: #fff; vertical-align: 1px; margin-right: 4px; }
 .platform-badge.weibo { background: #e67e22; }
 .platform-badge.xueqiu { background: #3377aa; }
@@ -327,7 +343,7 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
       <button class="tab" data-tab="xueqiu">雪球</button>
       <button class="tab" data-tab="logs">操作日志</button>
       <button class="tab" data-tab="ps">PS图</button>
-      <button class="tab" data-tab="notes">笔记</button>
+      <button class="tab" data-tab="notes">收藏与笔记</button>
       <button class="tab" data-tab="search">搜索</button>
     </div>
   </div>
@@ -430,6 +446,32 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
     <label for="select-all">全选/反选</label>
   </div>
 
+  <form id="notes-filters" class="notes-filters" style="display:none;" aria-label="筛选收藏与笔记">
+    <label class="notes-keyword">关键词
+      <input id="notes-query" name="q" type="search" maxlength="200" placeholder="搜索正文、转发内容或笔记" autocomplete="off">
+    </label>
+    <label>内容类型
+      <select id="notes-kind" name="kind">
+        <option value="all">全部</option>
+        <option value="favorites">收藏</option>
+        <option value="notes">笔记</option>
+      </select>
+    </label>
+    <label>平台
+      <select id="notes-platform" name="platform">
+        <option value="all">全部平台</option>
+        <option value="weibo">微博</option>
+        <option value="xueqiu">雪球</option>
+      </select>
+    </label>
+    <label>发布开始日期<input id="notes-start" name="start_date" type="date"></label>
+    <label>发布结束日期<input id="notes-end" name="end_date" type="date"></label>
+    <div class="notes-filter-actions">
+      <button class="btn btn-primary btn-sm" type="submit">筛选</button>
+      <button class="btn btn-sm" id="notes-reset" type="button">重置</button>
+    </div>
+    <div id="notes-summary" class="notes-summary" role="status" aria-live="polite"></div>
+  </form>
   <div id="cards-container"></div>
   <div id="search-view" style="display:none">
     <div class="search-meta" id="search-meta"></div>
@@ -515,6 +557,8 @@ let currentTab = 'active';
 let selected = new Set();
 let userIDs = [];
 let activeUserFilter = '';  // empty = show all
+let listRequestSeq = 0;
+const pendingFavorites = new Set();
 
 document.getElementById('btn-crawl').addEventListener('click', () => triggerCrawl());
 document.getElementById('btn-incremental').addEventListener('click', () => triggerIncremental());
@@ -527,6 +571,17 @@ document.getElementById('btn-batch-restore').addEventListener('click', batchRest
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', e => switchTab(e.target.dataset.tab)));
 document.getElementById('uid-input').addEventListener('keydown', e => { if (e.key === 'Enter') addUid(); });
 document.getElementById('page-input').addEventListener('keydown', e => { if (e.key === 'Enter') jumpToPage(); });
+document.getElementById('notes-filters').addEventListener('submit', e => {
+  e.preventDefault();
+  loadNotes();
+});
+document.getElementById('notes-filters').addEventListener('change', e => {
+  if (e.target.matches('select, input[type=date]')) $('notes-filters').requestSubmit();
+});
+document.getElementById('notes-reset').addEventListener('click', () => {
+  $('notes-filters').reset();
+  loadNotes();
+});
 
 loadConfig();
 loadTweets();
@@ -722,6 +777,8 @@ async function saveUids() {
 }
 
 async function loadTweets() {
+  if (!['active', 'trash', 'xueqiu'].includes(currentTab)) return;
+  const seq = ++listRequestSeq;
   $('loader').classList.remove('hidden');
   const isXq = currentTab === 'xueqiu';
   const deleted = currentTab === 'trash' ? 'only' : 'exclude';
@@ -730,6 +787,7 @@ async function loadTweets() {
     const uidParam = !isXq && activeUserFilter ? '&user_id=' + activeUserFilter : '';
     const resp = await fetch(`/api/tweets?page=${currentPage}&per_page=${perPage}&deleted=${deleted}&platform=${platform}${uidParam}`);
     const data = await resp.json();
+    if (seq !== listRequestSeq) return;
     totalCount = data.total || 0;
     totalPages = Math.max(1, Math.ceil(totalCount / perPage));
     if (currentPage > totalPages) {
@@ -744,7 +802,7 @@ async function loadTweets() {
     (data.tweets || []).forEach(t => renderCard(t));
     renderPagination();
   } catch(e) { console.error(e); }
-  $('loader').classList.add('hidden');
+  finally { if (seq === listRequestSeq) $('loader').classList.add('hidden'); }
 }
 
 function reloadList() {
@@ -752,6 +810,7 @@ function reloadList() {
   selected.clear();
   updateBatchBtn();
   if (currentTab === 'ps') { loadPs(); return; }
+  if (currentTab === 'notes') { loadNotes(); return; }
   loadTweets();
 }
 
@@ -960,6 +1019,14 @@ function renderCard(t, container) {
     </div>
   `;
 
+  const favoriteButton = document.createElement('button');
+  favoriteButton.type = 'button';
+  favoriteButton.className = 'favorite-toggle';
+  favoriteButton.dataset.tweetId = t.id;
+  updateFavoriteButton(favoriteButton, !!t.is_favorited);
+  favoriteButton.onclick = () => toggleFavorite(t.id, favoriteButton);
+  card.querySelector('.card-meta-right').prepend(favoriteButton);
+
   const panel = document.createElement('div');
   panel.className = 'annotation-panel';
   panel.dataset.tweetId = t.id;
@@ -973,6 +1040,41 @@ function renderCard(t, container) {
   const anns = t.annotations_list || [];
   renderAnnotationPanel(t.id, anns);
   setTimeout(() => applyHighlights(t.id, anns), 0);
+}
+
+function updateFavoriteButton(button, favorited) {
+  button.setAttribute('aria-pressed', String(favorited));
+  button.textContent = favorited ? '★ 已收藏' : '☆ 收藏';
+  button.title = favorited ? '取消收藏' : '收藏这条内容';
+  button.disabled = pendingFavorites.has(button.dataset.tweetId);
+}
+
+async function toggleFavorite(tweetId, button) {
+  if (pendingFavorites.has(tweetId)) return;
+  const favorited = button.getAttribute('aria-pressed') !== 'true';
+  const buttons = () => [...document.querySelectorAll('.favorite-toggle')]
+    .filter(b => b.dataset.tweetId === tweetId);
+  pendingFavorites.add(tweetId);
+  buttons().forEach(b => { b.disabled = true; });
+  try {
+    const resp = await fetch(`/api/tweets/${encodeURIComponent(tweetId)}/favorite`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({is_favorited: favorited}),
+    });
+    const data = await resp.json();
+    if (!resp.ok || typeof data.is_favorited !== 'boolean') {
+      throw new Error(data.error || '收藏状态保存失败，请重试');
+    }
+    buttons().forEach(b => updateFavoriteButton(b, data.is_favorited));
+    toast(data.is_favorited ? '已收藏' : '已取消收藏');
+    if (currentTab === 'notes') await loadNotes();
+  } catch(e) {
+    toast(e.message || '收藏状态保存失败，请重试', true);
+  } finally {
+    pendingFavorites.delete(tweetId);
+    buttons().forEach(b => { b.disabled = false; });
+  }
 }
 
 async function toggleComments(el, id) {
@@ -1502,13 +1604,19 @@ async function loadStats() {
 }
 
 function switchTab(tab) {
+  ++listRequestSeq;
   currentTab = tab;
+  $('loader').classList.add('hidden');
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const isLogs = tab === 'logs';
   const isPs = tab === 'ps';
   const isNotes = tab === 'notes';
   const isXq = tab === 'xueqiu';
   const isSearch = tab === 'search';
+  if (!isSearch) {
+    ++searchSeq;
+    $('search-results').innerHTML = '';
+  }
   const hideBatch = isLogs || isPs || isNotes || isXq || isSearch;
   const hidePagination = isLogs || isPs || isNotes || isSearch;
   $('select-all-row').style.display = hideBatch ? 'none' : '';
@@ -1519,6 +1627,7 @@ function switchTab(tab) {
   $('pagination').style.display = hidePagination ? 'none' : '';
   $('logs-container').style.display = isLogs ? 'block' : 'none';
   $('search-view').style.display = isSearch ? '' : 'none';
+  $('notes-filters').style.display = isNotes ? 'flex' : 'none';
   $('cards-container').classList.toggle('ps-mode', isPs || isNotes);
   if (isLogs) {
     loadLogs(1);
@@ -1545,10 +1654,12 @@ function switchTab(tab) {
 }
 
 async function loadPs() {
+  const seq = ++listRequestSeq;
   $('loader').classList.remove('hidden');
   try {
     const resp = await fetch('/api/ps');
     const tweets = await resp.json();
+    if (seq !== listRequestSeq) return;
     $('cards-container').innerHTML = '';
     if (!tweets || tweets.length === 0) {
       $('cards-container').innerHTML = '<div style="text-align:center;padding:40px;color:#aaa;font-size:13px;">暂无 PS图 微博</div>';
@@ -1556,22 +1667,47 @@ async function loadPs() {
       tweets.forEach(t => renderCard(t));
     }
   } catch(e) { console.error(e); }
-  $('loader').classList.add('hidden');
+  finally { if (seq === listRequestSeq) $('loader').classList.add('hidden'); }
 }
 
 async function loadNotes() {
+  if (currentTab !== 'notes') return;
+  const form = $('notes-filters');
+  const params = new URLSearchParams(new FormData(form));
+  const start = params.get('start_date');
+  const end = params.get('end_date');
+  if (start && end && start > end) {
+    toast('开始日期不能晚于结束日期', true);
+    return;
+  }
+  const seq = ++listRequestSeq;
+  const filtered = params.get('q').trim() || params.get('kind') !== 'all'
+    || params.get('platform') !== 'all' || start || end;
+  $('cards-container').innerHTML = '';
+  $('notes-summary').textContent = '加载中…';
   $('loader').classList.remove('hidden');
   try {
-    const resp = await fetch('/api/notes');
+    const resp = await fetch('/api/notes?' + params.toString());
     const tweets = await resp.json();
-    $('cards-container').innerHTML = '';
-    if (!tweets || tweets.length === 0) {
-      $('cards-container').innerHTML = '<div style="text-align:center;padding:40px;color:#aaa;font-size:13px;">暂无笔记（还没有添加过划线评论）</div>';
+    if (seq !== listRequestSeq) return;
+    if (!resp.ok || !Array.isArray(tweets)) throw new Error(tweets.error || '加载失败，请重试');
+    $('notes-summary').textContent = `${tweets.length} 条内容 · 按发布时间倒序`;
+    if (tweets.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'notes-empty';
+      empty.textContent = filtered ? '没有匹配的内容，试试调整筛选条件。'
+        : '暂无收藏或笔记。点击微博右上角“收藏”，或选中文字添加笔记。';
+      $('cards-container').appendChild(empty);
     } else {
       tweets.forEach(t => renderCard(t));
     }
-  } catch(e) { console.error(e); }
-  $('loader').classList.add('hidden');
+  } catch(e) {
+    if (seq !== listRequestSeq) return;
+    $('notes-summary').textContent = e.message || '加载失败，请重试';
+    $('cards-container').innerHTML = '<div class="notes-empty">收藏与笔记加载失败。<button class="btn btn-sm" onclick="loadNotes()">重试</button></div>';
+  } finally {
+    if (seq === listRequestSeq) $('loader').classList.add('hidden');
+  }
 }
 
 let logsPage = 1;
@@ -1897,6 +2033,7 @@ async function loadAnnotations(tweetId) {
     renderAnnotationPanel(tweetId, anns);
     applyHighlights(tweetId, anns);
     adjustRowHeight(tweetId);
+    if (currentTab === 'notes') await loadNotes();
   } catch(e) { toast('加载评论失败', true); }
 }
 

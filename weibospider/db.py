@@ -837,7 +837,7 @@ class TweetDB:
             ).fetchone()
             return row[0] if row else None
 
-    def get_tweets_for_comment_crawl(self, hours=8):
+    def get_tweets_for_comment_crawl(self, hours=24):
         """Return (id, mblogid) tuples for tweets eligible for comment crawl:
         non-deleted, within the last `hours` Beijing hours, and <100 top-level comments.
         """

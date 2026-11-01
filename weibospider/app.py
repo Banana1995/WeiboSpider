@@ -305,7 +305,7 @@ def _crawl_tweets(scheduler=None, mode='full', user_id=None):
 
 
 def _crawl_comments(scheduler=None, mode='full'):
-    """Crawl up to 100 top-level comments per tweet; incremental uses an 8h window."""
+    """Crawl up to 100 top-level comments per tweet; incremental uses a 24h window."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_file = os.path.join(script_dir, 'crawl.log')
     unbuffered_env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
@@ -324,9 +324,10 @@ def _crawl_comments(scheduler=None, mode='full'):
         f.write(cookie.strip())
 
     if mode == 'incremental':
-        tweet_pairs = DB.get_tweets_for_comment_crawl(hours=8)
+        # Keep evening posts eligible after the 22:00–07:00 scheduling pause.
+        tweet_pairs = DB.get_tweets_for_comment_crawl(hours=24)
         tweet_ids = [mblogid for _, mblogid in tweet_pairs]
-        _log(f"增量模式: {len(tweet_ids)} 条微博待补齐评论 (北京时间 8h 内, <100 条一级评论)")
+        _log(f"增量模式: {len(tweet_ids)} 条微博待补齐评论 (北京时间 24h 内, <100 条一级评论)")
     else:
         start_time = DB.get_config('start_date', '')
         end_time = DB.get_config('end_date', '')

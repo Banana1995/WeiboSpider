@@ -16,6 +16,7 @@ from flask import Flask, jsonify, request, send_from_directory, Response
 
 from db import TweetDB
 from scheduler import CrawlScheduler
+from weibo_links import resolve_image_link
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -864,6 +865,17 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
 
 _img_cache = {}
 _img_cache_lock = threading.Lock()
+
+
+@app.route('/api/weibo/image-link')
+def api_weibo_image_link():
+    try:
+        image_url = resolve_image_link(request.args.get('url', ''))
+    except ValueError:
+        return jsonify({'error': '无效的微博短链接'}), 400
+    except OSError:
+        return jsonify({'error': '图片链接解析失败，请稍后重试'}), 502
+    return jsonify({'image_url': image_url})
 
 
 @app.route('/api/img')

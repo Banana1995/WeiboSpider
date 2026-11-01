@@ -47,8 +47,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .card input[type=checkbox] { margin-top: 3px; accent-color: #4a9eff; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .card-body { flex: 1; min-width: 0; }
 .card-meta { color: #999; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; }
-.card-meta-left { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta-left { min-width: 0; line-height: 1.6; }
 .card-meta-right { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
+.original-post-link, .weibo-short-link { color: #4a9eff; text-decoration: none; }
+.original-post-link:hover, .weibo-short-link:hover { text-decoration: underline; }
+.original-post-link, .weibo-short-link { white-space: nowrap; }
+/* Keep original text offsets for saved annotations, while showing a readable label. */
+.weibo-short-link-text { display: none; }
+.weibo-short-link::after { content: attr(aria-label); }
+.weibo-short-link:has(mark) { background: #fff3bf; }
 .btn-del { background: #e74c3c; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 4px 12px; border-radius: 4px; font-weight: bold; line-height: 1; }
 .btn-del:hover { background: #c0392b; }
 .card-content { line-height: 1.7; margin-bottom: 8px; color: #333; font-size: 14px; }
@@ -807,6 +814,113 @@ function commentCountLabel(counts) {
   return `已抓评论 ${counts.total}`;
 }
 
+function renderOriginalPostLink(t) {
+  if (t.platform === 'xueqiu') return esc(t.source);
+  const candidates = [t.url];
+  if (/^\d+$/.test(t.user_id) && /^[A-Za-z0-9]+$/.test(t.mblogid || '')) {
+    candidates.push(`https://weibo.com/${t.user_id}/${t.mblogid}`);
+  }
+  if (/^\d+$/.test(t.id)) candidates.push(`https://weibo.com/detail/${t.id}`);
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      if (!['http:', 'https:'].includes(url.protocol) ||
+          !['weibo.com', 'www.weibo.com', 'm.weibo.cn'].includes(url.hostname) ||
+          url.username || url.password || url.port) continue;
+      url.protocol = 'https:';
+      return `<a class="original-post-link" href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">原始微博</a>`;
+    } catch(e) { /* Try the archived identifiers when the URL is missing. */ }
+  }
+  return '原始微博';
+}
+
+const imageLinkCache = new Map();
+const imageLinkQueue = [];
+let activeImageLinks = 0;
+
+function resolveWeiboImageLink(url) {
+  const key = url.replace(/^http:/, 'https:');
+  if (!imageLinkCache.has(key)) {
+    const pending = new Promise(resolve => {
+      imageLinkQueue.push(async () => {
+        try {
+          const resp = await fetch('/api/weibo/image-link?url=' + encodeURIComponent(key));
+          if (!resp.ok) throw new Error('image link lookup failed');
+          const data = await resp.json();
+          resolve(data.image_url || null);
+        } catch(e) {
+          imageLinkCache.delete(key);
+          resolve(null);
+        }
+      });
+    });
+    imageLinkCache.set(key, pending);
+    if (imageLinkCache.size > 512) imageLinkCache.delete(imageLinkCache.keys().next().value);
+    drainImageLinkQueue();
+    return pending;
+  }
+  return imageLinkCache.get(key);
+}
+
+function drainImageLinkQueue() {
+  while (activeImageLinks < 2 && imageLinkQueue.length) {
+    activeImageLinks++;
+    imageLinkQueue.shift()().finally(() => {
+      activeImageLinks--;
+      drainImageLinkQueue();
+    });
+  }
+}
+
+function linkifyWeiboImages(card) {
+  card.querySelectorAll('.card-content, .retweet-content').forEach(el => {
+    // Work backwards over the original text so search <mark> tags do not split
+    // URLs, and replacing a link never shifts the next link or note's offsets.
+    const matches = [...el.textContent.matchAll(/https?:\/\/t\.cn\/[A-Za-z0-9]+/g)];
+    matches.reverse().forEach(match => {
+      const range = document.createRange();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let pos = 0, started = false;
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const end = pos + node.textContent.length;
+        if (!started && end > match.index) {
+          range.setStart(node, match.index - pos);
+          started = true;
+        }
+        if (started && end >= match.index + match[0].length) {
+          range.setEnd(node, match.index + match[0].length - pos);
+          break;
+        }
+        pos = end;
+      }
+      const link = document.createElement('a');
+      link.className = 'weibo-short-link';
+      link.href = match[0];
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.dataset.shortUrl = match[0];
+      link.setAttribute('aria-label', '查看链接');
+      const original = document.createElement('span');
+      original.className = 'weibo-short-link-text';
+      original.setAttribute('aria-hidden', 'true');
+      original.appendChild(range.extractContents());
+      link.appendChild(original);
+      range.insertNode(link);
+      resolveWeiboImageLink(match[0]).then(imageUrl => {
+        if (!imageUrl || !card.isConnected) return;
+        // Annotation highlighting may have moved/cloned a link in the meantime.
+        card.querySelectorAll('.weibo-short-link').forEach(a => {
+          if (a.dataset.shortUrl !== match[0]) return;
+          a.dataset.imageUrl = imageUrl;
+          a.href = proxyImg(toFullSize(imageUrl));
+          a.setAttribute('aria-label', '查看图片');
+        });
+      });
+    });
+  });
+}
+
 function renderCard(t, container) {
   container = container || $('cards-container');
   const row = document.createElement('div');
@@ -824,7 +938,7 @@ function renderCard(t, container) {
     <input type="checkbox" data-id="${t.id}" onchange="toggleOne(this)" ${selected.has(t.id) ? 'checked' : ''}>
     <div class="card-body">
       <div class="card-meta">
-        <span class="card-meta-left"><span class="platform-badge ${t.platform === 'xueqiu' ? 'xueqiu' : 'weibo'}">${t.platform === 'xueqiu' ? '雪球' : '微博'}</span>${esc(t.screen_name || '')} &bull; ${esc(t.created_at)} &bull; ${esc(t.source)}</span>
+        <span class="card-meta-left"><span class="platform-badge ${t.platform === 'xueqiu' ? 'xueqiu' : 'weibo'}">${t.platform === 'xueqiu' ? '雪球' : '微博'}</span>${esc(t.screen_name || '')} &bull; ${esc(t.created_at)} &bull; ${renderOriginalPostLink(t)}</span>
         <span class="card-meta-right">
           <button class="btn-del" onclick="deleteOne('${t.id}')">&times;</button>
         </span>
@@ -855,6 +969,7 @@ function renderCard(t, container) {
   row.appendChild(panel);
   container.appendChild(row);
 
+  if (t.platform !== 'xueqiu') linkifyWeiboImages(card);
   const anns = t.annotations_list || [];
   renderAnnotationPanel(t.id, anns);
   setTimeout(() => applyHighlights(t.id, anns), 0);
@@ -1001,6 +1116,7 @@ function openLightbox(thumbUrl) {
   const loading = $('lightbox-loading');
   $('lightbox').classList.add('show');
   img.style.display = 'none';
+  loading.textContent = '加载中...';
   loading.style.display = 'block';
   img.onload = () => { loading.style.display = 'none'; img.style.display = 'block'; };
   img.onerror = () => {
@@ -1017,6 +1133,12 @@ function closeLightbox() {
 }
 
 document.addEventListener('click', (e) => {
+  const link = e.target.closest('.weibo-short-link[data-image-url]');
+  if (link && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    openLightbox(link.dataset.imageUrl);
+    return;
+  }
   const img = e.target.closest('.card-images img');
   if (img) {
     let orig = img.getAttribute('src');

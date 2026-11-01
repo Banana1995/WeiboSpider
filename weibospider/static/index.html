@@ -61,6 +61,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn-del:hover { background: #c0392b; }
 .favorite-toggle, .ps-toggle { border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #666; padding: 4px 8px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .favorite-toggle[aria-pressed="true"] { color: #946000; border-color: #dfc47e; background: #fff8e5; }
+.ps-toggle { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; flex-shrink: 0; }
+.ps-toggle svg { width: 20px; height: 20px; }
+.ps-toggle:not(:disabled):hover { color: #1a73e8; border-color: #8bb9ee; }
+.ps-icon-check { display: none; }
+.ps-toggle[aria-pressed="true"] .ps-icon-frame { fill: currentColor; fill-opacity: 0.12; }
+.ps-toggle[aria-pressed="true"] .ps-icon-check { display: inline; }
 .ps-toggle[aria-pressed="true"], .ps-toggle[data-automatic="true"] { color: #1a73e8; border-color: #b5d3f7; background: #eef6ff; }
 .ps-toggle[data-automatic="true"] { cursor: default; }
 .favorite-toggle:disabled, .ps-toggle:disabled:not([data-automatic="true"]) { opacity: 0.5; cursor: wait; }
@@ -1034,6 +1040,12 @@ function renderCard(t, container) {
   psButton.type = 'button';
   psButton.className = 'ps-toggle';
   psButton.dataset.tweetId = t.id;
+  psButton.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <rect class="ps-icon-frame" x="3" y="5" width="18" height="16" rx="2.5"/>
+    <path d="M8 3v4M16 3v4M3 10h18"/>
+    <path d="M7 17v-3M11 17v-5M15 17v-2"/>
+    <g class="ps-icon-check"><circle cx="18.5" cy="18.5" r="4.5" fill="currentColor" stroke="#fff" stroke-width="1.5"/><path d="m16.3 18.5 1.4 1.4 2.8-2.8" stroke="#fff"/></g>
+  </svg>`;
   updatePsButton(psButton, t);
   psButton.onclick = () => togglePsMark(t.id, psButton);
   favoriteButton.after(psButton);
@@ -1091,11 +1103,11 @@ async function toggleFavorite(tweetId, button) {
 function updatePsButton(button, state) {
   const manual = !!state.is_ps_manual;
   const automatic = !!state.is_ps && !manual;
-  button.setAttribute('aria-pressed', String(manual));
+  button.setAttribute('aria-pressed', String(!!state.is_ps));
   button.dataset.automatic = String(automatic);
-  button.textContent = manual ? '取消 PS 图标记' : automatic ? 'PS 图（自动）' : '标记为 PS 图';
-  button.title = manual ? '取消手动标记；正文含“PS图”时仍会自动归类'
-    : automatic ? '正文含“PS图”，已自动归类' : '将这条内容归入 PS 图';
+  button.setAttribute('aria-label', manual ? '取消 PS 图标记' : automatic ? 'PS 图（自动归类）' : '标记为 PS 图');
+  button.title = manual ? '取消月度总结（PS 图）手动标记；正文含“PS图”时仍会自动归类'
+    : automatic ? '正文含“PS图”，已自动归类' : '标记为月度总结（PS 图）';
   button.disabled = automatic || pendingPsMarks.has(button.dataset.tweetId);
 }
 

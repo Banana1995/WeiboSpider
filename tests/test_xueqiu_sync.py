@@ -190,6 +190,20 @@ def test_incremental_comment_window_is_beijing_48h_and_all_post_types(db):
     assert db.get_xueqiu_tweets_for_comment_crawl(False, True) == []
 
 
+def test_weibo_comment_targets_never_include_xueqiu_ids(db):
+    now = datetime.now(timezone.utc)
+    db.insert_tweet(app._xueqiu_to_item(status(1, now.isoformat())))
+    db.insert_tweet({'_id': 'weibo', 'mblogid': 'WeiboID', 'content': '微博',
+                     'created_at': now.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')})
+    assert db.get_tweets_for_comment_crawl() == [('weibo', 'WeiboID')]
+    assert db.get_tweet_ids() == ['WeiboID']
+    assert db.get_tweet_ids('2000-01-01', '2100-01-01') == ['WeiboID']
+    for tid in ('xq1', 'weibo'):
+        db.insert_comment({'_id': tid + '-comment', 'tweet_id': tid, 'content': '评论'})
+    assert db.get_tweet_ids_with_enough_comments(1) == ['WeiboID']
+    assert db.get_tweet_ids_with_enough_comments(1, '2000-01-01', '2100-01-01') == ['WeiboID']
+
+
 def test_comment_network_failure_after_first_page_keeps_all_old_comments(db, monkeypatch):
     db.insert_tweet(app._xueqiu_to_item(status(1)))
     db.insert_comment({'_id': 'xc99', 'tweet_id': 'xq1', 'content': '旧', 'platform': 'xueqiu'})

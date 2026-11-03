@@ -961,15 +961,18 @@ class TweetDB:
                 self._release_file_lock()
 
     def get_tweet_ids(self, start_date=None, end_date=None):
+        """Weibo source IDs for the Weibo comment spider (never Xueqiu IDs)."""
         with self._lock:
             if start_date and end_date:
                 rows = self.conn.execute(
-                    "SELECT mblogid FROM tweets WHERE deleted=0 "
+                    "SELECT mblogid FROM tweets WHERE deleted=0 AND platform='weibo' "
                     "AND created_at >= ? AND created_at <= ?",
                     (start_date, end_date + ' 23:59:59')
                 ).fetchall()
             else:
-                rows = self.conn.execute("SELECT mblogid FROM tweets WHERE deleted=0").fetchall()
+                rows = self.conn.execute(
+                    "SELECT mblogid FROM tweets WHERE deleted=0 AND platform='weibo'"
+                ).fetchall()
             return [r[0] for r in rows]
 
     def get_tweet_ids_with_enough_comments(self, min_count, start_date=None, end_date=None):
@@ -979,7 +982,8 @@ class TweetDB:
                 rows = self.conn.execute(
                     "SELECT t.mblogid FROM tweets t "
                     "JOIN comments c ON c.tweet_id = t.id "
-                    "WHERE t.deleted = 0 AND t.created_at >= ? AND t.created_at <= ? "
+                    "WHERE t.deleted = 0 AND t.platform='weibo' "
+                    "AND t.created_at >= ? AND t.created_at <= ? "
                     "AND COALESCE(c.parent_comment_id, '')='' "
                     "GROUP BY t.mblogid "
                     "HAVING COUNT(c.id) >= ?", (start_date, end_date + ' 23:59:59', min_count)
@@ -988,7 +992,7 @@ class TweetDB:
                 rows = self.conn.execute(
                     "SELECT t.mblogid FROM tweets t "
                     "JOIN comments c ON c.tweet_id = t.id "
-                    "WHERE t.deleted = 0 "
+                    "WHERE t.deleted = 0 AND t.platform='weibo' "
                     "AND COALESCE(c.parent_comment_id, '')='' "
                     "GROUP BY t.mblogid "
                     "HAVING COUNT(c.id) >= ?", (min_count,)
@@ -1017,13 +1021,13 @@ class TweetDB:
             return row[0] if row else None
 
     def get_tweets_for_comment_crawl(self, hours=24):
-        """Return (id, mblogid) tuples for tweets eligible for comment crawl:
+        """Return (id, mblogid) tuples for Weibo tweets eligible for comment crawl:
         non-deleted, within the last `hours` Beijing hours, and <100 top-level comments.
         """
         with self._lock:
             rows = self.conn.execute(
                 "SELECT id, mblogid FROM tweets "
-                "WHERE deleted=0 "
+                "WHERE deleted=0 AND platform='weibo' "
                 # Source created_at is stored as Beijing wall time, even in UTC containers.
                 "  AND created_at > datetime('now', '+8 hours', ?) "
                 "  AND id NOT IN ("

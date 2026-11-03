@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 
@@ -425,7 +425,9 @@ def _xueqiu_to_item(s):
     """Convert a xueqiu timeline status dict into our tweets-table item dict."""
     created = None
     if s.get('created_at'):
-        created = datetime.fromtimestamp(s['created_at'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+        created = datetime.fromtimestamp(
+            s['created_at'] / 1000, timezone(timedelta(hours=8))
+        ).strftime('%Y-%m-%d %H:%M:%S')
     title = (s.get('title') or '').strip()
     text = _xueqiu_clean_html(s.get('text') or s.get('description') or '')
     content = title
@@ -472,6 +474,7 @@ def _xueqiu_to_item(s):
         'retweet_pic_urls': retweet_pics,
         'retweet_has_video': 0,
         'platform': 'xueqiu',
+        'created_at_timezone': 'Asia/Shanghai',
     }
 
 
@@ -486,7 +489,9 @@ def _xueqiu_comment_to_item(cm, tweet_id, reply_to_name=None):
     """
     created = None
     if cm.get('created_at'):
-        created = datetime.fromtimestamp(cm['created_at'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+        created = datetime.fromtimestamp(
+            cm['created_at'] / 1000, timezone(timedelta(hours=8))
+        ).strftime('%Y-%m-%d %H:%M:%S')
     user = cm.get('user') or {}
     item = {
         '_id': 'xc' + str(cm.get('id', '')),
@@ -505,6 +510,7 @@ def _xueqiu_comment_to_item(cm, tweet_id, reply_to_name=None):
         'parent_comment_id': None,
         'sort_order': 0,
         'platform': 'xueqiu',
+        'created_at_timezone': 'Asia/Shanghai',
     }
     reply_id = cm.get('in_reply_to_comment_id')
     if reply_id:
@@ -572,6 +578,8 @@ def _select_top_xueqiu_items(comments, tweet_id, max_top=MAX_XUEQIU_COMMENTS):
         if not isinstance(cm, dict):
             continue
         cid = str(cm.get('id'))
+        if cid in by_id:
+            continue
         by_id[cid] = cm
         if cm.get('in_reply_to_comment_id'):
             flat_replies.append(cm)
@@ -662,17 +670,29 @@ def _fetch_xueqiu_comments_v3(xq_id, headers, hot=True, max_pages=50):
                 body = resp.read().decode('utf-8', 'replace')
             data = json.loads(body)
         except Exception as e:
-            return all_comments, page + 1
+            raise RuntimeError(f'雪球评论请求失败 (page={page + 1}, {type(e).__name__})') from e
+        if (not isinstance(data, dict) or not isinstance(data.get('comments'), list)
+                or data.get('error_code') not in (None, 0, '0', '')):
+            raise RuntimeError('雪球评论接口返回异常，未确认抓取成功')
         comments = data.get('comments') or []
         if not comments:
             break
         all_comments.extend(comments)
         page += 1
+        # Hot API returns top-level comments in rank order; stop after the
+        # quota instead of downloading thousands we would discard anyway.
+        if hot and len({str(cm['id']) for cm in all_comments
+                        if cm.get('id') and not cm.get('in_reply_to_comment_id')}) >= MAX_XUEQIU_COMMENTS:
+            break
         nxt = data.get('next_max_id')
         if nxt == -1 or not nxt:
             break
+        if nxt == max_id:
+            raise RuntimeError('雪球评论分页游标未前进')
         max_id = nxt
         time.sleep(0.6)
+    else:
+        raise RuntimeError('雪球评论分页达到上限，未确认抓取完成')
     return all_comments, page
 
 
@@ -700,7 +720,10 @@ def _fetch_xueqiu_child_comments_v3(parent_id, xq_id, headers, max_pages=20):
                 body = resp.read().decode('utf-8', 'replace')
             data = json.loads(body)
         except Exception as e:
-            return children
+            raise RuntimeError(f'雪球回复请求失败 (page={page + 1}, {type(e).__name__})') from e
+        if (not isinstance(data, dict) or not isinstance(data.get('comments'), list)
+                or data.get('error_code') not in (None, 0, '0', '')):
+            raise RuntimeError('雪球回复接口返回异常，未确认抓取成功')
         comments = data.get('comments') or []
         if not comments:
             break
@@ -714,8 +737,12 @@ def _fetch_xueqiu_child_comments_v3(parent_id, xq_id, headers, max_pages=20):
         nxt = data.get('next_max_id')
         if nxt == -1 or not nxt:
             break
+        if nxt == max_id:
+            raise RuntimeError('雪球回复分页游标未前进')
         max_id = nxt
         time.sleep(0.6)
+    else:
+        raise RuntimeError('雪球回复分页达到上限，未确认抓取完成')
     return children
 
 
@@ -723,10 +750,13 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     """Crawl xueqiu comments via api.xueqiu.com v3 type=4 (最热 order).
 
     mode='ps' targets xueqiu PS图 posts (small batch); 'all' targets every
-    xueqiu post. The v3 API returns comments already sorted by server-side
+    xueqiu post. 'incremental' covers the last 48 Beijing hours plus queued
+    new posts/failed attempts, retaining previously archived comments.
+    The v3 API returns comments already sorted by server-side
     "最热" (hot) ranking, matching the website's 最热 tab. We keep only the top
     MAX_XUEQIU_COMMENTS top-level comments per post (like weibo's top-100 hot
-    view), attach their replies, and replace any previously stored comments.
+    view), attach their replies. Incremental runs upsert without deleting
+    historical comments; explicit ps/all refreshes replace the old hot set.
     """
     cookie = DB.get_config('xq_cookie', '')
     if not cookie:
@@ -735,11 +765,14 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     _log, _ = _make_log_helpers('xueqiu_comment', log_file, {})
     _log(f"====== 开始抓取雪球评论 (mode={mode}) ======")
 
-    targets = DB.get_xueqiu_tweets_for_comment_crawl(ps_only=(mode == 'ps'))
+    targets = DB.get_xueqiu_tweets_for_comment_crawl(
+        ps_only=(mode == 'ps'), incremental=(mode == 'incremental'))
     _log(f"目标帖子数: {len(targets)}")
     if not targets:
         _log("没有需要抓评论的雪球帖子")
         return {'status': 'completed', 'stats': {'new': 0, 'tweets': 0}}
+    if mode == 'incremental':
+        DB.queue_xueqiu_comments([tid for tid, _ in targets])
 
     headers = {
         'User-Agent': XUEQIU_UA,
@@ -751,31 +784,42 @@ def _crawl_xueqiu_comments(scheduler=None, mode='ps'):
     }
 
     total_kept = 0
+    new_count = 0
+    failed_posts = 0
     fetched_posts = 0
     for idx, (tweet_id, xq_id) in enumerate(targets, 1):
-        if scheduler is not None and getattr(scheduler, 'xueqiu_cancelled', False):
+        if scheduler is not None and getattr(scheduler, 'xueqiu_comment_cancelled', False):
             _log("用户取消了雪球评论抓取")
             return {'status': 'cancelled'}
-        all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
-        # 顶层评论内嵌的 child_comments 只含前几条，完整的子回复需单独拉取
-        for cm in all_comments:
-            declared = int(cm.get('comment_reply_count') or 0)
-            embedded = len(cm.get('child_comments') or [])
-            if declared > embedded:
-                full_children = _fetch_xueqiu_child_comments_v3(
-                    cm.get('id'), xq_id, headers)
-                if full_children:
-                    cm['child_comments'] = full_children
-        items = _select_top_xueqiu_items(all_comments, tweet_id)
-        if items:
-            DB.delete_xueqiu_comments(tweet_id)
-            DB.batch_insert_comments(items)
-            total_kept += len(items)
+        try:
+            all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
+            # 顶层评论内嵌的 child_comments 只含前几条，完整的子回复需单独拉取
+            for cm in all_comments[:MAX_XUEQIU_COMMENTS]:
+                declared = int(cm.get('comment_reply_count') or 0)
+                embedded = len(cm.get('child_comments') or [])
+                if declared > embedded:
+                    cm['child_comments'] = _fetch_xueqiu_child_comments_v3(
+                        cm.get('id'), xq_id, headers)
+            items = _select_top_xueqiu_items(all_comments, tweet_id)
+            if scheduler is not None and scheduler.xueqiu_comment_cancelled:
+                return {'status': 'cancelled'}
+            comments_before = DB.get_comment_ids(tweet_id)
+            if items and mode != 'incremental':
+                DB.delete_xueqiu_comments(tweet_id)
+            DB.batch_insert_comments(items, xueqiu_tweet_id=tweet_id)
+            new_count += len({item['_id'] for item in items} - comments_before)
+            total_kept += len({item['_id'] for item in items})
             fetched_posts += 1
+        except Exception as e:
+            # No acknowledgement on failure: queued posts retry next day.
+            failed_posts += 1
+            _log(f'[{idx}/{len(targets)}] {tweet_id} 评论抓取失败: {e}')
+            continue
         _log(f"[{idx}/{len(targets)}] {tweet_id} 评论 {len(items)} 条 (最热前{MAX_XUEQIU_COMMENTS}, pages={pages})")
     _log(f"雪球评论抓取完成 (保留 {total_kept} 条, 抓取 {fetched_posts} 帖)")
-    return {'status': 'completed', 'stats': {
-        'new': total_kept, 'tweets': len(targets), 'fetched': fetched_posts,
+    return {'status': 'failed' if failed_posts else 'completed', 'stats': {
+        'new': new_count, 'processed': total_kept, 'tweets': len(targets),
+        'fetched': fetched_posts, 'failed': failed_posts,
     }}
 
 
@@ -794,8 +838,13 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
     _log(f"====== 开始抓取雪球 (mode={mode}, user={user_id}) ======")
 
     stop_id = None
+    checkpoint_key = 'xq_timeline_checkpoint_' + user_id
+    checkpoint = DB.get_config(checkpoint_key, None)
+    if checkpoint is None:
+        checkpoint = DB.get_latest_xueqiu_id(user_id=user_id) or ''
+        DB.set_config(checkpoint_key, checkpoint)
     if mode == 'incremental':
-        stop_id = DB.get_latest_xueqiu_id()
+        stop_id = checkpoint
         _log(f"增量模式: 最新已存帖子 {stop_id}")
 
     import urllib.request
@@ -809,6 +858,7 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
     }
     page = 1
     new_count = 0
+    updated_count = 0
     stopped = False
     page_limit = max_pages or 3000
     while page <= page_limit:
@@ -830,12 +880,15 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
                     body = resp.read().decode('utf-8', 'replace')
             except Exception as e2:
                 _log(f"page={page} 重试仍失败: {e2}，停止")
-                break
+                return {'status': 'failed', 'error': f'雪球 page={page} 请求失败'}
         try:
             data = json.loads(body)
         except Exception:
             _log(f"page={page} 返回非 JSON（可能被 WAF 拦截），停止")
-            break
+            return {'status': 'failed', 'error': f'雪球 page={page} 返回非 JSON'}
+        if (not isinstance(data, dict) or not isinstance(data.get('statuses'), list)
+                or data.get('error_code') not in (None, 0, '0', '')):
+            return {'status': 'failed', 'error': f'雪球 page={page} 返回异常数据'}
         statuses = data.get('statuses') or []
         if not statuses:
             break
@@ -843,15 +896,22 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
             if stop_id:
                 try:
                     if int(s['id']) <= int(stop_id[2:]):
-                        stopped = True
-                        break
+                        # Do not let an old pinned post hide newer posts
+                        # further down this same page.
+                        continue
                 except (KeyError, ValueError, TypeError):
                     pass
             try:
-                DB.insert_tweet(_xueqiu_to_item(s))
-                new_count += 1
+                if DB.insert_tweet(_xueqiu_to_item(s)):
+                    new_count += 1
+                else:
+                    updated_count += 1
             except Exception as e:
                 _log(f"写入失败 xq{s.get('id')}: {e}")
+                return {'status': 'failed', 'error': '雪球帖子写入失败'}
+        # A pinned old post at the start must not stop pagination while the
+        # bottom of the page is still newer than our successful checkpoint.
+        stopped = bool(stop_id and int(statuses[-1]['id']) <= int(stop_id[2:]))
         if stopped:
             _log(f"已到达最新已存帖子，停止 (page={page})")
             break
@@ -860,8 +920,13 @@ def _crawl_xueqiu(scheduler=None, mode='full', max_pages=None):
             break
         page += 1
         time.sleep(1)
-    _log(f"雪球抓取完成 (新增 {new_count} 条, 共 {page} 页)")
-    return {'status': 'completed', 'stats': {'new': new_count, 'pages': page}}
+    else:
+        return {'status': 'failed', 'error': '雪球抓取达到页数上限，下次继续重试'}
+    DB.set_config(checkpoint_key, DB.get_latest_xueqiu_id(user_id=user_id) or '')
+    _log(f"雪球抓取完成 (新增 {new_count} 条, 更新 {updated_count} 条, 共 {page} 页)")
+    return {'status': 'completed', 'stats': {
+        'new': new_count, 'updated': updated_count, 'pages': page,
+    }}
 
 
 _img_cache = {}
@@ -1220,15 +1285,16 @@ def _crawl_single_xueqiu_comments(tweet_id):
     }
 
     comments_before = DB.get_comment_ids(tweet_id)
-    all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
-    for cm in all_comments:
-        declared = int(cm.get('comment_reply_count') or 0)
-        embedded = len(cm.get('child_comments') or [])
-        if declared > embedded:
-            full_children = _fetch_xueqiu_child_comments_v3(
-                cm.get('id'), xq_id, headers)
-            if full_children:
-                cm['child_comments'] = full_children
+    try:
+        all_comments, pages = _fetch_xueqiu_comments_v3(xq_id, headers, hot=True)
+        for cm in all_comments[:MAX_XUEQIU_COMMENTS]:
+            declared = int(cm.get('comment_reply_count') or 0)
+            embedded = len(cm.get('child_comments') or [])
+            if declared > embedded:
+                cm['child_comments'] = _fetch_xueqiu_child_comments_v3(
+                    cm.get('id'), xq_id, headers)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 502
     items = _select_top_xueqiu_items(all_comments, tweet_id)
     if items:
         DB.delete_xueqiu_comments(tweet_id)

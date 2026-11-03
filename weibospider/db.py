@@ -92,6 +92,8 @@ class TweetDB:
             "ALTER TABLE tweets ADD COLUMN platform TEXT DEFAULT 'weibo'",
             "ALTER TABLE comments ADD COLUMN platform TEXT DEFAULT 'weibo'",
             "ALTER TABLE comments ADD COLUMN pic_urls TEXT DEFAULT '[]'",
+            "ALTER TABLE tweets ADD COLUMN created_at_timezone TEXT",
+            "ALTER TABLE comments ADD COLUMN created_at_timezone TEXT",
             ]:
                 try:
                     self.conn.execute(sql)
@@ -112,7 +114,8 @@ class TweetDB:
             parent_comment_id TEXT,
             sort_order      INTEGER DEFAULT 0,
             platform        TEXT DEFAULT 'weibo',
-            pic_urls        TEXT DEFAULT '[]'
+            pic_urls        TEXT DEFAULT '[]',
+            created_at_timezone TEXT
         );
         CREATE TABLE IF NOT EXISTS config (
             key   TEXT PRIMARY KEY,
@@ -144,6 +147,10 @@ class TweetDB:
         CREATE TABLE IF NOT EXISTS ps_marks (
             tweet_id    TEXT PRIMARY KEY,
             created_at  TEXT NOT NULL,
+            FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS xueqiu_comment_queue (
+            tweet_id TEXT PRIMARY KEY,
             FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS operation_logs (
@@ -402,10 +409,14 @@ class TweetDB:
         self.close()
 
     def insert_tweet(self, item):
+        """Upsert by source ID; return whether a new row was inserted."""
         with self._lock:
             if not self._acquire_file_lock():
                 raise RuntimeError("DB file lock timeout (insert_tweet)")
             try:
+                is_new = self.conn.execute(
+                    "SELECT 1 FROM tweets WHERE id=?", (item['_id'],)
+                ).fetchone() is None
                 self.conn.execute("""
         INSERT INTO tweets
             (id, mblogid, content, user_id, created_at, reposts_count,
@@ -413,10 +424,18 @@ class TweetDB:
              source, ip_location, is_retweet, retweet_id, deleted,
              deleted_at, url, crawl_time, screen_name, retweet_content,
              retweet_user, retweet_user_id, retweet_pic_urls, retweet_has_video,
-             platform)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             platform, created_at_timezone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             content=excluded.content,
+            created_at=CASE WHEN excluded.platform='xueqiu'
+                AND excluded.created_at_timezone='Asia/Shanghai'
+                AND excluded.created_at IS NOT NULL
+                THEN excluded.created_at ELSE tweets.created_at END,
+            created_at_timezone=CASE WHEN excluded.platform='xueqiu'
+                AND excluded.created_at_timezone='Asia/Shanghai'
+                AND excluded.created_at IS NOT NULL
+                THEN excluded.created_at_timezone ELSE tweets.created_at_timezone END,
             reposts_count=excluded.reposts_count,
             comments_count=excluded.comments_count,
             attitudes_count=excluded.attitudes_count,
@@ -447,9 +466,16 @@ class TweetDB:
                 json.dumps(item.get('retweet_pic_urls', [])) if isinstance(item.get('retweet_pic_urls'), list) else (item.get('retweet_pic_urls') or '[]'),
                 int(item.get('retweet_has_video', False)),
                 item.get('platform', 'weibo'),
+                item.get('created_at_timezone'),
             ))
+                if is_new and item.get('platform') == 'xueqiu':
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO xueqiu_comment_queue(tweet_id) VALUES (?)",
+                        (item['_id'],),
+                    )
                 self._index_tweet(item)
                 self.conn.commit()
+                return is_new
             except Exception:
                 self.conn.rollback()
                 raise
@@ -464,8 +490,8 @@ class TweetDB:
                 self.conn.execute("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls, created_at_timezone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
                 item['_id'], item['tweet_id'], item['content'],
                 item.get('created_at'), item.get('like_counts', 0),
@@ -477,6 +503,7 @@ class TweetDB:
                 item.get('sort_order', 0),
                 item.get('platform', 'weibo'),
                 json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
+                item.get('created_at_timezone'),
             ))
                 self._index_comment(item)
                 self.conn.commit()
@@ -560,12 +587,12 @@ class TweetDB:
                 self._release_file_lock()
         return len(rows)
 
-    def batch_insert_comments(self, items):
+    def batch_insert_comments(self, items, xueqiu_tweet_id=None):
         """Insert a list of comment items in a single transaction.
 
         Items are dicts produced by the comment spider.
         """
-        if not items:
+        if not items and xueqiu_tweet_id is None:
             return 0
         crawl_time = int(time.time())
         rows = []
@@ -581,6 +608,7 @@ class TweetDB:
                 item.get('sort_order', 0),
                 item.get('platform', 'weibo'),
                 json.dumps(item.get('pic_urls', [])) if isinstance(item.get('pic_urls'), list) else (item.get('pic_urls') or '[]'),
+                item.get('created_at_timezone'),
             ))
         with self._lock:
             if not self._acquire_file_lock():
@@ -589,10 +617,17 @@ class TweetDB:
                 self.conn.executemany("""
         INSERT OR REPLACE INTO comments
             (id, tweet_id, content, created_at, like_counts,
-             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip_location, comment_user, reply_comment, crawl_time, parent_comment_id, sort_order, platform, pic_urls, created_at_timezone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
                 self._batch_reindex('comment', items)
+                if xueqiu_tweet_id is not None:
+                    # Acknowledge only after a complete, successful API fetch,
+                    # including a valid empty result. Failures stay queued.
+                    self.conn.execute(
+                        "DELETE FROM xueqiu_comment_queue WHERE tweet_id=?",
+                        (xueqiu_tweet_id,),
+                    )
                 self.conn.commit()
             except Exception:
                 self.conn.rollback()
@@ -970,12 +1005,14 @@ class TweetDB:
             ).fetchone()
             return row[0] if row else None
 
-    def get_latest_xueqiu_id(self):
-        """Return the most recently crawled xueqiu post id, or None."""
+    def get_latest_xueqiu_id(self, user_id=None):
+        """Use source ID order, independent of legacy wall-clock timezones."""
         with self._lock:
+            user_filter = " AND user_id=?" if user_id else ""
             row = self.conn.execute(
-                "SELECT id FROM tweets WHERE platform='xueqiu' "
-                "ORDER BY created_at DESC LIMIT 1"
+                "SELECT id FROM tweets WHERE platform='xueqiu'" + user_filter +
+                " ORDER BY CAST(substr(id, 3) AS INTEGER) DESC LIMIT 1",
+                (user_id,) if user_id else (),
             ).fetchone()
             return row[0] if row else None
 
@@ -999,7 +1036,7 @@ class TweetDB:
             ).fetchall()
             return [(r[0], r[1]) for r in rows]
 
-    def get_xueqiu_tweets_for_comment_crawl(self, ps_only=True):
+    def get_xueqiu_tweets_for_comment_crawl(self, ps_only=True, incremental=False):
         """Return (id, xq_id) tuples for xueqiu tweets eligible for comment crawl.
 
         ps_only=True limits to non-deleted xueqiu posts classified as PS图
@@ -1010,9 +1047,71 @@ class TweetDB:
             sql = ("SELECT id FROM tweets WHERE platform='xueqiu' AND deleted=0")
             if ps_only:
                 sql += f" AND {_PS_TWEET_CONDITION}"
+            if incremental:
+                # Two daily runs cover late-arriving comments. The durable
+                # queue also covers older newly discovered posts and retries.
+                sql += (" AND (created_at >= datetime('now', '+8 hours', '-48 hours')"
+                        " OR id IN (SELECT tweet_id FROM xueqiu_comment_queue))")
             sql += " ORDER BY created_at DESC"
             rows = self.conn.execute(sql).fetchall()
             return [(r[0], r[0][2:]) for r in rows]
+
+    def queue_xueqiu_comments(self, tweet_ids):
+        """Keep failed refreshes eligible even after they leave the 48h window."""
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError('DB file lock timeout (queue_xueqiu_comments)')
+            try:
+                self.conn.executemany(
+                    "INSERT OR IGNORE INTO xueqiu_comment_queue(tweet_id) VALUES (?)",
+                    [(tid,) for tid in tweet_ids],
+                )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            finally:
+                self._release_file_lock()
+
+    def migrate_xueqiu_timestamps(self, legacy_timezone, apply=False):
+        """Explicit operator migration, never inferred from the current host.
+
+        Only unlabelled legacy rows are eligible. New crawls label Beijing
+        times, so retries and concurrent new writes cannot shift them twice.
+        Caller must first verify the old database's timezone and back it up.
+        """
+        if legacy_timezone not in ('UTC', 'Asia/Shanghai'):
+            raise ValueError('legacy_timezone must be UTC or Asia/Shanghai')
+        with self._lock:
+            if not self._acquire_file_lock():
+                raise RuntimeError('DB file lock timeout (xueqiu timezone migration)')
+            try:
+                counts = {}
+                for table in ('tweets', 'comments'):
+                    where = "platform='xueqiu' AND created_at_timezone IS NULL"
+                    invalid = self.conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE {where} "
+                        "AND created_at IS NOT NULL AND datetime(created_at) IS NULL"
+                    ).fetchone()[0]
+                    if invalid:
+                        raise ValueError(f'{table}: {invalid} invalid legacy timestamps')
+                    counts[table] = self.conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE {where}"
+                    ).fetchone()[0]
+                    if apply:
+                        value = ("datetime(created_at, '+8 hours')"
+                                 if legacy_timezone == 'UTC' else 'created_at')
+                        self.conn.execute(
+                            f"UPDATE {table} SET created_at={value}, "
+                            f"created_at_timezone='Asia/Shanghai' WHERE {where}"
+                        )
+                self.conn.commit()
+                return counts
+            except Exception:
+                self.conn.rollback()
+                raise
+            finally:
+                self._release_file_lock()
 
     def delete_xueqiu_comments(self, tweet_id):
         """Delete all platform='xueqiu' comments for a tweet. Returns count deleted."""

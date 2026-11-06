@@ -71,6 +71,17 @@ func addQuantity(a, b Quantity) (Quantity, error) {
 	v, err := AddMoney(Money(a), Money(b))
 	return Quantity(v), err
 }
+
+// Preserve the existing errors.Is contract while identifying the historical
+// entry whose replay violates a quantity or cash invariant.
+type stockRuleError struct {
+	Cause                       error
+	EntryID, InstrumentID, Date string
+}
+
+func (e *stockRuleError) Error() string { return e.Cause.Error() }
+func (e *stockRuleError) Unwrap() error { return e.Cause }
+
 func entryLess(a, b StockEntry) int {
 	if a.Date != b.Date {
 		if a.Date < b.Date {
@@ -135,7 +146,7 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 			p.cycleBuys, err = AddMoney(p.cycleBuys, e.Amount)
 		case "sell":
 			if e.Quantity > p.quantity {
-				return nil, ErrStockQuantity
+				return nil, &stockRuleError{ErrStockQuantity, e.ID, e.InstrumentID, e.Date}
 			}
 			p.quantity -= e.Quantity
 			p.sells, err = AddMoney(p.sells, e.Amount)
@@ -174,9 +185,10 @@ func stockCash(j StockJournal, entries []StockEntry, today string) (Money, error
 		return 0, nil
 	}
 	type flow struct {
-		date     string
-		sequence int64
-		amount   Money
+		date                  string
+		sequence              int64
+		amount                Money
+		entryID, instrumentID string
 	}
 	flows := []flow{}
 	for _, e := range entries {
@@ -203,7 +215,7 @@ func stockCash(j StockJournal, entries []StockEntry, today string) (Money, error
 		if e.Kind == "buy" {
 			amount = -amount
 		}
-		flows = append(flows, flow{date, e.Sequence, amount})
+		flows = append(flows, flow{date, e.Sequence, amount, e.ID, e.InstrumentID})
 	}
 	slices.SortFunc(flows, func(a, b flow) int {
 		if a.date < b.date {
@@ -228,7 +240,7 @@ func stockCash(j StockJournal, entries []StockEntry, today string) (Money, error
 			return 0, err
 		}
 		if cash < 0 {
-			return 0, ErrStockCash
+			return 0, &stockRuleError{ErrStockCash, f.entryID, f.instrumentID, f.date}
 		}
 	}
 	return cash, nil

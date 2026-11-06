@@ -19,6 +19,14 @@
 - 账本入口：<http://43.130.247.183:5052/ledger>。Compose 显式 `LEDGER_ENABLED=true`、`LEDGER_WEEKLY_ENABLED=false`，不因公开访问开启自动任务。保留同源写保护、上传限制和超时；不删除卷、不重置数据库。
 - 生产 Compose 设置 `LIQUOR_AUTO_SYNC=true`；Go 本地启动默认关闭。采集规则见 [后端指南](../backend/README.md#同步规则)。页面刷新不触发采集。
 
+## 投资账本 MCP 配置（2026-11-06）
+
+Compose 设置 `LEDGER_MCP_ENABLED=true`，通过现有账本代理提供 `/api/platform/ledger/mcp`，服务版本 1.1.0，九个工具。本地默认关闭，开启要求同时 `LEDGER_ENABLED=true`。传输为无状态 Streamable HTTP／JSON，GET 返回 405；健康检查仍用 `/healthz`。现有精确 `/mcp` 是另一服务的入口。
+
+升级会应用 008 回执迁移。先使用 SQLite 一致性备份；关闭 MCP 可将开关设为 false 并使用包含 008 的兼容程序。旧的仅支持 007 的程序会因迁移历史超出已知版本而拒绝打开升级后的库，不能删除迁移记录强行降级。
+
+接入和只读验证方法见[指南](guides/ledger-mcp.md)；实际发布状态以工作流和服务器版本为准。
+
 ## 1. 系统要求
 
 - Ubuntu 20.04 / 22.04 / 24.04（Debian 11+ 亦可）

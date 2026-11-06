@@ -57,6 +57,7 @@ curl 'http://127.0.0.1:5051/api/platform/liquor/products/1/history?limit=31'
 | `LIQUOR_REQUEST_INTERVAL` | `1s` | 顺序请求间隔，允许 0 至 1 分钟；真实来源不要设置为 0 |
 | `LIQUOR_SYNC_TIMEOUT` | `5m` | 一次完整同步超时，允许 1 秒至 30 分钟 |
 | `LEDGER_ENABLED` | `false` | 启用匿名共享记账 API；生产 Compose 显式为 true；非回环监听仍须配置令牌以保护其他模块，但账本不校验令牌 |
+| `LEDGER_MCP_ENABLED` | `false` | 在 `/api/platform/ledger/mcp` 开启九个账本工具（含字段契约查询），要求 `LEDGER_ENABLED=true`；Compose 显式为 true；使用官方 SDK 的无状态 Streamable HTTP |
 | `LEDGER_WEEKLY_ENABLED` | `false` | 只接受精确 `true`/`false`；开启周六总资产任务，必须同时 `LEDGER_ENABLED=true`，不是生产启用授权 |
 | `LEDGER_WEEKLY_TIME` | `08:00` | 用户确认的北京时间默认时刻；严格 `HH:MM`、00:00..23:59，时区固定 Asia/Shanghai、每周六；非法值即使关闭也拒绝启动 |
 
@@ -69,6 +70,8 @@ Authorization: Bearer <BACKEND_API_TOKEN>
 除启用的精确账本命名空间外，无令牌模式仅适合本机开发并拒绝非回环 Host。所有业务请求保留浏览器跨站写保护，不提供跨域放行；同源代理须保留含端口的 Host。账本按用户授权匿名共享全部读写，令牌只保护其他模块，不提供私人账本保密。不要把令牌硬编码进前端构建产物、代码或命令示例。
 
 ## API 契约
+
+投资账本 MCP 的工具参数、调用顺序与超时恢复见[接入指南](../docs/guides/ledger-mcp.md)，事务和迁移设计见[详细规格](../docs/specs/2026-10-25-ledger-mcp.md)。MCP 与 REST 共用记账内核；MCP 的业务请求 ID 放在工具参数中，不使用 JSON-RPC id 作为幂等键。
 
 路径已包含 `/api/platform`，Vite 开发代理和生产 Nginx 均保留该前缀。下表描述 Go 本身的契约，生产代理额外限制为 GET/HEAD；入口拒绝的写请求可能返回 Nginx 的 HTML 403，而不是 Go 的 JSON 错误。
 

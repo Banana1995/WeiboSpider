@@ -22,6 +22,7 @@ type Config struct {
 	SyncTimeout         time.Duration
 	AutoSync            bool
 	LedgerEnabled       bool
+	LedgerMCPEnabled    bool
 	LedgerWeeklyEnabled bool
 	LedgerWeeklyTime    string
 }
@@ -61,6 +62,7 @@ func LoadConfig() (Config, error) {
 	}
 	for name, field := range map[string]*bool{
 		"LIQUOR_AUTO_SYNC": &cfg.AutoSync, "LEDGER_ENABLED": &cfg.LedgerEnabled,
+		"LEDGER_MCP_ENABLED": &cfg.LedgerMCPEnabled,
 	} {
 		if value, exists := os.LookupEnv(name); exists {
 			parsed, err := strconv.ParseBool(value)
@@ -80,6 +82,9 @@ func LoadConfig() (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.LedgerMCPEnabled && !c.LedgerEnabled {
+		return errors.New("LEDGER_MCP_ENABLED requires LEDGER_ENABLED")
+	}
 	if c.LedgerWeeklyEnabled && !c.LedgerEnabled {
 		return errors.New("LEDGER_WEEKLY_ENABLED requires LEDGER_ENABLED")
 	}

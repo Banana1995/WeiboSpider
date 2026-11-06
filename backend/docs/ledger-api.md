@@ -4,6 +4,8 @@
 
 ## 1. 启用与访问边界
 
+2026-10-25 新增可选 [投资账本 MCP](../../docs/guides/ledger-mcp.md)：`LEDGER_MCP_ENABLED=true` 时在 `/api/platform/ledger/mcp` 使用 Streamable HTTP，八个工具共用下述 REST 的记账内核。MCP 使用自己的协议及结果封装，后文 REST 的裸 JSON 和 GET/HEAD 规则不适用于 MCP 入口。迁移 008 保留旧回执并扩展 MCP 回执类别。
+
 - `LEDGER_ENABLED` 默认关闭；启用后使用独立的 `BACKEND_DATA_DIR/ledger.db`，不读取或修改微博、白酒库。使用新的空数据目录开发；已有结构校验失败时不会删除或重置数据库。
 - 账本按既有用户授权匿名共享全部读写，无登录或用户隔离。任何访客都能修改数据，请勿上传私人财务信息。
 - 仅规范 `/api/platform/ledger` 及其子路径免服务令牌。保留同源写保护、Host 校验、请求限制、校验、事务、幂等和审计，不提供跨域放行。

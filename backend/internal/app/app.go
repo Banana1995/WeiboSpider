@@ -74,6 +74,9 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		}
 		application.dividendWorker = ledger.NewDividendWorker(ledgerStore, ledger.NewPublicDividends(), fx, logger)
 		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, BenchmarkStatus: benchmark, Weekly: application.ledgerWorker, Dividends: application.dividendWorker}.Register(ledgerMux)
+		if cfg.LedgerMCPEnabled {
+			ledgerMux.Handle(ledger.MCPPath, ledger.NewMCPHandler(ledger.MCPService{Store: ledgerStore, Instruments: quotes, Dividends: application.dividendWorker}, logger))
+		}
 		ledgerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 		})

@@ -333,6 +333,34 @@ func (s *Store) WriteStock(ctx context.Context, account, key string, c StockComm
 			result = json.RawMessage(receipt.Response)
 			return nil
 		}
+		change, err := s.applyStockCommandTx(ctx, tx, account, key, c)
+		if err != nil {
+			return err
+		}
+		out := StockWriteResult{account, change.After.version(), c.ID, c.Action}
+		audit, err := appendAudit(ctx, tx, key, c.Action, "stock_command", key, account, 1, change.Stamp, "human", nil, out, nil)
+		if err != nil {
+			return err
+		}
+		result, err = json.Marshal(out)
+		if err != nil {
+			return err
+		}
+		return saveReceipt(ctx, tx, key, "stock_command", string(intent), string(result), audit)
+	})
+	return result, err
+}
+
+// Both transports own their receipt format; all financial mutations share this
+// transaction kernel. It never opens another transaction or calls a provider.
+type stockMutation struct {
+	Before, After stockState
+	Date, Stamp   string
+}
+
+func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, key string, c StockCommand) (stockMutation, error) {
+	var change stockMutation
+	err := func() error {
 		st, err := readStockState(ctx, tx, account)
 		if err != nil {
 			return err
@@ -344,6 +372,10 @@ func (s *Store) WriteStock(ctx context.Context, account, key string, c StockComm
 		if err != nil {
 			return err
 		}
+		change.Before = st
+		change.Before.entries = slices.Clone(st.entries)
+		change.Before.journal.Openings = slices.Clone(st.journal.Openings)
+		change.Date, change.Stamp = today, stamp
 		if c.Security != nil {
 			if c.Action != "create" || c.Entry == nil || c.Entry.InstrumentID != c.Security.ID {
 				return ErrOperation
@@ -529,18 +561,10 @@ func (s *Store) WriteStock(ctx context.Context, account, key string, c StockComm
 		if _, err := saveStockProjection(ctx, tx, &st, key, "human", today, stamp); err != nil {
 			return err
 		}
-		out := StockWriteResult{account, st.version(), c.ID, c.Action}
-		audit, err := appendAudit(ctx, tx, key, c.Action, "stock_command", key, account, 1, stamp, "human", nil, out, nil)
-		if err != nil {
-			return err
-		}
-		result, err = json.Marshal(out)
-		if err != nil {
-			return err
-		}
-		return saveReceipt(ctx, tx, key, "stock_command", string(intent), string(result), audit)
-	})
-	return result, err
+		change.After = st
+		return nil
+	}()
+	return change, err
 }
 
 // Providers never run inside a transaction. Readers and the settlement worker

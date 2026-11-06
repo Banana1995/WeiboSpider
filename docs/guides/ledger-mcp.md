@@ -7,7 +7,7 @@
 传输：**remote Streamable HTTP**，服务名 `investment-ledger`，版本 1.1.0，共九个工具。
 
 - 本地入口：`http://127.0.0.1:5051/api/platform/ledger/mcp`。
-- 部署该版本后的现有公网代理入口：`http://43.130.247.183:5052/api/platform/ledger/mcp`。
+- 公网入口：`http://43.130.247.183:5052/api/platform/ledger/mcp`（2026-11-06 已部署验证）。
 - 账本沿用公开共享授权，MCP 不要求 OAuth 或账本令牌；跨站浏览器写保护仍有效。
 - `LEDGER_MCP_ENABLED=true` 且 `LEDGER_ENABLED=true` 时注册路由。本地默认关闭，目标 Compose 已配置开启。
 - 回执与客户端会话无关；不需要保存 Mcp-Session-Id。

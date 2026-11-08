@@ -132,7 +132,10 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 			if _, code := quoteSymbol(i); code != "" {
 				return c, mcpIssue(code, "现有证券身份不符合当前支持的市场和币种规则", "fix_input", "positions")
 			}
-			if slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == i.ID }) {
+			kept := slices.ContainsFunc(st.journal.Openings, func(op OpeningPosition) bool {
+				return op.InstrumentID == i.ID && op.Channel == p.Channel && op.Quantity.String() == p.Quantity
+			})
+			if !kept && slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == i.ID }) {
 				problem := mcpIssue("opening_conflict", "该证券已有买卖流水，期初持仓会与流水重复；请更正或作废原流水", "edit_existing_entry", "positions")
 				problem.Details = map[string]string{"instrument_id": i.ID, "code": i.Code, "market": i.Market}
 				return c, problem

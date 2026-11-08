@@ -443,14 +443,20 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 			}
 			next := make([]OpeningPosition, 0, len(c.Openings))
 			seen := map[string]bool{}
+			existing := map[string]Quantity{}
+			for _, p := range st.journal.Openings {
+				existing[p.InstrumentID+"\x00"+p.Channel] = p.Quantity
+			}
 			for _, o := range c.Openings {
 				key := o.Instrument.ID + "\x00" + o.Channel
 				if !validID(o.Instrument.ID) || o.Quantity <= 0 || seen[key] || o.Channel != "" && !validChannelName(o.Channel) {
 					return ErrOperation
 				}
 				// A security with recorded trades already carries its own quantity;
-				// an opening for the same security would be counted twice.
-				if slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == o.Instrument.ID }) {
+				// a new opening for it would be counted twice. Re-submitting the
+				// opening it already had is how the rest of the list survives.
+				kept, ok := existing[key]
+				if (!ok || kept != o.Quantity) && slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == o.Instrument.ID }) {
 					return ErrOperation
 				}
 				if err := ensureStockInstrument(ctx, tx, key, &st, account, stamp, o.Instrument); err != nil {

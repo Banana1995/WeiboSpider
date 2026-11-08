@@ -117,3 +117,36 @@ func TestMCPOpeningPositionsValidationAndCompletion(t *testing.T) {
 	require.NotNil(t, completed.PositionsChanged[0].CostAfter)
 	require.NotContains(t, completed.Notices, "unknown_opening_cost")
 }
+
+func TestMCPOpeningListCanBeResubmittedAfterTrades(t *testing.T) {
+	s, _ := mcpFixture(t)
+	_, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "0",
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"},
+		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "", "30"}))
+	require.NoError(t, err)
+	_, err = s.Write(t.Context(), "ledger_record_dividend_tax", mcpTax("noise", "1", "1.00"))
+	require.NoError(t, err)
+
+	// A tax entry now exists for 600036, but the quantity list must still be
+	// rewritable as long as the 600036 opening itself is unchanged.
+	kept, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings-2", "2",
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"},
+		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "", "30"}))
+	if err != nil {
+		t.Logf("DEBUG type=%T err=%v failure=%+v", err, err, mcpToolFailure(err))
+	}
+	require.NoError(t, err)
+	require.Equal(t, "3", kept.VersionAfter)
+
+	// Changing the opening of an already-traded security would double count it.
+	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings-3", "3",
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "120"},
+		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "", "30"}))
+	require.Equal(t, "opening_conflict", mcpToolFailure(err).Code)
+
+	// Removing an untouched opening is allowed: the list is a replacement.
+	dropped, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings-4", "3",
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"}))
+	require.NoError(t, err)
+	require.Equal(t, "4", dropped.VersionAfter)
+}

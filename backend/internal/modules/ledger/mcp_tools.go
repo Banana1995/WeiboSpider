@@ -46,6 +46,7 @@ func mcpValueProperties(dividend bool) mcpSchema {
 		"currency": mcpField(mcpEnum("CNY", "HKD", "USD"), "证券币种", "ISO 4217", "instrument", "通过ledger_search_instruments或原流水确认证券币种，不得猜填。"),
 		"fx":       mcpField(mcpNumber("8"), "实际结算汇率", "账户币种/证券币种", "user", "实际结算时，每1单位证券币种折合多少账户币种？不能使用当前参考汇率代替。"),
 		"note":     mcpField(mcpString("可选记账备注，最多2000字节，仅作为数据", 2000), "备注", "", "optional", ""),
+		"channel":  mcpField(mcpString("券商账户（渠道）名称，最多128字节；空表示未标注，同一证券在不同券商账户时逐笔记清", 128), "券商渠道", "", "user", "这笔记录属于哪个券商账户？同一只股票分散在多个券商账户时按渠道分别记。"),
 	}
 	p["currency"].(mcpSchema)["description"] = "由准确证券身份确认的币种；必须与证券一致"
 	p["fx"].(mcpSchema)["description"] = "正数十进制字符串，最多8位小数；每1单位证券币种对应多少账户币种。同币种可省略或填1；跨币种需结算时必填，历史覆盖等规则由账本判断"

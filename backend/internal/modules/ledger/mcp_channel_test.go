@@ -79,3 +79,23 @@ func TestMCPChannelValidationAndCorrection(t *testing.T) {
 	require.Equal(t, "国金", fixed.Entry.Channel)
 	require.Equal(t, []ChannelQuantity{{"国金", 10000000}}, mustChannels(t, s))
 }
+
+func TestMCPTradeSchemaAcceptsChannel(t *testing.T) {
+	s, _ := mcpFixture(t)
+	c, _ := mcpClient(t, s)
+	out := mcpCall[MCPStockWriteResult](t, c, "ledger_record_trade", map[string]any{
+		"request_id": "sdk-channel", "account_id": "a", "expected_version": "0",
+		"instrument": map[string]any{"market": "SH", "code": "600036"},
+		"side": "buy", "date": "2026-09-06", "quantity": "10", "price": "10",
+		"fee": "0", "currency": "CNY", "channel": "华泰满意",
+	})
+	require.Equal(t, "华泰满意", out.Entry.Channel)
+	contract := mcpCall[MCPWriteContract](t, c, "ledger_get_write_contract", MCPContractQuery{ToolName: "ledger_record_trade", AccountID: "a"})
+	found := false
+	for _, field := range contract.Fields {
+		if field.Path == "channel" {
+			found = true
+		}
+	}
+	require.True(t, found)
+}

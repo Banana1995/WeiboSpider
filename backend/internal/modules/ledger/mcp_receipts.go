@@ -51,6 +51,20 @@ func readMCPReceipt(ctx context.Context, tx *sql.Tx, account, requestID, expecte
 		if out.Entry != nil || out.CashAnchorAfter == nil || out.Cash.After.String() != in.Value.Amount || out.BusinessDate != in.ObservedDate || out.Cash.Currency != in.Value.Currency || out.CashAnchorAfter.Amount != out.Cash.After || out.CashAnchorAfter.Date != out.BusinessDate {
 			return out, true, ErrCorrupt
 		}
+	} else if in.Action == "openings" {
+		if out.Entry != nil || len(in.Openings) == 0 || len(out.PositionsChanged) == 0 {
+			return out, true, ErrCorrupt
+		}
+		quantities := map[string]string{}
+		for _, o := range in.Openings {
+			quantities[o.Instrument.Market+"/"+o.Instrument.Code] = o.Quantity
+		}
+		for _, p := range out.PositionsChanged {
+			want, ok := quantities[p.Instrument.Market+"/"+p.Instrument.Code]
+			if !ok || !p.OpeningAfter || p.QuantityAfter.String() != want || p.CostAfter != nil {
+				return out, true, ErrCorrupt
+			}
+		}
 	} else {
 		id := in.EntryID
 		if in.Action == "create" {
@@ -103,7 +117,7 @@ func readMCPReceipt(ctx context.Context, tx *sql.Tx, account, requestID, expecte
 		}
 	}
 	if out.RelatedChanges.Count < len(out.RelatedChanges.EntryIDs) || len(out.RelatedChanges.EntryIDs) > 100 || out.RelatedChanges.Truncated != (out.RelatedChanges.Count > len(out.RelatedChanges.EntryIDs)) ||
-		!slices.Contains([]string{"no_anchor", "covered_by_anchor", "settled", "opening_completion", "balance_reset", "recalculated"}, out.CashEffectReason) {
+		!slices.Contains([]string{"no_anchor", "covered_by_anchor", "settled", "opening_completion", "balance_reset", "recalculated", "opening_basis"}, out.CashEffectReason) {
 		return out, true, ErrCorrupt
 	}
 	var proof, stamp, action, metadata string
@@ -137,6 +151,8 @@ func validMCPIntent(in mcpStockIntent) bool {
 		args = MCPDividendInput{in.Write, in.Instrument, v.Date, v.Amount, v.Currency, v.FX, v.Note}
 	case "ledger_set_cash_balance":
 		args = MCPCashInput{in.Write, in.ObservedDate, v.Amount, v.Currency}
+	case "ledger_set_opening_positions":
+		args = MCPOpeningsInput{in.Write, in.Openings}
 	case "ledger_edit_entry":
 		var replacement *MCPReplacement
 		if in.Action == "replace" {

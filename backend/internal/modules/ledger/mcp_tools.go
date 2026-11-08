@@ -102,6 +102,11 @@ func registerLedgerTools(server *mcp.Server, s MCPService, logger *slog.Logger) 
 		func(ctx context.Context, in MCPCashInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_set_cash_balance", in)
 		})
+	addLedgerTool(server, logger, "ledger_set_opening_positions", "整体设置账户的期初持仓股数，只用于账本里还没有该证券买卖流水的持仓。只记股数，不含成交价、费用、日期和结算汇率，成本保持未知；同一证券已有流水时先更正或作废原流水。空账户首次建档用它，后续用ledger_record_trade补齐买卖和成本。",
+		mcpWriteSchema("ledger_set_opening_positions"), false, false,
+		func(ctx context.Context, in MCPOpeningsInput) (MCPStockWriteResult, error) {
+			return s.Write(ctx, "ledger_set_opening_positions", in)
+		})
 	addLedgerTool(server, logger, "ledger_get_write_result", "查询持久化提交回执。committed返回原冻结结果；not_found不是确定失败，仍需原样重试或稍后查询，不得换ID重记。",
 		mcpObject(mcpSchema{"account_id": mcpID("原请求账户"), "request_id": mcpID("原业务请求ID")}, "account_id", "request_id"), true, false, s.WriteResult)
 	addLedgerTool(server, logger, "ledger_get_write_contract", "读取一个写工具的必填字段、单位、事实来源、合成示例及条件必填规则；上下文不足会明确标记未确定。仅查询，不生成交易，也不替代写入时校验。",

@@ -37,7 +37,16 @@ func (s MCPService) Write(ctx context.Context, tool string, args any) (MCPStockW
 	}
 	// Resolve identities outside the transaction and only after receipt lookup.
 	var identity *Instrument
-	if in.Action == "create" {
+	var openings []Instrument
+	if in.Action == "openings" {
+		for _, p := range in.Openings {
+			resolved, err := s.resolveInstrument(ctx, in.Write.AccountID, p.Instrument, true)
+			if err != nil {
+				return result, err
+			}
+			openings = append(openings, *resolved)
+		}
+	} else if in.Action == "create" {
 		identity, err = s.resolveInstrument(ctx, in.Write.AccountID, in.Instrument, in.Value.Kind != "dividend")
 		if err != nil {
 			return result, err
@@ -49,7 +58,7 @@ func (s MCPService) Write(ctx context.Context, tool string, args any) (MCPStockW
 		if err != nil || found {
 			return err
 		}
-		command, err := s.prepareCommand(ctx, tx, in, identity)
+		command, err := s.prepareCommand(ctx, tx, in, identity, openings)
 		if err != nil {
 			return err
 		}
@@ -98,7 +107,7 @@ func (s MCPService) Write(ctx context.Context, tool string, args any) (MCPStockW
 	return result, nil
 }
 
-func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockIntent, identity *Instrument) (StockCommand, error) {
+func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockIntent, identity *Instrument, openings []Instrument) (StockCommand, error) {
 	c := StockCommand{Action: in.Action, ExpectedVersion: in.Write.ExpectedVersion, ID: in.EntryID, ReplaceOpening: in.Mode == "complete_opening"}
 	st, err := readStockState(ctx, tx, in.Write.AccountID)
 	if err != nil {
@@ -112,6 +121,29 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 	today, _, err := s.Store.cutoff()
 	if err != nil {
 		return c, err
+	}
+	if in.Action == "openings" {
+		if len(openings) != len(in.Openings) {
+			return c, ErrCorrupt
+		}
+		c.Openings = []StockOpening{}
+		for n, p := range in.Openings {
+			i := openings[n]
+			if _, code := quoteSymbol(i); code != "" {
+				return c, mcpIssue(code, "现有证券身份不符合当前支持的市场和币种规则", "fix_input", "positions")
+			}
+			if slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == i.ID }) {
+				problem := mcpIssue("opening_conflict", "该证券已有买卖流水，期初持仓会与流水重复；请更正或作废原流水", "edit_existing_entry", "positions")
+				problem.Details = map[string]string{"instrument_id": i.ID, "code": i.Code, "market": i.Market}
+				return c, problem
+			}
+			quantity, err := ParseQuantity(p.Quantity)
+			if err != nil {
+				return c, err
+			}
+			c.Openings = append(c.Openings, StockOpening{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, quantity})
+		}
+		return c, nil
 	}
 	if in.Action == "cash" {
 		if in.ObservedDate != today {
@@ -282,6 +314,8 @@ func mcpMutationResult(in mcpStockIntent, key string, command StockCommand, chan
 	switch {
 	case in.Action == "cash":
 		out.CashEffectReason = "balance_reset"
+	case in.Action == "openings":
+		out.CashEffectReason = "opening_basis"
 	case command.ReplaceOpening:
 		out.CashEffectReason = "opening_completion"
 	case before.journal.Cash == nil:

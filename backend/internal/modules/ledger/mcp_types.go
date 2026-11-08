@@ -73,6 +73,16 @@ type MCPCashInput struct {
 	Currency     Currency `json:"currency"`
 }
 
+type MCPOpeningsInput struct {
+	MCPWriteFields
+	Positions []MCPOpeningPosition `json:"positions"`
+}
+
+type MCPOpeningPosition struct {
+	Instrument MCPInstrumentSelector `json:"instrument"`
+	Quantity   string                `json:"quantity"`
+}
+
 // This versioned wire shape is immutable. Provider names, client identity and
 // JSON-RPC ids are deliberately excluded from the business request identity.
 type mcpStockIntent struct {
@@ -86,6 +96,7 @@ type mcpStockIntent struct {
 	ObservedDate  string                `json:"observed_date"`
 	Reason        string                `json:"reason"`
 	Value         MCPReplacement        `json:"value"`
+	Openings      []MCPOpeningPosition  `json:"openings,omitempty"`
 }
 
 var mcpUnsignedDecimal = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
@@ -148,6 +159,27 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		} else if v.Action != "void" || v.Replacement != nil {
 			return in, mcpInvalid("action", "replacement")
 		}
+	case MCPOpeningsInput:
+		if tool != "ledger_set_opening_positions" || len(v.Positions) == 0 || len(v.Positions) > maxStockOpenings {
+			return in, mcpInvalid("positions")
+		}
+		in.Write, in.Action = v.MCPWriteFields, "openings"
+		seen := map[string]bool{}
+		for _, p := range v.Positions {
+			if !p.Instrument.valid() {
+				return in, mcpIssue("unsupported_instrument", "证券市场或代码不受支持", "fix_input", "positions")
+			}
+			if key := p.Instrument.Market + "/" + p.Instrument.Code; seen[key] {
+				return in, mcpInvalid("positions")
+			} else {
+				seen[key] = true
+			}
+			quantity, err := mcpDecimal(p.Quantity, 6, true)
+			if err != nil {
+				return in, mcpIssue("invalid_precision", "期初股数格式或范围不合法", "fix_input", "positions")
+			}
+			in.Openings = append(in.Openings, MCPOpeningPosition{p.Instrument, quantity})
+		}
 	case MCPCashInput:
 		if tool != "ledger_set_cash_balance" || !validDate(v.ObservedDate) {
 			return in, mcpInvalid("observed_date")
@@ -162,6 +194,11 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 	}
 	if _, err := stockVersion(in.Write.ExpectedVersion); err != nil {
 		return in, mcpInvalid("expected_version")
+	}
+	if in.Action == "openings" {
+		// Opening positions carry quantities only: no price, fee, date or
+		// settlement currency exists, so the value checks do not apply.
+		return in, nil
 	}
 	if in.Action == "create" && !in.Instrument.valid() {
 		return in, mcpIssue("unsupported_instrument", "证券市场或代码不受支持", "fix_input", "instrument")

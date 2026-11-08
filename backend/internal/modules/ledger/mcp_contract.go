@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const mcpContractVersion = "2026-11-06"
+const mcpContractVersion = "2026-11-08"
 
 // These annotations travel with the actual input schema: help text, diagnostics
 // and field discovery cannot maintain a different list of required fields.
@@ -47,6 +47,15 @@ func mcpWriteSchema(tool string) mcpSchema {
 		p["amount"] = mcpFinancial("2", false, "当前实际剩余现金，账户币种，非负，最多2位小数；不是入金；明确零余额合法", "实际现金余额", "账户币种", "当前实际剩余现金是多少？如果余额确实为零，请明确为零。")
 		p["currency"] = mcpField(mcpEnum("CNY", "HKD", "USD"), "账户币种", "ISO 4217", "ledger", "调用ledger_list_accounts确认账户币种。")
 		return mcpObject(p, append(required, "observed_date", "amount", "currency")...)
+	case "ledger_set_opening_positions":
+		positions := mcpObject(mcpSchema{
+			"instrument": mcpInstrumentSchema(),
+			"quantity":   mcpFinancial("6", true, "期初持有股数，正数，最多6位小数；只记数量，不含成本", "期初股数", "股", "这只证券目前实际持有多少股？"),
+		}, "instrument", "quantity")
+		positions["x-ledger-max-items"] = maxStockOpenings
+		p["positions"] = mcpField(mcpSchema{"type": "array", "minItems": 1, "maxItems": maxStockOpenings, "items": positions,
+			"description": "期初持仓清单，整体替换现有期初持仓；同一证券只能出现一次"}, "期初持仓", "", "user", "账户当前实际持有哪些证券、各多少股？只需要股数，成本可以以后再补。")
+		return mcpObject(p, append(required, "positions")...)
 	case "ledger_edit_entry":
 		p["entry_id"] = mcpField(mcpID("ledger_get_stock_book取得的准确流水ID"), "流水ID", "", "ledger", "调用ledger_get_stock_book定位准确流水，不能直接按最近一笔猜选。")
 		p["action"] = mcpField(mcpEnum("replace", "void"), "修改操作", "", "user", "需要完整更正这笔流水，还是将其作废？")
@@ -84,7 +93,7 @@ type MCPContractQuery struct {
 
 func mcpContractQuerySchema() mcpSchema {
 	return mcpObject(mcpSchema{
-		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance"),
+		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions"),
 		"account_id": mcpID("可选准确账户ID，用于解释当前上下文；不提供则显示尚未确定的规则"),
 		"instrument": mcpInstrumentSchema(), "entry_id": mcpID("更正或作废的原流水ID"),
 		"date": mcpDate("拟记账日期，用于解释现金基准覆盖"), "mode": mcpEnum("trade", "complete_opening"),
@@ -187,6 +196,8 @@ func (q MCPContractQuery) valid() bool {
 		return q.EntryID == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_set_cash_balance":
 		return q.Instrument == nil && q.EntryID == "" && q.Date == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
+	case "ledger_set_opening_positions":
+		return q.Instrument == nil && q.EntryID == "" && q.Date == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_edit_entry":
 		return q.Instrument == nil && q.Mode == "" && (q.EntryID == "" || validID(q.EntryID)) && (q.Action == "" || q.Action == "replace" || q.Action == "void") &&
 			(q.ReplacementKind == "" || slices.Contains([]string{"buy", "sell", "dividend"}, q.ReplacementKind)) && (q.Action != "void" || q.Date == "" && q.ReplacementKind == "")
@@ -274,6 +285,10 @@ func (s MCPService) WriteContract(ctx context.Context, q MCPContractQuery) (MCPW
 		out.ConditionalRequirements = append(out.ConditionalRequirements, MCPConditionalRequirement{"observed_date", "required", "首次提交必须为当前北京时间业务日；已提交重试先恢复原回执"})
 		return out, nil
 	}
+	if q.ToolName == "ledger_set_opening_positions" {
+		out.ConditionalRequirements = append(out.ConditionalRequirements, MCPConditionalRequirement{"positions", "required", "整体替换期初持仓清单；只记股数，成本、费用与结算汇率保持未知"})
+		return out, nil
+	}
 	fxPath := "fx"
 	if q.ToolName == "ledger_edit_entry" {
 		fxPath = "replacement.fx"
@@ -353,6 +368,8 @@ func mcpContractExample(q MCPContractQuery) map[string]any {
 		in["instrument"], in["date"], in["amount"], in["currency"] = MCPInstrumentSelector{"SH", "600036"}, "2026-09-06", "100.00", "CNY"
 	case "ledger_set_cash_balance":
 		in["observed_date"], in["amount"], in["currency"] = "2026-09-06", "1000.00", "CNY"
+	case "ledger_set_opening_positions":
+		in["positions"] = []map[string]any{{"instrument": MCPInstrumentSelector{"SH", "600036"}, "quantity": "100"}}
 	case "ledger_edit_entry":
 		in["entry_id"], in["action"], in["reason"] = "entry-demo", "replace", "核对实际成交记录"
 		in["replacement"] = trade

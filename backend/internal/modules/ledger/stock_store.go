@@ -13,6 +13,7 @@ import (
 )
 
 const maxStockEntries = 10000
+const maxStockOpenings = 200
 
 type StockInput struct {
 	InstrumentID string   `json:"instrument_id"`
@@ -25,6 +26,10 @@ type StockInput struct {
 	FX           Rate     `json:"fx"`
 	Note         string   `json:"note"`
 }
+type StockOpening struct {
+	Instrument instrumentJSON `json:"instrument"`
+	Quantity   Quantity       `json:"quantity"`
+}
 type StockCommand struct {
 	Action          string          `json:"action"`
 	ExpectedVersion string          `json:"expected_version"`
@@ -32,6 +37,7 @@ type StockCommand struct {
 	Entry           *StockInput     `json:"entry,omitempty"`
 	Security        *instrumentJSON `json:"security,omitempty"`
 	Cash            *Money          `json:"cash,omitempty"`
+	Openings        []StockOpening  `json:"openings,omitempty"`
 	ReplaceOpening  bool            `json:"replace_opening,omitempty"`
 }
 type StockWriteResult struct {
@@ -358,6 +364,35 @@ type stockMutation struct {
 	Date, Stamp   string
 }
 
+// ensureStockInstrument mirrors the immutable catalog rules for securities first
+// seen by a command. Callers already validated the instrument shape.
+func ensureStockInstrument(ctx context.Context, tx *sql.Tx, key string, st *stockState, account, stamp string, in instrumentJSON) error {
+	i := Instrument{ID: in.ID, Market: in.Market, Code: in.Code, Name: in.Name, Currency: in.Currency}
+	if _, code := quoteSymbol(i); code != "" || !validID(i.ID) || !validText(i.Name) {
+		return ErrOperation
+	}
+	for _, existing := range st.instruments {
+		if existing.Market == i.Market && existing.Code == i.Code && existing.ID != i.ID {
+			return ErrConflict
+		}
+	}
+	stored, err := holdingInstrument(ctx, tx, i.ID)
+	if errors.Is(err, ErrNotFound) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO instruments(id,market,code,name,currency) VALUES(?,?,?,?,?)`, i.ID, i.Market, i.Code, i.Name, i.Currency); err != nil {
+			return err
+		}
+		if _, err := appendAudit(ctx, tx, key, "create", "instrument", i.ID, account, 1, stamp, "human", nil, in, nil); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if stored != i {
+		return ErrConflict
+	}
+	st.instruments[i.ID] = i
+	return nil
+}
+
 func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, key string, c StockCommand) (stockMutation, error) {
 	var change stockMutation
 	err := func() error {
@@ -380,29 +415,9 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 			if c.Action != "create" || c.Entry == nil || c.Entry.InstrumentID != c.Security.ID {
 				return ErrOperation
 			}
-			i := Instrument{c.Security.ID, c.Security.Market, c.Security.Code, c.Security.Name, c.Security.Currency}
-			if _, code := quoteSymbol(i); code != "" || !validID(i.ID) || !validText(i.Name) {
-				return ErrOperation
+			if err := ensureStockInstrument(ctx, tx, key, &st, account, stamp, *c.Security); err != nil {
+				return err
 			}
-			for _, existing := range st.instruments {
-				if existing.Market == i.Market && existing.Code == i.Code && existing.ID != i.ID {
-					return ErrConflict
-				}
-			}
-			stored, e := holdingInstrument(ctx, tx, i.ID)
-			if errors.Is(e, ErrNotFound) {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO instruments(id,market,code,name,currency) VALUES(?,?,?,?,?)`, i.ID, i.Market, i.Code, i.Name, i.Currency); err != nil {
-					return err
-				}
-				if _, err := appendAudit(ctx, tx, key, "create", "instrument", i.ID, account, 1, stamp, "human", nil, c.Security, nil); err != nil {
-					return err
-				}
-			} else if e != nil {
-				return e
-			} else if stored != i {
-				return ErrConflict
-			}
-			st.instruments[i.ID] = i
 		}
 		switch c.Action {
 		case "cash":
@@ -414,6 +429,29 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				sequence = max(sequence, e.Sequence)
 			}
 			st.journal.Cash = &CashAnchor{Amount: *c.Cash, Date: today, Sequence: sequence}
+		case "openings":
+			if c.Entry != nil || c.Cash != nil || c.ID != "" || c.ReplaceOpening || len(c.Openings) == 0 || len(c.Openings) > maxStockOpenings {
+				return ErrOperation
+			}
+			next := make([]CurrentPosition, 0, len(c.Openings))
+			seen := map[string]bool{}
+			for _, o := range c.Openings {
+				if !validID(o.Instrument.ID) || o.Quantity <= 0 || seen[o.Instrument.ID] {
+					return ErrOperation
+				}
+				// A security with recorded trades already carries its own quantity;
+				// an opening for the same security would be counted twice.
+				if slices.ContainsFunc(st.entries, func(e StockEntry) bool { return !e.Voided && e.InstrumentID == o.Instrument.ID }) {
+					return ErrOperation
+				}
+				if err := ensureStockInstrument(ctx, tx, key, &st, account, stamp, o.Instrument); err != nil {
+					return err
+				}
+				seen[o.Instrument.ID] = true
+				next = append(next, CurrentPosition{o.Instrument.ID, o.Quantity})
+			}
+			slices.SortFunc(next, func(a, b CurrentPosition) int { return strings.Compare(a.InstrumentID, b.InstrumentID) })
+			st.journal.Openings = next
 		case "clear_opening":
 			if !validID(c.ID) || c.Entry != nil || c.Cash != nil {
 				return ErrOperation

@@ -93,6 +93,11 @@ func registerLedgerTools(server *mcp.Server, s MCPService, logger *slog.Logger) 
 		func(ctx context.Context, in MCPDividendInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_record_dividend", in)
 		})
+	addLedgerTool(server, logger, "ledger_record_dividend_tax", "记录账户已有证券实际扣缴的股息红利税等现金扣除。金额与日期不明确时必须调用question补问。它只扣现金和净分红，不改变持股数量与成本；金额填正数，方向由账本按扣除处理。",
+		mcpWriteSchema("ledger_record_dividend_tax"), false, false,
+		func(ctx context.Context, in MCPTaxInput) (MCPStockWriteResult, error) {
+			return s.Write(ctx, "ledger_record_dividend_tax", in)
+		})
 	addLedgerTool(server, logger, "ledger_edit_entry", "按准确entry_id完整更正或作废流水，保留原因和历史。事实不明确时必须调用question补问，拒绝响应给出具体问句。replace必须提供完整replacement；void不提供replacement。自动分红日期保留除息日。历史回放失败全量回滚。",
 		mcpWriteSchema("ledger_edit_entry"), false, false, func(ctx context.Context, in MCPEditInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_edit_entry", in)

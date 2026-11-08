@@ -131,6 +131,8 @@ AI 客户端 → Streamable HTTP → Nginx 账本代理
 
 **ledger_set_cash_balance**：公共字段加 observed_date、amount、currency。余额非负，currency 与账户一致。返回新的现金基准及实际现金变化。
 
+**ledger_record_dividend_tax**：公共字段加 instrument、date、amount、currency，可选 fx/note。金额为正数，账本按现金流出处理并冲减净分红；不改变数量、价格和成本，不写 fee。
+
 **ledger_set_opening_positions**：公共字段加 positions[]（instrument、quantity）。整体替换期初持仓，只写股数，不含价格、费用、日期与汇率；同一证券已有流水时拒绝，避免与买卖流水重复计数。写入复用现金分红同一条事务内核与回执，并刷新当前持仓投影。
 
 ## 7. 请求规范化与身份解析

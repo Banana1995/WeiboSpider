@@ -47,7 +47,7 @@ func (s MCPService) Write(ctx context.Context, tool string, args any) (MCPStockW
 			openings = append(openings, *resolved)
 		}
 	} else if in.Action == "create" {
-		identity, err = s.resolveInstrument(ctx, in.Write.AccountID, in.Instrument, in.Value.Kind != "dividend")
+		identity, err = s.resolveInstrument(ctx, in.Write.AccountID, in.Instrument, in.Value.Kind == "buy" || in.Value.Kind == "sell")
 		if err != nil {
 			return result, err
 		}
@@ -168,7 +168,7 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 		}
 		i := st.instruments[previous.InstrumentID]
 		identity = &i
-		if in.Action != "void" && (previous.Kind == "dividend") != (in.Value.Kind == "dividend") {
+		if in.Action != "void" && !mcpKindCompatible(previous.Kind, in.Value.Kind) {
 			return c, mcpInvalid("replacement.kind")
 		}
 	} else {
@@ -191,7 +191,7 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 	}
 	v := in.Value
 	e := &StockInput{InstrumentID: identity.ID, Kind: v.Kind, Date: v.Date, Note: v.Note}
-	if v.Kind == "dividend" {
+	if v.Kind == "dividend" || v.Kind == "tax" {
 		e.Amount, err = ParseMoney(v.Amount)
 	} else {
 		var qErr, pErr, fErr error
@@ -238,6 +238,17 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 		}
 	}
 	return c, nil
+}
+
+// mcpKindCompatible keeps a correction inside its own entry family: trades may
+// swap buy/sell, but dividend and withholding tax can only stay themselves.
+func mcpKindCompatible(old, next string) bool {
+	cashAmount := func(kind string) bool { return kind == "dividend" || kind == "tax" }
+	if cashAmount(old) || cashAmount(next) {
+		return old == next
+	}
+	trade := func(kind string) bool { return kind == "buy" || kind == "sell" }
+	return trade(old) && trade(next)
 }
 
 func mcpMutationResult(in mcpStockIntent, key string, command StockCommand, change stockMutation) (MCPStockWriteResult, error) {

@@ -46,6 +46,16 @@ type MCPDividendInput struct {
 	Note       string                `json:"note,omitempty"`
 }
 
+type MCPTaxInput struct {
+	MCPWriteFields
+	Instrument MCPInstrumentSelector `json:"instrument"`
+	Date       string                `json:"date"`
+	Amount     string                `json:"amount"`
+	Currency   Currency              `json:"currency"`
+	FX         string                `json:"fx,omitempty"`
+	Note       string                `json:"note,omitempty"`
+}
+
 type MCPReplacement struct {
 	Kind     string   `json:"kind"`
 	Date     string   `json:"date"`
@@ -149,6 +159,12 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		}
 		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
 		in.Value = MCPReplacement{Kind: "dividend", Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
+	case MCPTaxInput:
+		if tool != "ledger_record_dividend_tax" {
+			return in, ErrOperation
+		}
+		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
+		in.Value = MCPReplacement{Kind: "tax", Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case MCPEditInput:
 		if tool != "ledger_edit_entry" || !validID(v.EntryID) || !mcpText(v.Reason, 512, true) {
 			return in, mcpInvalid("entry_id", "reason")
@@ -221,7 +237,7 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		positive bool
 	}
 	fields := []decimalField{}
-	if in.Action == "cash" || v.Kind == "dividend" {
+	if in.Action == "cash" || v.Kind == "dividend" || v.Kind == "tax" {
 		if v.Quantity != "" || v.Price != "" || v.Fee != "" {
 			return in, mcpInvalid("quantity", "price", "fee")
 		}

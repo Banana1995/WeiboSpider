@@ -154,7 +154,7 @@ func validStockEntry(e StockEntry) bool {
 	if e.Event != nil && (e.Kind != "dividend" || !e.Event.valid() || e.Date != e.Event.ExDate || !validID(e.Cycle)) {
 		return false
 	}
-	if e.Kind == "dividend" {
+	if e.Kind == "dividend" || e.Kind == "tax" {
 		return e.Quantity >= 0 && e.Price >= 0 && e.Fee == 0
 	}
 	if e.Kind != "buy" && e.Kind != "sell" || e.Quantity <= 0 || e.Price <= 0 {
@@ -543,6 +543,11 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 							}
 						}
 					}
+				} else if in.Kind == "tax" {
+					if in.Amount <= 0 || in.Fee != 0 || in.Quantity != 0 || in.Price != 0 {
+						return ErrOperation
+					}
+					next.Amount = in.Amount
 				} else {
 					if in.Kind != "buy" && in.Kind != "sell" || in.Quantity <= 0 || in.Price <= 0 || in.Amount != 0 {
 						return ErrOperation

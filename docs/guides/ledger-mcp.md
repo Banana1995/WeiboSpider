@@ -37,7 +37,7 @@ go run ./cmd/server
 
 ## 严格字段与 question 补问
 
-五个写工具都必须提供 `request_id`、`account_id`、`expected_version`。其他必填业务字段如下；精确 JSON Schema 可通过 `tools/list` 或字段契约查询获取。
+六个写工具都必须提供 `request_id`、`account_id`、`expected_version`。其他必填业务字段如下；精确 JSON Schema 可通过 `tools/list` 或字段契约查询获取。
 
 | 工具 | 必填业务字段 |
 | --- | --- |
@@ -45,6 +45,7 @@ go run ./cmd/server
 | `ledger_record_dividend` | `instrument.market`、`instrument.code`、`date`、`amount`、`currency` |
 | `ledger_set_cash_balance` | `observed_date`、`amount`、`currency` |
 | `ledger_set_opening_positions` | `positions[].instrument.market`、`positions[].instrument.code`、`positions[].quantity` |
+| `ledger_record_dividend_tax` | `instrument.market`、`instrument.code`、`date`、`amount`、`currency` |
 | `ledger_edit_entry` | `entry_id`、`action`、`reason`；replace 还要求完整 `replacement`，void 禁止该字段 |
 
 买卖更正的 replacement 必填 `kind`、`date`、`quantity`、`price`、`fee`、`currency`；分红更正必填 `kind`、`date`、`amount`、`currency`。跨币种需要现金结算时 `fx` 条件必填，同币种省略确定为 1；具体现金基准覆盖与分红规则由字段查询解释，写入事务重新验证。
@@ -234,6 +235,25 @@ dividend_conflict 会给出现有自动分红的 entry_id，应更正该记录�
 用于账户里还没有该证券买卖流水、只知道当前实际持股数量的情况：整体替换期初持仓清单，同一证券只能出现一次，最多 200 项。它只写股数——不写成交价、费用、日期和结算汇率，成本保持未知（结果提示 `unknown_opening_cost`）。同一证券已有流水时整笔拒绝（`opening_conflict`），要先更正或作废原流水，避免数量重复。
 
 后续补齐真实买入时，用 `ledger_record_trade` 的 `mode=complete_opening`：数量必须与该证券的期初股数一致，提交后该证券变成真实买入流水并带上成本，其余期初持仓保持不变。
+
+## 股息红利税
+
+工具：`ledger_record_dividend_tax`。
+
+```json
+{
+  "request_id":"msg-demo-007-item-1",
+  "account_id":"account-demo",
+  "expected_version":"12",
+  "instrument":{"market":"SH","code":"601225"},
+  "date":"2026-11-02",
+  "amount":"90.90",
+  "currency":"CNY",
+  "note":"股息红利税补缴"
+}
+```
+
+红利税是现金扣除：`amount` 填正数，账本按流出处理，现金台账减少同样的金额，同时冲减该证券的净分红（累计分红显示税后净额）。它不改变持股数量、成交价和成本；也不需要费用字段。多笔同日补缴分多笔提交，各自使用稳定 request_id。
 
 ## 当前实际现金
 

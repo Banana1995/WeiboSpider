@@ -168,6 +168,16 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 			if e.Event != nil && (e.Event.PayDate > today || e.FX == 0 && j.Cash != nil && e.Event.PayDate > j.Cash.Date) {
 				p.pending, err = AddMoney(p.pending, e.Amount)
 			}
+		case "tax":
+			// Withholding tax is a cash outflow that reduces the net dividend
+			// actually received; it is never pending and never a cost basis.
+			p.dividends, err = SubMoney(p.dividends, e.Amount)
+			if err != nil {
+				return nil, err
+			}
+			if e.Cycle == p.cycle {
+				p.cycleDividends, err = SubMoney(p.cycleDividends, e.Amount)
+			}
 		default:
 			return nil, ErrCorrupt
 		}
@@ -212,7 +222,7 @@ func stockCash(j StockJournal, entries []StockEntry, today string) (Money, error
 		if err != nil {
 			return 0, err
 		}
-		if e.Kind == "buy" {
+		if e.Kind == "buy" || e.Kind == "tax" {
 			amount = -amount
 		}
 		flows = append(flows, flow{date, e.Sequence, amount, e.ID, e.InstrumentID})

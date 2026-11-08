@@ -42,6 +42,11 @@ func mcpWriteSchema(tool string) mcpSchema {
 		mcpMerge(p, mcpValueProperties(true))
 		p["instrument"] = mcpInstrumentSchema()
 		return mcpObject(p, append(required, "instrument", "date", "amount", "currency")...)
+	case "ledger_record_dividend_tax":
+		mcpMerge(p, mcpValueProperties(true))
+		p["amount"] = mcpFinancial("2", true, "实际扣缴的股息红利税金额，证券币种，正数，最多2位小数；账本按现金扣除处理", "扣缴金额", "证券币种", "这笔股息红利税实际扣了多少？请填正数，方向由账本按扣除处理。")
+		p["instrument"] = mcpInstrumentSchema()
+		return mcpObject(p, append(required, "instrument", "date", "amount", "currency")...)
 	case "ledger_set_cash_balance":
 		p["observed_date"] = mcpField(mcpDate("当前实际现金的北京时间日期，首次提交必须为当前业务日"), "余额观测日", "Asia/Shanghai", "user", "请确认当前业务日的实际余额，不能把过去余额当作当前余额。")
 		p["amount"] = mcpFinancial("2", false, "当前实际剩余现金，账户币种，非负，最多2位小数；不是入金；明确零余额合法", "实际现金余额", "账户币种", "当前实际剩余现金是多少？如果余额确实为零，请明确为零。")
@@ -93,11 +98,11 @@ type MCPContractQuery struct {
 
 func mcpContractQuerySchema() mcpSchema {
 	return mcpObject(mcpSchema{
-		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions"),
+		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions", "ledger_record_dividend_tax"),
 		"account_id": mcpID("可选准确账户ID，用于解释当前上下文；不提供则显示尚未确定的规则"),
 		"instrument": mcpInstrumentSchema(), "entry_id": mcpID("更正或作废的原流水ID"),
 		"date": mcpDate("拟记账日期，用于解释现金基准覆盖"), "mode": mcpEnum("trade", "complete_opening"),
-		"action": mcpEnum("replace", "void"), "replacement_kind": mcpEnum("buy", "sell", "dividend"),
+		"action": mcpEnum("replace", "void"), "replacement_kind": mcpEnum("buy", "sell", "dividend", "tax"),
 	}, "tool_name")
 }
 
@@ -192,7 +197,7 @@ func (q MCPContractQuery) valid() bool {
 	switch q.ToolName {
 	case "ledger_record_trade":
 		return q.EntryID == "" && q.Action == "" && q.ReplacementKind == "" && (q.Mode == "" || q.Mode == "trade" || q.Mode == "complete_opening")
-	case "ledger_record_dividend":
+	case "ledger_record_dividend", "ledger_record_dividend_tax":
 		return q.EntryID == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_set_cash_balance":
 		return q.Instrument == nil && q.EntryID == "" && q.Date == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
@@ -366,6 +371,8 @@ func mcpContractExample(q MCPContractQuery) map[string]any {
 		in["side"], in["instrument"] = "buy", MCPInstrumentSelector{"SH", "600036"}
 	case "ledger_record_dividend":
 		in["instrument"], in["date"], in["amount"], in["currency"] = MCPInstrumentSelector{"SH", "600036"}, "2026-09-06", "100.00", "CNY"
+	case "ledger_record_dividend_tax":
+		in["instrument"], in["date"], in["amount"], in["currency"], in["note"] = MCPInstrumentSelector{"SH", "600036"}, "2026-09-06", "20.00", "CNY", "股息红利税补缴"
 	case "ledger_set_cash_balance":
 		in["observed_date"], in["amount"], in["currency"] = "2026-09-06", "1000.00", "CNY"
 	case "ledger_set_opening_positions":

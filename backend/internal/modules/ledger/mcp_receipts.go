@@ -81,7 +81,7 @@ func readMCPReceipt(ctx context.Context, tx *sql.Tx, account, requestID, expecte
 			if e.Kind != v.Kind || e.Date != v.Date || e.Date > out.BusinessDate || e.Note != v.Note {
 				return out, true, ErrCorrupt
 			}
-			if v.Kind == "dividend" {
+			if v.Kind == "dividend" || v.Kind == "tax" {
 				if e.Amount.String() != v.Amount || e.Fee != 0 {
 					return out, true, ErrCorrupt
 				}
@@ -149,6 +149,8 @@ func validMCPIntent(in mcpStockIntent) bool {
 		args = MCPTradeInput{in.Write, in.Instrument, v.Kind, in.Mode, v.Date, v.Quantity, v.Price, v.Fee, v.Currency, v.FX, v.Note}
 	case "ledger_record_dividend":
 		args = MCPDividendInput{in.Write, in.Instrument, v.Date, v.Amount, v.Currency, v.FX, v.Note}
+	case "ledger_record_dividend_tax":
+		args = MCPTaxInput{in.Write, in.Instrument, v.Date, v.Amount, v.Currency, v.FX, v.Note}
 	case "ledger_set_cash_balance":
 		args = MCPCashInput{in.Write, in.ObservedDate, v.Amount, v.Currency}
 	case "ledger_set_opening_positions":

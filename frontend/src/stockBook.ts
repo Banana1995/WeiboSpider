@@ -26,7 +26,7 @@ export interface StockEntry {
   version: string;
   sequence: string;
   instrument_id: string;
-  kind: "buy" | "sell" | "dividend";
+  kind: "buy" | "sell" | "dividend" | "tax";
   date: string;
   quantity: string;
   price: string;
@@ -87,7 +87,7 @@ export interface StockWriteResult {
   id: string;
   action: string;
 }
-export const stockLabels = { buy: "买入", sell: "卖出", dividend: "分红" };
+export const stockLabels = { buy: "买入", sell: "卖出", dividend: "分红", tax: "红利税" };
 export const positiveDecimal = (v: string, scale: number) =>
   decimal(v, scale) && !v.startsWith("-") && /[1-9]/.test(v);
 const number = (v: unknown, scale: number, signed = false): v is string =>
@@ -174,7 +174,7 @@ export function validateStockBook(
       !ids.has(e.instrument_id) ||
       !versionString(e.version) ||
       !versionString(e.sequence) ||
-      !["buy", "sell", "dividend"].includes(e.kind) ||
+      !["buy", "sell", "dividend", "tax"].includes(e.kind) ||
       !validDay(e.date) ||
       !number(e.quantity, 6) ||
       !number(e.price, 6) ||

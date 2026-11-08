@@ -25,10 +25,11 @@
 
 ## 投资账本 MCP（2026-11-06）
 
-- Go platform 内置十个账本工具（服务版本 1.2.0），入口 `/api/platform/ledger/mcp`，官方 Go MCP SDK v1.8.0，无状态 Streamable HTTP/JSON。`LEDGER_MCP_ENABLED` 本地默认 false，开启要求 `LEDGER_ENABLED=true`；Compose 配置为 true，发布状态以实际部署为准。
+- Go platform 内置十一个账本工具（服务版本 1.3.0），入口 `/api/platform/ledger/mcp`，官方 Go MCP SDK v1.8.0，无状态 Streamable HTTP/JSON。`LEDGER_MCP_ENABLED` 本地默认 false，开启要求 `LEDGER_ENABLED=true`；Compose 配置为 true，发布状态以实际部署为准。
 - 写入必须校验完整金融事实，缺失、null、空串、错误精度及业务冲突拒绝整笔。费用未知不补零，日期未知不补今天。字段 Schema、`ledger_get_write_contract` 和错误提示共享定义；拒绝返回 `missing_fields`、`invalid_fields`、`requirements`、`questions`。`question_tool=question` 要求 AI 用客户端 question 工具向用户补问具体数据，明确后才重提；内部 ID/版本先通过读取工具获取。
 - REST 与 MCP 共用 `applyStockCommandTx`。MCP 业务键按账户/request_id 稳定派生，回执先于外部证券解析和版本检查；金额字符串、现金基准、分红及历史回放沿用单股账本规则。余额设置不是入金。
 - 2026-11-08 新增 `ledger_set_opening_positions`：空账户只知道股数时先写期初持仓（不含成本），后续 `complete_opening` 补真实成交。服务版本 1.2.0。
+- 2026-11-08 新增 `ledger_record_dividend_tax`：股息红利税按现金扣除记账（kind=`tax`），冲减净分红，不改持仓与成本；前端 `stockBook.ts` 增加红利税类型与标签。服务版本 1.3.0。
 - 迁移 008 追加 `mcp_stock_command` 回执类型，保留旧回执。恢复结果来自冻结证据，not_found 不证明请求未提交。审计 source 保持 human/system，以 metadata.transport=mcp 区分入口。
 - 查询默认不依赖行情；流水游标绑定账户、持仓版本、业务日和筛选。升级后关闭开关需继续使用认识 008 的程序，旧 007 程序不能直接打开升级后的库。
 - 规格：[设计与路线图](docs/specs/2026-10-25-ledger-mcp.md)、[严格字段契约](docs/specs/2026-11-06-ledger-mcp-strict.md)；[接入指南](docs/guides/ledger-mcp.md)；[初版验收](docs/validation/2026-10-25-ledger-mcp.md)、[本轮验收](docs/validation/2026-11-06-ledger-mcp.md)。

@@ -596,7 +596,9 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 					if in.Kind != "buy" {
 						return ErrOperation
 					}
-					n := slices.IndexFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == in.InstrumentID && p.Channel == in.Channel && p.Quantity == in.Quantity })
+					n := slices.IndexFunc(st.journal.Openings, func(p OpeningPosition) bool {
+						return p.InstrumentID == in.InstrumentID && p.Channel == in.Channel && p.Quantity == in.Quantity
+					})
 					if n < 0 {
 						return ErrOperation
 					}

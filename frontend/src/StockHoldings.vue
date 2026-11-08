@@ -388,6 +388,9 @@ defineExpose({ load });
               <span
                 >累计分红 {{ holdingNumber(detail.metrics.dividends, 2) }}
                 {{ detail.instrument.currency }}</span
+              ><span v-if="/[1-9]/.test(detail.metrics.tax)"
+                >已扣红利税 {{ holdingNumber(detail.metrics.tax, 2) }}
+                {{ detail.instrument.currency }}</span
               ><span v-if="/[1-9]/.test(detail.metrics.pending_dividend)"
                 >其中待到账 / 待补汇率
                 {{ holdingNumber(detail.metrics.pending_dividend, 2) }}</span

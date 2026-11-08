@@ -47,6 +47,7 @@ export const stockItem = (): StockItem => ({
     total_profit: "86720.00",
     total_rate: "13.55",
     dividends: "8480.00",
+    tax: "0.00",
     pending_dividend: "0.00",
   },
 });

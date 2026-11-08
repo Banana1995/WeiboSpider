@@ -40,7 +40,8 @@ func TestMCPDividendTaxDeductsCashAndNetDividend(t *testing.T) {
 	book, err := s.StockBook(t.Context(), MCPBookQuery{AccountID: "a", IncludeEntries: true})
 	require.NoError(t, err)
 	require.Len(t, book.Entries, 2)
-	require.Equal(t, Money(8000), book.Positions[0].Metrics.Dividends)
+	require.Equal(t, Money(10000), book.Positions[0].Metrics.Dividends)
+	require.Equal(t, Money(2000), book.Positions[0].Metrics.Tax)
 	require.Equal(t, Quantity(100000000), book.Positions[0].Quantity)
 	require.Equal(t, Money(108000), book.Cash)
 
@@ -61,6 +62,10 @@ func TestMCPDividendTaxDeductsCashAndNetDividend(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Money(3000), fixed.Entry.Amount)
 	require.Equal(t, Money(107000), fixed.Cash.After)
+	after, err := s.StockBook(t.Context(), MCPBookQuery{AccountID: "a"})
+	require.NoError(t, err)
+	require.Equal(t, Money(10000), after.Positions[0].Metrics.Dividends)
+	require.Equal(t, Money(3000), after.Positions[0].Metrics.Tax)
 }
 
 func TestMCPDividendTaxRequiresPositiveAmountAndNoTradeFields(t *testing.T) {

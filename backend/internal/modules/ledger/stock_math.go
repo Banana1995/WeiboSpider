@@ -54,6 +54,7 @@ type StockMetrics struct {
 	TotalProfit     *Money  `json:"total_profit"`
 	TotalRate       *string `json:"total_rate"`
 	Dividends       Money   `json:"dividends"`
+	Tax             Money   `json:"tax"`
 	PendingDividend Money   `json:"pending_dividend"`
 }
 type stockPosition struct {
@@ -61,8 +62,9 @@ type stockPosition struct {
 	quantity                              Quantity
 	cycle                                 string
 	known, allKnown                       bool
-	buys, sells, dividends                Money
+	buys, sells, dividends, taxes         Money
 	cycleBuys, cycleSells, cycleDividends Money
+	cycleTaxes                            Money
 	bought                                Quantity
 	pending                               Money
 }
@@ -169,14 +171,14 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 				p.pending, err = AddMoney(p.pending, e.Amount)
 			}
 		case "tax":
-			// Withholding tax is a cash outflow that reduces the net dividend
-			// actually received; it is never pending and never a cost basis.
-			p.dividends, err = SubMoney(p.dividends, e.Amount)
+			// Withholding tax is a cash outflow on top of the gross dividend; it
+			// stays a separate figure so the dividend total can never go negative.
+			p.taxes, err = AddMoney(p.taxes, e.Amount)
 			if err != nil {
 				return nil, err
 			}
 			if e.Cycle == p.cycle {
-				p.cycleDividends, err = SubMoney(p.cycleDividends, e.Amount)
+				p.cycleTaxes, err = AddMoney(p.cycleTaxes, e.Amount)
 			}
 		default:
 			return nil, ErrCorrupt
@@ -267,7 +269,7 @@ func stockPercent(n, d Money) *string {
 	return &s
 }
 func metricsFor(p *stockPosition, market *Money) (StockMetrics, error) {
-	m := StockMetrics{Dividends: p.dividends, PendingDividend: p.pending}
+	m := StockMetrics{Dividends: p.dividends, Tax: p.taxes, PendingDividend: p.pending}
 	if p.known && p.quantity > 0 && p.bought > 0 {
 		cost, err := UnitCost(p.cycleBuys, p.bought)
 		if err != nil {
@@ -279,6 +281,10 @@ func metricsFor(p *stockPosition, market *Money) (StockMetrics, error) {
 			return m, err
 		}
 		net, err = SubMoney(net, p.cycleDividends)
+		if err != nil {
+			return m, err
+		}
+		net, err = AddMoney(net, p.cycleTaxes)
 		if err != nil {
 			return m, err
 		}
@@ -315,6 +321,10 @@ func metricsFor(p *stockPosition, market *Money) (StockMetrics, error) {
 			return m, err
 		}
 		profit, err = AddMoney(profit, p.dividends)
+		if err != nil {
+			return m, err
+		}
+		profit, err = SubMoney(profit, p.taxes)
 		if err != nil {
 			return m, err
 		}

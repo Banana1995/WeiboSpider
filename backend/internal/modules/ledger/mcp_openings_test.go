@@ -28,8 +28,8 @@ func TestMCPOpeningPositionsThroughSDK(t *testing.T) {
 func TestMCPOpeningPositionsRecordQuantitiesOnly(t *testing.T) {
 	s, _ := mcpFixture(t)
 	first, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "100"},
-		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "200"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"},
+		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "", "200"}))
 	require.NoError(t, err)
 	require.Equal(t, "0", first.VersionBefore)
 	require.Equal(t, "1", first.VersionAfter)
@@ -56,14 +56,14 @@ func TestMCPOpeningPositionsRecordQuantitiesOnly(t *testing.T) {
 
 	// The retry must return the frozen receipt and never add a version.
 	retry, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "100"},
-		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "200"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"},
+		MCPOpeningPosition{MCPInstrumentSelector{"HK", "00700"}, "", "200"}))
 	require.NoError(t, err)
 	require.Equal(t, first, retry)
 
 	// A second submission replaces the whole opening list, not just adds.
 	replaced, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings-2", "1",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "150"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "150"}))
 	require.NoError(t, err)
 	require.Equal(t, "2", replaced.VersionAfter)
 	book, err = s.StockBook(t.Context(), MCPBookQuery{AccountID: "a"})
@@ -77,7 +77,7 @@ func TestMCPOpeningPositionsConflictWithTrades(t *testing.T) {
 	_, err := s.Write(t.Context(), "ledger_record_trade", mcpTrade("buy", "0"))
 	require.NoError(t, err)
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "1",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "100"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"}))
 	require.Equal(t, "opening_conflict", mcpToolFailure(err).Code)
 	book, err := s.StockBook(t.Context(), MCPBookQuery{AccountID: "a"})
 	require.NoError(t, err)
@@ -90,21 +90,21 @@ func TestMCPOpeningPositionsValidationAndCompletion(t *testing.T) {
 	_, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("empty", "0"))
 	require.Equal(t, "invalid_input", mcpToolFailure(err).Code)
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("zero", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "0"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "0"}))
 	require.Equal(t, "invalid_precision", mcpToolFailure(err).Code)
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("duplicate", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "1"},
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "2"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "1"},
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "2"}))
 	require.Equal(t, "invalid_input", mcpToolFailure(err).Code)
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("unsupported", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"US", "AAPL"}, "1"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"US", "AAPL"}, "", "1"}))
 	require.Equal(t, "unsupported_instrument", mcpToolFailure(err).Code)
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("stale", "4",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "1"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "1"}))
 	require.Equal(t, "version_conflict", mcpToolFailure(err).Code)
 
 	_, err = s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "100"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"}))
 	require.NoError(t, err)
 
 	// Existing quantity is converted into a real buy, so cost stops being unknown.

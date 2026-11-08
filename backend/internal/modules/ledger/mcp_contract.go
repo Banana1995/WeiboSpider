@@ -56,6 +56,7 @@ func mcpWriteSchema(tool string) mcpSchema {
 		positions := mcpObject(mcpSchema{
 			"instrument": mcpInstrumentSchema(),
 			"quantity":   mcpFinancial("6", true, "期初持有股数，正数，最多6位小数；只记数量，不含成本", "期初股数", "股", "这只证券目前实际持有多少股？"),
+			"channel":    mcpField(mcpString("券商账户（渠道）名称，最多128字节；同一证券可以在不同渠道分别出现一次", 128), "券商渠道", "", "user", "这批股数属于哪个券商账户？"),
 		}, "instrument", "quantity")
 		positions["x-ledger-max-items"] = maxStockOpenings
 		p["positions"] = mcpField(mcpSchema{"type": "array", "minItems": 1, "maxItems": maxStockOpenings, "items": positions,

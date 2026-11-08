@@ -83,7 +83,7 @@ func registerLedgerTools(server *mcp.Server, s MCPService, logger *slog.Logger) 
 			"entry_id": mcpID("精确读取某笔流水，与cursor互斥"), "instrument_id": mcpID("筛选证券ID"), "from": mcpDate("流水起日"), "to": mcpDate("流水止日"),
 			"include_voided": mcpSchema{"type": "boolean"}, "limit": mcpLimit(), "cursor": mcpString("上一页entries_next_cursor，版本改变须从第一页重新读取", 1024),
 		}, "account_id"), true, false, s.StockBook)
-	addLedgerTool(server, logger, "ledger_record_trade", "记录已发生的买入/卖出。任何成交事实缺失或不明确，必须调用question补问用户后再提交；拒绝响应给出缺项及具体问句。费用为证券币种，确实零费用也明确填写0。complete_opening仅补录已有待补录持仓的初始买入，避免数量重复。",
+	addLedgerTool(server, logger, "ledger_record_trade", "记录已发生的买入/卖出。任何成交事实缺失或不明确，必须调用question补问用户后再提交；拒绝响应给出缺项及具体问句。费用为证券币种，确实零费用也明确填写0。complete_opening仅补录已有待补录持仓的初始买入，避免数量重复。channel为券商账户名，同一证券分散在多个券商账户时必须填写，账本按渠道分别统计股数。",
 		mcpWriteSchema("ledger_record_trade"), false, true,
 		func(ctx context.Context, in MCPTradeInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_record_trade", in)

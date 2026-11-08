@@ -39,6 +39,7 @@ export const stockItem = (): StockItem => ({
   },
   fx: null,
   opening: false,
+  channels: [],
   metrics: {
     cost: "400.000000",
     diluted_cost: "380.000000",

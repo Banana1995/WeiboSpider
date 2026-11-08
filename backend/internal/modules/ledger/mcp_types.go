@@ -25,6 +25,7 @@ type MCPInstrumentSelector struct {
 type MCPTradeInput struct {
 	MCPWriteFields
 	Instrument MCPInstrumentSelector `json:"instrument"`
+	Channel    string                `json:"channel,omitempty"`
 	Side       string                `json:"side"`
 	Mode       string                `json:"mode,omitempty"`
 	Date       string                `json:"date"`
@@ -39,6 +40,7 @@ type MCPTradeInput struct {
 type MCPDividendInput struct {
 	MCPWriteFields
 	Instrument MCPInstrumentSelector `json:"instrument"`
+	Channel    string                `json:"channel,omitempty"`
 	Date       string                `json:"date"`
 	Amount     string                `json:"amount"`
 	Currency   Currency              `json:"currency"`
@@ -49,6 +51,7 @@ type MCPDividendInput struct {
 type MCPTaxInput struct {
 	MCPWriteFields
 	Instrument MCPInstrumentSelector `json:"instrument"`
+	Channel    string                `json:"channel,omitempty"`
 	Date       string                `json:"date"`
 	Amount     string                `json:"amount"`
 	Currency   Currency              `json:"currency"`
@@ -58,6 +61,7 @@ type MCPTaxInput struct {
 
 type MCPReplacement struct {
 	Kind     string   `json:"kind"`
+	Channel  string   `json:"channel,omitempty"`
 	Date     string   `json:"date"`
 	Quantity string   `json:"quantity,omitempty"`
 	Price    string   `json:"price,omitempty"`
@@ -90,6 +94,7 @@ type MCPOpeningsInput struct {
 
 type MCPOpeningPosition struct {
 	Instrument MCPInstrumentSelector `json:"instrument"`
+	Channel    string                `json:"channel,omitempty"`
 	Quantity   string                `json:"quantity"`
 }
 
@@ -110,6 +115,13 @@ type mcpStockIntent struct {
 }
 
 var mcpUnsignedDecimal = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
+
+// mcpChannel is the broker account a trade belongs to. It is data, not an
+// instruction, and an empty value keeps entries recorded before channels existed.
+func mcpChannel(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	return name, name == "" || validChannelName(name)
+}
 
 func mcpText(s string, limit int, required bool) bool {
 	return len(s) <= limit && utf8.ValidString(s) && (!required || strings.TrimSpace(s) != "") &&
@@ -152,19 +164,19 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		if in.Mode != "trade" && in.Mode != "complete_opening" || in.Mode == "complete_opening" && v.Side != "buy" {
 			return in, mcpInvalid("mode")
 		}
-		in.Value = MCPReplacement{Kind: v.Side, Date: v.Date, Quantity: v.Quantity, Price: v.Price, Fee: v.Fee, Currency: v.Currency, FX: v.FX, Note: v.Note}
+		in.Value = MCPReplacement{Kind: v.Side, Channel: v.Channel, Date: v.Date, Quantity: v.Quantity, Price: v.Price, Fee: v.Fee, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case MCPDividendInput:
 		if tool != "ledger_record_dividend" {
 			return in, ErrOperation
 		}
 		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
-		in.Value = MCPReplacement{Kind: "dividend", Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
+		in.Value = MCPReplacement{Kind: "dividend", Channel: v.Channel, Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case MCPTaxInput:
 		if tool != "ledger_record_dividend_tax" {
 			return in, ErrOperation
 		}
 		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
-		in.Value = MCPReplacement{Kind: "tax", Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
+		in.Value = MCPReplacement{Kind: "tax", Channel: v.Channel, Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case MCPEditInput:
 		if tool != "ledger_edit_entry" || !validID(v.EntryID) || !mcpText(v.Reason, 512, true) {
 			return in, mcpInvalid("entry_id", "reason")
@@ -185,7 +197,7 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 			if !p.Instrument.valid() {
 				return in, mcpIssue("unsupported_instrument", "证券市场或代码不受支持", "fix_input", "positions")
 			}
-			if key := p.Instrument.Market + "/" + p.Instrument.Code; seen[key] {
+			if key := p.Instrument.Market + "/" + p.Instrument.Code + "/" + strings.TrimSpace(p.Channel); seen[key] {
 				return in, mcpInvalid("positions")
 			} else {
 				seen[key] = true
@@ -194,7 +206,7 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 			if err != nil {
 				return in, mcpIssue("invalid_precision", "期初股数格式或范围不合法", "fix_input", "positions")
 			}
-			in.Openings = append(in.Openings, MCPOpeningPosition{p.Instrument, quantity})
+			in.Openings = append(in.Openings, MCPOpeningPosition{p.Instrument, p.Channel, quantity})
 		}
 	case MCPCashInput:
 		if tool != "ledger_set_cash_balance" || !validDate(v.ObservedDate) {
@@ -214,8 +226,20 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 	if in.Action == "openings" {
 		// Opening positions carry quantities only: no price, fee, date or
 		// settlement currency exists, so the value checks do not apply.
+		for n := range in.Openings {
+			channel, ok := mcpChannel(in.Openings[n].Channel)
+			if !ok {
+				return in, mcpInvalid("positions")
+			}
+			in.Openings[n].Channel = channel
+		}
 		return in, nil
 	}
+	channel, ok := mcpChannel(in.Value.Channel)
+	if !ok {
+		return in, mcpInvalid("channel")
+	}
+	in.Value.Channel = channel
 	if in.Action == "create" && !in.Instrument.valid() {
 		return in, mcpIssue("unsupported_instrument", "证券市场或代码不受支持", "fix_input", "instrument")
 	}

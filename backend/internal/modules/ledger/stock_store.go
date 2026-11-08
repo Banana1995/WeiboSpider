@@ -17,6 +17,7 @@ const maxStockOpenings = 200
 
 type StockInput struct {
 	InstrumentID string   `json:"instrument_id"`
+	Channel      string   `json:"channel,omitempty"`
 	Kind         string   `json:"kind"`
 	Date         string   `json:"date"`
 	Quantity     Quantity `json:"quantity"`
@@ -28,6 +29,7 @@ type StockInput struct {
 }
 type StockOpening struct {
 	Instrument instrumentJSON `json:"instrument"`
+	Channel    string         `json:"channel,omitempty"`
 	Quantity   Quantity       `json:"quantity"`
 }
 type StockCommand struct {
@@ -77,9 +79,12 @@ func readStockState(ctx context.Context, tx *sql.Tx, id string) (stockState, err
 	var version int64
 	err = tx.QueryRowContext(ctx, `SELECT j.version,j.payload,coalesce(a.after_json,'') FROM stock_journals j LEFT JOIN audit_log a ON a.id=j.audit_id AND a.entity_type='stock_journal' AND a.entity_id=j.account_id AND a.account_id=j.account_id AND a.version=j.version WHERE j.account_id=?`, id).Scan(&version, &st.journalRaw, &audited)
 	if errors.Is(err, sql.ErrNoRows) {
-		st.journal = StockJournal{Version: "0", Openings: []CurrentPosition{}}
+		st.journal = StockJournal{Version: "0", Openings: []OpeningPosition{}}
 		if s := st.current.Snapshot; s != nil {
-			st.journal.Openings = slices.Clone(s.Positions)
+			st.journal.Openings = make([]OpeningPosition, 0, len(s.Positions))
+			for _, p := range s.Positions {
+				st.journal.Openings = append(st.journal.Openings, OpeningPosition{p.InstrumentID, "", p.Quantity})
+			}
 			if s.Cash > 0 {
 				saved, err := time.Parse(time.RFC3339Nano, s.SavedAt)
 				if err != nil {
@@ -125,10 +130,13 @@ func readStockState(ctx context.Context, tx *sql.Tx, id string) (stockState, err
 		return st, ErrOperation
 	}
 	ids := map[string]bool{}
+	openings := map[string]bool{}
 	for _, p := range st.journal.Openings {
-		if p.Quantity <= 0 || !validID(p.InstrumentID) || ids[p.InstrumentID] {
+		key := p.InstrumentID + "\x00" + p.Channel
+		if p.Quantity <= 0 || !validID(p.InstrumentID) || openings[key] || p.Channel != "" && !validChannelName(p.Channel) {
 			return st, ErrCorrupt
 		}
+		openings[key] = true
 		ids[p.InstrumentID] = true
 	}
 	for _, e := range st.entries {
@@ -433,10 +441,11 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 			if c.Entry != nil || c.Cash != nil || c.ID != "" || c.ReplaceOpening || len(c.Openings) == 0 || len(c.Openings) > maxStockOpenings {
 				return ErrOperation
 			}
-			next := make([]CurrentPosition, 0, len(c.Openings))
+			next := make([]OpeningPosition, 0, len(c.Openings))
 			seen := map[string]bool{}
 			for _, o := range c.Openings {
-				if !validID(o.Instrument.ID) || o.Quantity <= 0 || seen[o.Instrument.ID] {
+				key := o.Instrument.ID + "\x00" + o.Channel
+				if !validID(o.Instrument.ID) || o.Quantity <= 0 || seen[key] || o.Channel != "" && !validChannelName(o.Channel) {
 					return ErrOperation
 				}
 				// A security with recorded trades already carries its own quantity;
@@ -447,17 +456,22 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				if err := ensureStockInstrument(ctx, tx, key, &st, account, stamp, o.Instrument); err != nil {
 					return err
 				}
-				seen[o.Instrument.ID] = true
-				next = append(next, CurrentPosition{o.Instrument.ID, o.Quantity})
+				seen[key] = true
+				next = append(next, OpeningPosition{o.Instrument.ID, o.Channel, o.Quantity})
 			}
-			slices.SortFunc(next, func(a, b CurrentPosition) int { return strings.Compare(a.InstrumentID, b.InstrumentID) })
+			slices.SortFunc(next, func(a, b OpeningPosition) int {
+				if a.InstrumentID != b.InstrumentID {
+					return strings.Compare(a.InstrumentID, b.InstrumentID)
+				}
+				return strings.Compare(a.Channel, b.Channel)
+			})
 			st.journal.Openings = next
 		case "clear_opening":
 			if !validID(c.ID) || c.Entry != nil || c.Cash != nil {
 				return ErrOperation
 			}
 			oldLen := len(st.journal.Openings)
-			st.journal.Openings = slices.DeleteFunc(st.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == c.ID })
+			st.journal.Openings = slices.DeleteFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == c.ID })
 			if len(st.journal.Openings) == oldLen {
 				return ErrNotFound
 			}
@@ -523,7 +537,11 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				if next.Event != nil && in.FX == 0 {
 					return ErrOperation
 				}
+				if in.Channel != "" && !validChannelName(in.Channel) {
+					return ErrOperation
+				}
 				next.InstrumentID = in.InstrumentID
+				next.Channel = in.Channel
 				next.Kind = in.Kind
 				next.Date = in.Date
 				next.Quantity = in.Quantity
@@ -578,7 +596,7 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 					if in.Kind != "buy" {
 						return ErrOperation
 					}
-					n := slices.IndexFunc(st.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == in.InstrumentID && p.Quantity == in.Quantity })
+					n := slices.IndexFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == in.InstrumentID && p.Channel == in.Channel && p.Quantity == in.Quantity })
 					if n < 0 {
 						return ErrOperation
 					}
@@ -614,8 +632,9 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 // share this exact projection, including archived securities and unknown openings.
 type StockItem struct {
 	HoldingItem
-	Metrics StockMetrics `json:"metrics"`
-	Opening bool         `json:"opening"`
+	Metrics  StockMetrics      `json:"metrics"`
+	Opening  bool              `json:"opening"`
+	Channels []ChannelQuantity `json:"channels"`
 }
 type StockBook struct {
 	AccountID      string       `json:"account_id"`
@@ -700,8 +719,8 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 		if err != nil {
 			return out, err
 		}
-		opening := slices.ContainsFunc(st.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == ids[n] })
-		out.Items = append(out.Items, StockItem{item, m, opening})
+		opening := slices.ContainsFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == ids[n] })
+		out.Items = append(out.Items, StockItem{item, m, opening, channelBreakdown(positions[ids[n]])})
 	}
 	out.PositionsValue = &known
 	return out, nil

@@ -14,7 +14,7 @@ func mcpTax(key, version, amount string) MCPTaxInput {
 func TestMCPDividendTaxDeductsCashAndNetDividend(t *testing.T) {
 	s, _ := mcpFixture(t)
 	_, err := s.Write(t.Context(), "ledger_set_opening_positions", mcpOpenings("openings", "0",
-		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "100"}))
+		MCPOpeningPosition{MCPInstrumentSelector{"SH", "600036"}, "", "100"}))
 	require.NoError(t, err)
 	_, err = s.Write(t.Context(), "ledger_set_cash_balance", MCPCashInput{
 		MCPWriteFields: MCPWriteFields{RequestID: "cash", AccountID: "a", ExpectedVersion: "1"},

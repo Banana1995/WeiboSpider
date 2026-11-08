@@ -15,6 +15,7 @@ var (
 
 type StockEntry struct {
 	ID           string         `json:"id"`
+	Channel      string         `json:"channel,omitempty"`
 	Version      string         `json:"version"`
 	Sequence     int64          `json:"sequence,string"`
 	InstrumentID string         `json:"instrument_id"`
@@ -41,10 +42,25 @@ type CashAnchor struct {
 	Date     string `json:"date"`
 	Sequence int64  `json:"sequence,string"`
 }
+
+// OpeningPosition is a starting quantity per broker channel. Channel is empty
+// for holdings imported before channels existed.
+type OpeningPosition struct {
+	InstrumentID string   `json:"instrument_id"`
+	Channel      string   `json:"channel,omitempty"`
+	Quantity     Quantity `json:"quantity"`
+}
+
 type StockJournal struct {
 	Version  string            `json:"version"`
-	Openings []CurrentPosition `json:"openings"`
+	Openings []OpeningPosition `json:"openings"`
 	Cash     *CashAnchor       `json:"cash,omitempty"`
+}
+
+// ChannelQuantity splits a holding by the broker account it is held in.
+type ChannelQuantity struct {
+	Channel  string   `json:"channel"`
+	Quantity Quantity `json:"quantity"`
 }
 type StockMetrics struct {
 	Cost            *Price  `json:"cost"`
@@ -67,6 +83,34 @@ type stockPosition struct {
 	cycleTaxes                            Money
 	bought                                Quantity
 	pending                               Money
+	channels                              map[string]Quantity
+}
+
+// channel attributes quantity to a broker account; an empty name means the
+// position was recorded without a channel.
+func (p *stockPosition) channel(name string, delta Quantity) {
+	if p.channels == nil {
+		p.channels = map[string]Quantity{}
+	}
+	p.channels[name] += delta
+}
+
+func channelBreakdown(p *stockPosition) []ChannelQuantity {
+	out := []ChannelQuantity{}
+	if p == nil || len(p.channels) == 0 {
+		return out
+	}
+	names := make([]string, 0, len(p.channels))
+	for name := range p.channels {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if q := p.channels[name]; q != 0 {
+			out = append(out, ChannelQuantity{name, q})
+		}
+	}
+	return out
 }
 
 func addQuantity(a, b Quantity) (Quantity, error) {
@@ -108,8 +152,14 @@ func entryLess(a, b StockEntry) int {
 }
 func replayStocks(j StockJournal, entries []StockEntry, today string) (map[string]*stockPosition, error) {
 	positions := map[string]*stockPosition{}
-	for _, p := range j.Openings {
-		positions[p.InstrumentID] = &stockPosition{id: p.InstrumentID, quantity: p.Quantity, cycle: "opening-" + p.InstrumentID}
+	for _, o := range j.Openings {
+		p := positions[o.InstrumentID]
+		if p == nil {
+			p = &stockPosition{id: o.InstrumentID, cycle: "opening-" + o.InstrumentID}
+			positions[o.InstrumentID] = p
+		}
+		p.quantity += o.Quantity
+		p.channel(o.Channel, o.Quantity)
 	}
 	ordered := slices.Clone(entries)
 	slices.SortFunc(ordered, entryLess)
@@ -141,16 +191,21 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 			if err != nil {
 				return nil, err
 			}
+			p.channel(e.Channel, e.Quantity)
 			p.buys, err = AddMoney(p.buys, e.Amount)
 			if err != nil {
 				return nil, err
 			}
 			p.cycleBuys, err = AddMoney(p.cycleBuys, e.Amount)
 		case "sell":
+			if e.Channel != "" && p.channels[e.Channel] < e.Quantity {
+				return nil, &stockRuleError{ErrStockQuantity, e.ID, e.InstrumentID, e.Date}
+			}
 			if e.Quantity > p.quantity {
 				return nil, &stockRuleError{ErrStockQuantity, e.ID, e.InstrumentID, e.Date}
 			}
 			p.quantity -= e.Quantity
+			p.channel(e.Channel, -e.Quantity)
 			p.sells, err = AddMoney(p.sells, e.Amount)
 			if err != nil {
 				return nil, err

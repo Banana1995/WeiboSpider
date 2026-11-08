@@ -77,6 +77,7 @@ const fx = ref(
       : "",
 );
 const note = ref(props.entry?.note ?? "");
+const channel = ref(props.entry?.channel ?? "");
 const validation = ref("");
 const fxLoading = ref(false);
 const fxInfo = ref("");
@@ -246,6 +247,7 @@ function save() {
     }
     payload.entry = {
       instrument_id: i.id,
+      channel: channel.value.trim() || undefined,
       kind: kind.value,
       date: date.value,
       quantity: amountOnly.value ? "0" : quantity.value,
@@ -410,6 +412,13 @@ function save() {
             >
               初始持仓计入股票成本和收益。现金以您填写的余额为基准，历史买入不追扣。
             </p>
+            <label
+              >券商渠道（选填）<input
+                v-model="channel"
+                name="channel"
+                maxlength="128"
+                placeholder="例如 华泰 / 国金"
+            /></label>
             <label
               >备注（选填）<textarea
                 v-model="note"

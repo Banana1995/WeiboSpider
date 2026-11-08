@@ -12,7 +12,7 @@ func TestStockHistoricalDividendDoesNotNeedFXWhenCashAlreadyCoversIt(t *testing.
 		{ID: "div", InstrumentID: "i", Kind: "dividend", Date: event.ExDate, Sequence: 2, Quantity: 100000000, Amount: 53000, Event: &event, Cycle: "buy"},
 	}
 	for _, anchor := range []*CashAnchor{nil, {Amount: 12300, Date: "2026-09-01", Sequence: 2}} {
-		j := StockJournal{Openings: []CurrentPosition{}, Cash: anchor}
+		j := StockJournal{Openings: []OpeningPosition{}, Cash: anchor}
 		p, err := replayStocks(j, entries, "2026-09-25")
 		require.NoError(t, err)
 		m, err := metricsFor(p["i"], nil)
@@ -28,7 +28,7 @@ func TestStockHistoricalDividendDoesNotNeedFXWhenCashAlreadyCoversIt(t *testing.
 		}
 	}
 	// An entitlement with a payment AFTER the cash baseline needs its settlement FX.
-	j := StockJournal{Openings: []CurrentPosition{}, Cash: &CashAnchor{Amount: 12300, Date: "2026-05-20", Sequence: 1}}
+	j := StockJournal{Openings: []OpeningPosition{}, Cash: &CashAnchor{Amount: 12300, Date: "2026-05-20", Sequence: 1}}
 	p, err := replayStocks(j, entries, "2026-09-25")
 	require.NoError(t, err)
 	m, err := metricsFor(p["i"], nil)

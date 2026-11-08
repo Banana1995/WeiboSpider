@@ -363,6 +363,18 @@ defineExpose({ load });
                 <span>持仓数量</span
                 ><strong>{{ holdingNumber(detail.quantity) }}</strong>
               </div>
+              <div v-if="detail.channels.length">
+                <span>渠道分布</span
+                ><strong class="stock-channel-list">
+                  <span
+                    v-for="row in detail.channels"
+                    :key="row.channel"
+                    class="stock-channel-chip"
+                    >{{ row.channel || "未标注渠道" }}
+                    {{ holdingNumber(row.quantity) }} 股</span
+                  >
+                </strong>
+              </div>
               <div>
                 <span>持仓成本</span
                 ><strong>{{ holdingMoney(detail.metrics.cost) }}</strong>
@@ -449,6 +461,7 @@ defineExpose({ load });
                 <div class="stock-trade-type">
                   <strong>{{ stockLabels[e.kind] }}</strong
                   ><small>{{ e.date }}</small
+                  ><small v-if="e.channel" class="stock-channel">{{ e.channel }}</small
                   ><small v-if="e.voided">已删除</small>
                 </div>
                 <div class="stock-trade-values">

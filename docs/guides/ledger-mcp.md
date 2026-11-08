@@ -41,12 +41,14 @@ go run ./cmd/server
 
 | 工具 | 必填业务字段 |
 | --- | --- |
-| `ledger_record_trade` | `instrument.market`、`instrument.code`、`side`、`date`、`quantity`、`price`、`fee`、`currency` |
+| `ledger_record_trade` | `instrument.market`、`instrument.code`、`side`、`date`、`quantity`、`price`、`fee`、`currency`（可选 `channel`） |
 | `ledger_record_dividend` | `instrument.market`、`instrument.code`、`date`、`amount`、`currency` |
 | `ledger_set_cash_balance` | `observed_date`、`amount`、`currency` |
-| `ledger_set_opening_positions` | `positions[].instrument.market`、`positions[].instrument.code`、`positions[].quantity` |
+| `ledger_set_opening_positions` | `positions[].instrument.market`、`positions[].instrument.code`、`positions[].quantity`（可选 `positions[].channel`，同一证券可按渠道分行） |
 | `ledger_record_dividend_tax` | `instrument.market`、`instrument.code`、`date`、`amount`、`currency` |
 | `ledger_edit_entry` | `entry_id`、`action`、`reason`；replace 还要求完整 `replacement`，void 禁止该字段 |
+
+同一只证券分散在不同券商账户时，`ledger_record_trade`、`ledger_record_dividend`、`ledger_record_dividend_tax` 和 `ledger_set_opening_positions` 都可带 `channel`（券商账户名，最多 128 字节）。账本按渠道分别累计股数，卖出只扣减该渠道；不带 channel 的流水计入未标注渠道。`ledger_get_stock_book` 的每个持仓会返回 `channels: [{channel, quantity}]`。
 
 买卖更正的 replacement 必填 `kind`、`date`、`quantity`、`price`、`fee`、`currency`；分红更正必填 `kind`、`date`、`amount`、`currency`。跨币种需要现金结算时 `fx` 条件必填，同币种省略确定为 1；具体现金基准覆盖与分红规则由字段查询解释，写入事务重新验证。
 

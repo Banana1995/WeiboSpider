@@ -146,13 +146,16 @@ func validMCPIntent(in mcpStockIntent) bool {
 	var args any
 	switch in.Tool {
 	case "ledger_record_trade":
-		args = MCPTradeInput{in.Write, in.Instrument, v.Kind, in.Mode, v.Date, v.Quantity, v.Price, v.Fee, v.Currency, v.FX, v.Note}
+		args = MCPTradeInput{MCPWriteFields: in.Write, Instrument: in.Instrument, Channel: v.Channel, Side: v.Kind, Mode: in.Mode,
+			Date: v.Date, Quantity: v.Quantity, Price: v.Price, Fee: v.Fee, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case "ledger_record_dividend":
-		args = MCPDividendInput{in.Write, in.Instrument, v.Date, v.Amount, v.Currency, v.FX, v.Note}
+		args = MCPDividendInput{MCPWriteFields: in.Write, Instrument: in.Instrument, Channel: v.Channel,
+			Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case "ledger_record_dividend_tax":
-		args = MCPTaxInput{in.Write, in.Instrument, v.Date, v.Amount, v.Currency, v.FX, v.Note}
+		args = MCPTaxInput{MCPWriteFields: in.Write, Instrument: in.Instrument, Channel: v.Channel,
+			Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
 	case "ledger_set_cash_balance":
-		args = MCPCashInput{in.Write, in.ObservedDate, v.Amount, v.Currency}
+		args = MCPCashInput{MCPWriteFields: in.Write, ObservedDate: in.ObservedDate, Amount: v.Amount, Currency: v.Currency}
 	case "ledger_set_opening_positions":
 		args = MCPOpeningsInput{in.Write, in.Openings}
 	case "ledger_edit_entry":

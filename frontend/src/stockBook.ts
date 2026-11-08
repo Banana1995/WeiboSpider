@@ -26,6 +26,7 @@ export interface StockEntry {
   version: string;
   sequence: string;
   instrument_id: string;
+  channel?: string;
   kind: "buy" | "sell" | "dividend" | "tax";
   date: string;
   quantity: string;
@@ -66,6 +67,7 @@ export interface StockItem {
   fx: FXQuote | null;
   opening: boolean;
   metrics: StockMetrics;
+  channels: { channel: string; quantity: string }[];
 }
 export interface StockBook {
   account_id: string;
@@ -95,6 +97,15 @@ const number = (v: unknown, scale: number, signed = false): v is string =>
   typeof v === "string" && decimal(v, scale) && (signed || !v.startsWith("-"));
 const nullable = (v: unknown, scale: number, signed = false) =>
   v === null || number(v, scale, signed);
+const channelRows = (v: unknown): v is { channel: string; quantity: string }[] =>
+  Array.isArray(v) &&
+  v.every(
+    (row) =>
+      row &&
+      typeof row.channel === "string" &&
+      typeof row.quantity === "string" &&
+      decimal(row.quantity, 6),
+  );
 const ratio = (v: unknown) =>
   v === null || (typeof v === "string" && /^-?\d{1,40}\.\d{2}$/.test(v));
 export function validateStockBook(
@@ -145,6 +156,7 @@ export function validateStockBook(
       ) ||
       typeof row.opening !== "boolean" ||
       !m ||
+      !channelRows(row.channels) ||
       !nullable(m.cost, 6) ||
       !nullable(m.diluted_cost, 6, true) ||
       !nullable(m.profit, 2, true) ||
@@ -177,6 +189,7 @@ export function validateStockBook(
       !versionString(e.version) ||
       !versionString(e.sequence) ||
       !["buy", "sell", "dividend", "tax"].includes(e.kind) ||
+      (e.channel !== undefined && typeof e.channel !== "string") ||
       !validDay(e.date) ||
       !number(e.quantity, 6) ||
       !number(e.price, 6) ||

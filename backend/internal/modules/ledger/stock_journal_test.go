@@ -138,7 +138,7 @@ func TestStockBookExposesTotalAssetsPositionsValueAndWeight(t *testing.T) {
 }
 
 func TestStockCostFormulaCyclesAndNegativeDilution(t *testing.T) {
-	j := StockJournal{Openings: []CurrentPosition{}}
+	j := StockJournal{Openings: []OpeningPosition{}}
 	entries := []StockEntry{
 		{ID: "b1", InstrumentID: "i", Kind: "buy", Date: "2026-01-01", Sequence: 1, Quantity: 10000000, Amount: 10100},
 		{ID: "s1", InstrumentID: "i", Kind: "sell", Date: "2026-01-02", Sequence: 2, Quantity: 4000000, Amount: 7800},

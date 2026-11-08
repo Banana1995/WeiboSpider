@@ -141,7 +141,7 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 			if err != nil {
 				return c, err
 			}
-			c.Openings = append(c.Openings, StockOpening{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, quantity})
+			c.Openings = append(c.Openings, StockOpening{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, p.Channel, quantity})
 		}
 		return c, nil
 	}
@@ -190,7 +190,7 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 		return c, mcpInvalid("date")
 	}
 	v := in.Value
-	e := &StockInput{InstrumentID: identity.ID, Kind: v.Kind, Date: v.Date, Note: v.Note}
+	e := &StockInput{InstrumentID: identity.ID, Channel: v.Channel, Kind: v.Kind, Date: v.Date, Note: v.Note}
 	if v.Kind == "dividend" || v.Kind == "tax" {
 		e.Amount, err = ParseMoney(v.Amount)
 	} else {
@@ -296,8 +296,8 @@ func mcpMutationResult(in mcpStockIntent, key string, command StockCommand, chan
 		if err != nil {
 			return out, err
 		}
-		lo := slices.ContainsFunc(before.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == id })
-		ro := slices.ContainsFunc(after.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == id })
+		lo := slices.ContainsFunc(before.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == id })
+		ro := slices.ContainsFunc(after.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == id })
 		if l.quantity == r.quantity && reflect.DeepEqual(lm, rm) && lo == ro {
 			continue
 		}

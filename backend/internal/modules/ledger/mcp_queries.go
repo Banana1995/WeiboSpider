@@ -87,10 +87,11 @@ type MCPBookQuery struct {
 }
 
 type MCPPosition struct {
-	Instrument instrumentJSON `json:"instrument"`
-	Quantity   Quantity       `json:"quantity"`
-	Opening    bool           `json:"opening"`
-	Metrics    StockMetrics   `json:"metrics"`
+	Instrument instrumentJSON    `json:"instrument"`
+	Quantity   Quantity          `json:"quantity"`
+	Opening    bool              `json:"opening"`
+	Metrics    StockMetrics      `json:"metrics"`
+	Channels   []ChannelQuantity `json:"channels"`
 }
 
 type MCPBook struct {
@@ -188,8 +189,8 @@ func (s MCPService) StockBook(ctx context.Context, q MCPBookQuery) (MCPBook, err
 			if err != nil {
 				return err
 			}
-			opening := slices.ContainsFunc(st.journal.Openings, func(p CurrentPosition) bool { return p.InstrumentID == id })
-			out.Positions = append(out.Positions, MCPPosition{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, p.quantity, opening, m})
+			opening := slices.ContainsFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == id })
+			out.Positions = append(out.Positions, MCPPosition{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, p.quantity, opening, m, channelBreakdown(p)})
 		}
 		if !q.IncludeEntries {
 			return nil

@@ -91,7 +91,14 @@ const entries = computed(() =>
     ),
 );
 type Mode =
-  "buy" | "sell" | "dividend" | "cash" | "void" | "opening" | "clear_opening";
+  | "buy"
+  | "sell"
+  | "dividend"
+  | "tax"
+  | "cash"
+  | "void"
+  | "opening"
+  | "clear_opening";
 const editor = ref<{
   mode: Mode;
   item?: StockItem;
@@ -442,7 +449,7 @@ defineExpose({ load });
                   ><small v-if="e.voided">已删除</small>
                 </div>
                 <div class="stock-trade-values">
-                  <template v-if="e.kind !== 'dividend'"
+                  <template v-if="e.kind !== 'dividend' && e.kind !== 'tax'"
                     ><strong
                       >{{ holdingNumber(e.quantity) }} 股 ×
                       {{ holdingNumber(e.price) }}</strong
@@ -451,7 +458,9 @@ defineExpose({ load });
                     ></template
                   ><template v-else
                     ><strong
-                      >{{ holdingNumber(e.amount, 2) }}
+                      >{{ e.kind === "tax" ? "−" : "" }}{{
+                        holdingNumber(e.amount, 2)
+                      }}
                       {{ detail.instrument.currency }}</strong
                     ><small v-if="e.event"
                       >{{ holdingNumber(e.quantity) }} 股 ×
@@ -473,7 +482,7 @@ defineExpose({ load });
                   >
                 </div>
                 <div class="stock-trade-total">
-                  <strong v-if="e.kind !== 'dividend'">{{
+                  <strong v-if="e.kind !== 'dividend' && e.kind !== 'tax'">{{
                     holdingNumber(e.amount, 2)
                   }}</strong>
                   <div v-if="!e.voided" class="stock-row-actions">

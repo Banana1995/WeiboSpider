@@ -34,7 +34,14 @@ const props = defineProps<{
   item?: StockItem;
   entry?: StockEntry;
   mode:
-    "buy" | "sell" | "dividend" | "cash" | "void" | "opening" | "clear_opening";
+    | "buy"
+    | "sell"
+    | "dividend"
+    | "tax"
+    | "cash"
+    | "void"
+    | "opening"
+    | "clear_opening";
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const { locked, busy, error, send } = useLedgerWorkspace();
@@ -58,6 +65,9 @@ const price = ref(props.entry?.price ?? "");
 const fee = ref(props.entry?.fee ?? "0");
 const amount = ref(
   props.mode === "cash" ? props.book.cash : (props.entry?.amount ?? ""),
+);
+const amountOnly = computed(
+  () => kind.value === "dividend" || kind.value === "tax",
 );
 const fx = ref(
   props.entry?.fx && positiveDecimal(props.entry.fx, 8)
@@ -227,7 +237,7 @@ function save() {
       !validDay(date.value) ||
       date.value > todayShanghai() ||
       (requiresFX.value && !positiveDecimal(fx.value, 8)) ||
-      (kind.value === "dividend"
+      (amountOnly.value
         ? !positiveDecimal(amount.value, 2)
         : preview.value === null)
     ) {
@@ -238,10 +248,10 @@ function save() {
       instrument_id: i.id,
       kind: kind.value,
       date: date.value,
-      quantity: kind.value === "dividend" ? "0" : quantity.value,
-      price: kind.value === "dividend" ? "0" : price.value,
-      fee: kind.value === "dividend" ? "0" : fee.value,
-      amount: kind.value === "dividend" ? amount.value : "0",
+      quantity: amountOnly.value ? "0" : quantity.value,
+      price: amountOnly.value ? "0" : price.value,
+      fee: amountOnly.value ? "0" : fee.value,
+      amount: amountOnly.value ? amount.value : "0",
       fx: foreign.value
         ? requiresFX.value || positiveDecimal(fx.value, 8)
           ? fx.value
@@ -329,8 +339,10 @@ function save() {
                   :max="todayShanghai()"
                   :disabled="!!entry?.event"
               /></label>
-              <label v-if="kind === 'dividend'"
-                >分红金额（{{ security.currency }}）<input
+              <label v-if="amountOnly"
+                >{{ kind === "tax" ? "扣税金额" : "分红金额" }}（{{
+                  security.currency
+                }}）<input
                   v-model="amount"
                   name="amount"
                   inputmode="decimal"
@@ -345,7 +357,7 @@ function save() {
                   :disabled="mode === 'opening'"
               /></label>
             </div>
-            <div v-if="kind !== 'dividend'" class="lp-two-fields">
+            <div v-if="!amountOnly" class="lp-two-fields">
               <label
                 >成交价格（{{ security.currency }}）<input
                   v-model="price"
@@ -385,6 +397,9 @@ function save() {
               {{
                 entry.event.pay_date
               }}。修改金额后保留您的填写，自动同步不再覆盖这笔分红。
+            </p>
+            <p v-else-if="kind === 'tax'" class="lp-field-hint">
+              红利税按现金扣除记账：冲减净分红，不改变持股数量和成本。
             </p>
             <p v-else-if="kind === 'dividend'" class="lp-field-hint">
               填写实际到账日期。系统会自动匹配同一日期的分红，已有自动分红请直接修改原记录。

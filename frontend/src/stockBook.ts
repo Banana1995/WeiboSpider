@@ -90,14 +90,21 @@ export interface StockWriteResult {
   id: string;
   action: string;
 }
-export const stockLabels = { buy: "买入", sell: "卖出", dividend: "分红", tax: "红利税" };
+export const stockLabels = {
+  buy: "买入",
+  sell: "卖出",
+  dividend: "分红",
+  tax: "红利税",
+};
 export const positiveDecimal = (v: string, scale: number) =>
   decimal(v, scale) && !v.startsWith("-") && /[1-9]/.test(v);
 const number = (v: unknown, scale: number, signed = false): v is string =>
   typeof v === "string" && decimal(v, scale) && (signed || !v.startsWith("-"));
 const nullable = (v: unknown, scale: number, signed = false) =>
   v === null || number(v, scale, signed);
-const channelRows = (v: unknown): v is { channel: string; quantity: string }[] =>
+const channelRows = (
+  v: unknown,
+): v is { channel: string; quantity: string }[] =>
   Array.isArray(v) &&
   v.every(
     (row) =>

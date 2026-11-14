@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import StockTradeDialog from "./StockTradeDialog.vue";
 import StockSyncStatus from "./StockSyncStatus.vue";
+import StockFxReference from "./StockFxReference.vue";
 import { errorText, request, type Account } from "./ledger";
 import { holdingMoney, holdingNumber } from "./holdings";
 import {
@@ -36,6 +37,9 @@ const sortOptions: { key: SortKey; label: string }[] = [
 ];
 const sortKey = ref<SortKey | "">("");
 const sortDir = ref<1 | -1>(-1);
+const accountCurrencyName = computed(
+  () => ({ CNY: "人民币", HKD: "港币", USD: "美元" })[props.account.currency],
+);
 const rows = computed(() => {
   const list =
     read.data?.items.filter(
@@ -46,7 +50,7 @@ const rows = computed(() => {
   const amount = (row: StockItem) =>
     magnitude(
       key === "value"
-        ? row.market_value
+        ? row.account_market_value
         : key === "weight"
           ? row.weight
           : row.metrics.profit,
@@ -59,6 +63,23 @@ const rows = computed(() => {
     if (right === null) return -1;
     if (left === right) return 0;
     return (left < right ? -1 : 1) * sortDir.value;
+  });
+});
+const referenceRates = computed(() => {
+  const seen = new Set<string>();
+  return rows.value.flatMap((row) => {
+    const fx = row.fx;
+    if (
+      !fx ||
+      row.instrument.currency === props.account.currency ||
+      fx.base !== row.instrument.currency ||
+      fx.quote !== props.account.currency
+    )
+      return [];
+    const key = [fx.base, fx.quote, fx.rate, fx.date, fx.source].join("|");
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ key, fx }];
   });
 });
 // Scale every numeric column to the same six decimals so BigInt ordering is exact.
@@ -175,6 +196,7 @@ defineExpose({ load });
           <span class="stock-total">
             <small>持仓市值</small>
             <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
+            <small>{{ account.currency }}</small>
           </span>
           <button
             class="stock-cash"
@@ -231,6 +253,13 @@ defineExpose({ load });
               {{ option.label }}{{ sortMark(option.key) }}
             </button>
           </div>
+          <div v-if="referenceRates.length" class="stock-reference-rates">
+            <StockFxReference
+              v-for="reference in referenceRates"
+              :key="reference.key"
+              :fx="reference.fx"
+            />
+          </div>
         </div>
         <div v-if="rows.length" class="stock-list">
           <div class="stock-list-labels">
@@ -278,12 +307,25 @@ defineExpose({ load });
                 <span v-if="!/[1-9]/.test(row.quantity)">已清仓</span></small
               ></span
             >
-            <span
-              ><strong>{{ holdingMoney(row.market_value) }}</strong
+            <span class="stock-market-value"
+              ><strong
+                >{{ holdingMoney(row.market_value) }}
+                <small class="stock-value-currency">{{
+                  row.instrument.currency
+                }}</small></strong
               ><small
-                >{{ holdingNumber(row.quantity) }} 股 ·
-                {{ row.instrument.currency }}</small
-              ></span
+                v-if="row.instrument.currency !== account.currency"
+                class="stock-value-converted"
+                :class="{
+                  'stock-value-unavailable': row.account_market_value === null,
+                }"
+                ><template v-if="row.account_market_value !== null"
+                  >≈ {{ holdingMoney(row.account_market_value) }}
+                  {{ account.currency }}</template
+                ><template v-else
+                  >{{ accountCurrencyName }}估值暂缺</template
+                ></small
+              ><small>{{ holdingNumber(row.quantity) }} 股</small></span
             >
             <span
               ><strong>{{
@@ -343,9 +385,27 @@ defineExpose({ load });
               </div>
             </header>
             <div class="stock-metrics">
-              <div>
+              <div class="stock-market-value">
                 <span>持仓市值</span
-                ><strong>{{ holdingMoney(detail.market_value) }}</strong>
+                ><strong
+                  >{{ holdingMoney(detail.market_value) }}
+                  <small class="stock-value-currency">{{
+                    detail.instrument.currency
+                  }}</small></strong
+                ><small
+                  v-if="detail.instrument.currency !== account.currency"
+                  class="stock-value-converted"
+                  :class="{
+                    'stock-value-unavailable':
+                      detail.account_market_value === null,
+                  }"
+                  ><template v-if="detail.account_market_value !== null"
+                    >≈ {{ holdingMoney(detail.account_market_value) }}
+                    {{ account.currency }}</template
+                  ><template v-else
+                    >{{ accountCurrencyName }}估值暂缺</template
+                  ></small
+                >
               </div>
               <div>
                 <span>持仓盈亏</span
@@ -386,6 +446,23 @@ defineExpose({ load });
                 }}</strong>
               </div>
             </div>
+            <p
+              v-if="
+                detail.instrument.currency !== account.currency && detail.fx
+              "
+              class="stock-detail-fx"
+            >
+              参考汇率 1 {{ detail.fx.base }} =
+              {{ holdingNumber(detail.fx.rate, 4) }} {{ detail.fx.quote }}
+              <span>汇率日期 {{ detail.fx.date }}</span>
+              <span
+                >来源：{{
+                  detail.fx.source.startsWith("Tencent/spot/")
+                    ? "腾讯即期汇率"
+                    : detail.fx.source
+                }}</span
+              >
+            </p>
             <div class="stock-lifetime">
               <span>个股累计盈亏</span
               ><strong :class="stockTone(detail.metrics.total_profit)">{{
@@ -461,7 +538,9 @@ defineExpose({ load });
                 <div class="stock-trade-type">
                   <strong>{{ stockLabels[e.kind] }}</strong
                   ><small>{{ e.date }}</small
-                  ><small v-if="e.channel" class="stock-channel">{{ e.channel }}</small
+                  ><small v-if="e.channel" class="stock-channel">{{
+                    e.channel
+                  }}</small
                   ><small v-if="e.voided">已删除</small>
                 </div>
                 <div class="stock-trade-values">
@@ -474,9 +553,8 @@ defineExpose({ load });
                     ></template
                   ><template v-else
                     ><strong
-                      >{{ e.kind === "tax" ? "−" : "" }}{{
-                        holdingNumber(e.amount, 2)
-                      }}
+                      >{{ e.kind === "tax" ? "−" : ""
+                      }}{{ holdingNumber(e.amount, 2) }}
                       {{ detail.instrument.currency }}</strong
                     ><small v-if="e.event"
                       >{{ holdingNumber(e.quantity) }} 股 ×

@@ -367,126 +367,148 @@ defineExpose({ load });
         :show-write-status="false"
         @close="selected = ''"
       >
+        <template #title-extra>
+          <template v-if="detail">
+            <span class="stock-quote" role="group" aria-label="最新价">
+              <span class="stock-quote-label">最新价</span>
+              <strong>{{ holdingNumber(detail.price) }}</strong>
+              <span>{{ detail.instrument.currency }}</span>
+            </span>
+            <small v-if="detail.quote" class="stock-quote-date"
+              >截至 {{ detail.quote.date }}</small
+            >
+            <small v-else class="stock-quote-date">{{
+              detail.quantity === "0.000000" ? "已清仓" : "行情暂不可用"
+            }}</small>
+          </template>
+        </template>
         <div class="lp-dialog-body">
           <p v-if="read.error" class="lp-error" role="alert">
             {{ errorText(read.error) }}
           </p>
           <template v-if="detail">
-            <header class="stock-detail-heading">
-              <div>
-                <p class="stock-quote">
-                  最新价 <strong>{{ holdingNumber(detail.price) }}</strong>
-                  {{ detail.instrument.currency
-                  }}<small v-if="detail.quote">{{ detail.quote.date }}</small
-                  ><small v-else>{{
-                    detail.quantity === "0.000000" ? "已清仓" : "行情暂不可用"
-                  }}</small>
-                </p>
+            <section class="stock-overview" aria-label="持仓概览">
+              <div class="stock-metrics">
+                <div class="stock-market-value">
+                  <span class="stock-metric-label">持仓市值</span>
+                  <strong
+                    >{{ holdingMoney(detail.market_value) }}
+                    <small class="stock-value-currency">{{
+                      detail.instrument.currency
+                    }}</small></strong
+                  >
+                  <small
+                    v-if="detail.instrument.currency !== account.currency"
+                    class="stock-value-converted"
+                    :class="{
+                      'stock-value-unavailable':
+                        detail.account_market_value === null,
+                    }"
+                    ><template v-if="detail.account_market_value !== null"
+                      >≈ {{ holdingMoney(detail.account_market_value) }}
+                      {{ account.currency }}</template
+                    ><template v-else
+                      >{{ accountCurrencyName }}估值暂缺</template
+                    ></small
+                  >
+                  <span v-if="detail.weight !== null" class="stock-metric-note"
+                    >仓位 {{ detail.weight }}%</span
+                  >
+                </div>
+                <div>
+                  <span class="stock-metric-label"
+                    >持仓盈亏
+                    <small>{{ detail.instrument.currency }}</small></span
+                  >
+                  <strong :class="stockTone(detail.metrics.profit)">{{
+                    signed(detail.metrics.profit)
+                  }}</strong>
+                  <span class="stock-metric-note"
+                    >持仓盈亏率
+                    <b :class="stockTone(detail.metrics.profit_rate)">{{
+                      percent(detail.metrics.profit_rate)
+                    }}</b></span
+                  >
+                </div>
+                <div class="stock-lifetime">
+                  <span class="stock-metric-label"
+                    >个股累计盈亏
+                    <small>{{ detail.instrument.currency }}</small></span
+                  >
+                  <strong :class="stockTone(detail.metrics.total_profit)">{{
+                    signed(detail.metrics.total_profit)
+                  }}</strong>
+                  <span class="stock-metric-note"
+                    >累计收益率
+                    <b :class="stockTone(detail.metrics.total_rate)">{{
+                      percent(detail.metrics.total_rate)
+                    }}</b></span
+                  >
+                </div>
               </div>
-            </header>
-            <div class="stock-metrics">
-              <div class="stock-market-value">
-                <span>持仓市值</span
-                ><strong
-                  >{{ holdingMoney(detail.market_value) }}
-                  <small class="stock-value-currency">{{
-                    detail.instrument.currency
-                  }}</small></strong
-                ><small
-                  v-if="detail.instrument.currency !== account.currency"
-                  class="stock-value-converted"
-                  :class="{
-                    'stock-value-unavailable':
-                      detail.account_market_value === null,
-                  }"
-                  ><template v-if="detail.account_market_value !== null"
-                    >≈ {{ holdingMoney(detail.account_market_value) }}
-                    {{ account.currency }}</template
-                  ><template v-else
-                    >{{ accountCurrencyName }}估值暂缺</template
-                  ></small
+              <p
+                v-if="
+                  detail.instrument.currency !== account.currency && detail.fx
+                "
+                class="stock-detail-fx"
+              >
+                参考汇率 1 {{ detail.fx.base }} =
+                {{ holdingNumber(detail.fx.rate, 4) }} {{ detail.fx.quote }}
+                <span>汇率日期 {{ detail.fx.date }}</span>
+                <span
+                  >来源：{{
+                    detail.fx.source.startsWith("Tencent/spot/")
+                      ? "腾讯即期汇率"
+                      : detail.fx.source
+                  }}</span
                 >
+              </p>
+              <div class="stock-position-facts">
+                <div>
+                  <span>持仓数量</span>
+                  <strong>{{ holdingNumber(detail.quantity) }}</strong>
+                  <small>股</small>
+                </div>
+                <div>
+                  <span>持仓成本</span>
+                  <strong>{{ holdingMoney(detail.metrics.cost) }}</strong>
+                  <small>{{ detail.instrument.currency }}/股</small>
+                </div>
+                <div>
+                  <span>摊薄成本</span>
+                  <strong>{{
+                    holdingMoney(detail.metrics.diluted_cost)
+                  }}</strong>
+                  <small>{{ detail.instrument.currency }}/股</small>
+                </div>
               </div>
-              <div>
-                <span>持仓盈亏</span
-                ><strong :class="stockTone(detail.metrics.profit)">{{
-                  signed(detail.metrics.profit)
-                }}</strong>
-              </div>
-              <div>
-                <span>持仓盈亏率</span
-                ><strong :class="stockTone(detail.metrics.profit_rate)">{{
-                  percent(detail.metrics.profit_rate)
-                }}</strong>
-              </div>
-              <div>
-                <span>持仓数量</span
-                ><strong>{{ holdingNumber(detail.quantity) }}</strong>
-              </div>
-              <div v-if="detail.channels.length">
-                <span>渠道分布</span
-                ><strong class="stock-channel-list">
-                  <span
+              <div v-if="detail.channels.length" class="stock-channels">
+                <span class="stock-channels-label">持仓渠道</span>
+                <ul class="stock-channel-list">
+                  <li
                     v-for="row in detail.channels"
                     :key="row.channel"
                     class="stock-channel-chip"
-                    >{{ row.channel || "未标注渠道" }}
-                    {{ holdingNumber(row.quantity) }} 股</span
                   >
-                </strong>
+                    <span>{{ row.channel || "未标注渠道" }}</span>
+                    <strong>{{ holdingNumber(row.quantity) }} 股</strong>
+                  </li>
+                </ul>
               </div>
-              <div>
-                <span>持仓成本</span
-                ><strong>{{ holdingMoney(detail.metrics.cost) }}</strong>
+              <div class="stock-dividend-summary">
+                <span class="stock-dividend-earned"
+                  >累计分红 {{ holdingNumber(detail.metrics.dividends, 2) }}
+                  {{ detail.instrument.currency }}</span
+                ><span v-if="/[1-9]/.test(detail.metrics.tax)"
+                  >已扣红利税 {{ holdingNumber(detail.metrics.tax, 2) }}
+                  {{ detail.instrument.currency }}</span
+                ><span v-if="/[1-9]/.test(detail.metrics.pending_dividend)"
+                  >其中待到账 / 待补汇率
+                  {{ holdingNumber(detail.metrics.pending_dividend, 2) }}
+                  {{ detail.instrument.currency }}</span
+                >
               </div>
-              <div>
-                <span>摊薄成本</span
-                ><strong>{{
-                  holdingMoney(detail.metrics.diluted_cost)
-                }}</strong>
-              </div>
-            </div>
-            <p
-              v-if="
-                detail.instrument.currency !== account.currency && detail.fx
-              "
-              class="stock-detail-fx"
-            >
-              参考汇率 1 {{ detail.fx.base }} =
-              {{ holdingNumber(detail.fx.rate, 4) }} {{ detail.fx.quote }}
-              <span>汇率日期 {{ detail.fx.date }}</span>
-              <span
-                >来源：{{
-                  detail.fx.source.startsWith("Tencent/spot/")
-                    ? "腾讯即期汇率"
-                    : detail.fx.source
-                }}</span
-              >
-            </p>
-            <div class="stock-lifetime">
-              <span>个股累计盈亏</span
-              ><strong :class="stockTone(detail.metrics.total_profit)">{{
-                signed(detail.metrics.total_profit)
-              }}</strong
-              ><span :class="stockTone(detail.metrics.total_rate)">{{
-                percent(detail.metrics.total_rate)
-              }}</span
-              ><small>{{ detail.instrument.currency }}</small>
-            </div>
-            <div class="stock-dividend-summary">
-              <span
-                >累计分红 {{ holdingNumber(detail.metrics.dividends, 2) }}
-                {{ detail.instrument.currency }}</span
-              ><span v-if="/[1-9]/.test(detail.metrics.tax)"
-                >已扣红利税 {{ holdingNumber(detail.metrics.tax, 2) }}
-                {{ detail.instrument.currency }}</span
-              ><span v-if="/[1-9]/.test(detail.metrics.pending_dividend)"
-                >其中待到账 / 待补汇率
-                {{ holdingNumber(detail.metrics.pending_dividend, 2) }}</span
-              ><span v-if="detail.weight !== null"
-                >仓位 {{ detail.weight }}%</span
-              >
-            </div>
+            </section>
             <p v-if="detail.opening" class="lp-reference stock-opening">
               这条旧持仓只有股数，补上买入日期和价格后即可计算成本。<button
                 :disabled="locked || read.loading || !!read.error"
@@ -533,11 +555,13 @@ defineExpose({ load });
                 v-for="e in entries.slice(0, limit)"
                 :key="e.id"
                 class="stock-trade-row"
-                :class="{ 'stock-voided': e.voided }"
+                :class="[`stock-trade-${e.kind}`, { 'stock-voided': e.voided }]"
               >
                 <div class="stock-trade-type">
-                  <strong>{{ stockLabels[e.kind] }}</strong
-                  ><small>{{ e.date }}</small
+                  <strong class="stock-trade-badge">{{
+                    stockLabels[e.kind]
+                  }}</strong>
+                  <small>{{ e.date }}</small
                   ><small v-if="e.channel" class="stock-channel">{{
                     e.channel
                   }}</small
@@ -552,10 +576,9 @@ defineExpose({ load });
                       >手续费 {{ holdingNumber(e.fee, 2) }}</small
                     ></template
                   ><template v-else
-                    ><strong
-                      >{{ e.kind === "tax" ? "−" : ""
-                      }}{{ holdingNumber(e.amount, 2) }}
-                      {{ detail.instrument.currency }}</strong
+                    ><strong>{{
+                      e.kind === "tax" ? "股息红利税扣款" : "现金分红"
+                    }}</strong
                     ><small v-if="e.event"
                       >{{ holdingNumber(e.quantity) }} 股 ×
                       {{ holdingNumber(e.event.per_share) }} ·
@@ -576,9 +599,13 @@ defineExpose({ load });
                   >
                 </div>
                 <div class="stock-trade-total">
-                  <strong v-if="e.kind !== 'dividend' && e.kind !== 'tax'">{{
-                    holdingNumber(e.amount, 2)
-                  }}</strong>
+                  <strong class="stock-trade-amount"
+                    >{{ e.kind === "tax" ? "−" : ""
+                    }}{{ holdingNumber(e.amount, 2) }}
+                    <small>{{ detail.instrument.currency }}</small></strong
+                  >
+                  <small v-if="e.kind === 'buy'">买入支出</small>
+                  <small v-else-if="e.kind === 'sell'">卖出净回款</small>
                   <div v-if="!e.voided" class="stock-row-actions">
                     <button
                       class="lp-text-button"

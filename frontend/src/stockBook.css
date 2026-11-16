@@ -13,7 +13,6 @@
 }
 .stock-heading,
 .stock-heading-title,
-.stock-detail-heading,
 .stock-trades-heading,
 .stock-actions,
 .stock-list-toolbar {
@@ -224,6 +223,7 @@
   flex-wrap: wrap;
   gap: 3px 16px;
   margin: 10px 0 0;
+  padding: 0 20px;
   font-size: 12px;
   color: var(--lp-muted);
 }
@@ -245,127 +245,247 @@
 .ledger-page .stock-loss {
   color: var(--lp-down);
 }
-.stock-detail-heading {
-  margin: 18px 0;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
 .ledger-page .lp-dialog.stock-detail-dialog {
+  --stock-buy: #9f2435;
+  --stock-buy-tint: #f9e0dc;
+  --stock-sell: #14543f;
+  --stock-sell-tint: #e5f4eb;
+  --stock-dividend: var(--lp-warning);
+  --stock-dividend-tint: #fff3d6;
+  --stock-tax: #981854;
+  --stock-tax-tint: #fff0f7;
   width: 1200px;
 }
-.stock-detail-dialog .stock-detail-heading {
-  margin: 0 0 16px;
-  align-items: center;
+.stock-detail-dialog .lp-dialog-header > div {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 20px;
+  min-width: 0;
 }
-.ledger-page .stock-detail-heading h2 {
-  font-size: 23px;
+.stock-detail-dialog .lp-dialog-header .lp-caption {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
 }
-.ledger-page .stock-detail-heading h2 small {
-  margin-left: 8px;
-  font-size: 14px;
+.ledger-page .stock-detail-dialog .lp-dialog-header h2 {
+  font-size: 1.375rem;
+  overflow-wrap: anywhere;
+}
+.stock-detail-dialog .lp-close {
+  align-self: flex-start;
+  flex-shrink: 0;
 }
 .stock-quote {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 7px;
+  white-space: nowrap;
   color: var(--lp-muted);
+  font-size: 0.75rem;
 }
 .stock-quote strong {
   color: var(--lp-emphasis);
-  font-size: 26px;
-  font-weight: 550;
+  font-size: 1.5rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.stock-quote-date {
+  white-space: nowrap;
 }
 .stock-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 4px 0 12px;
-  border-top: 1px solid var(--lp-rule);
-  border-bottom: 1px solid var(--lp-rule);
-  gap: 0 22px;
+  gap: 16px 24px;
+  padding: 18px 20px;
+  border-radius: 6px;
+  background: var(--lp-background);
 }
 .stock-metrics > div {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 16px 0 8px;
-  text-align: right;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
 }
-.stock-metrics > div:nth-child(3n + 1) {
-  text-align: left;
+.stock-metrics > div + div {
+  padding-left: 24px;
+  border-left: 1px solid var(--lp-rule);
 }
-.stock-metrics span {
+.stock-metric-label,
+.stock-metric-note {
   color: var(--lp-muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
+}
+.stock-metric-label small {
+  margin-left: 4px;
+}
+.stock-metric-note b {
+  margin-left: 4px;
+  font-weight: 550;
 }
 .stock-metrics strong {
-  font-size: 24px;
-  font-weight: 550;
+  font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
-.stock-lifetime {
+.stock-position-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 24px;
+  padding: 18px 20px 14px;
+}
+.stock-position-facts > div {
   display: flex;
   align-items: baseline;
-  gap: 10px 18px;
   flex-wrap: wrap;
-  margin: 20px 0 8px;
+  gap: 2px 6px;
+  min-width: 0;
 }
-.stock-lifetime strong {
-  font-size: 27px;
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
+.stock-position-facts > div + div {
+  padding-left: 25px;
+}
+.stock-position-facts > div > span {
+  flex-basis: 100%;
+  color: var(--lp-muted);
+  font-size: 0.8125rem;
+}
+.stock-position-facts strong {
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.stock-channels {
+  display: flex;
+  align-items: baseline;
+  gap: 8px 16px;
+  padding: 0 20px 16px;
+}
+.stock-channels-label {
+  flex-shrink: 0;
+  color: var(--lp-muted);
+  font-size: 0.8125rem;
 }
 .stock-dividend-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 20px;
-  font-size: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--lp-rule);
+  border-bottom: 1px solid var(--lp-rule);
+  font-size: 0.8125rem;
   color: var(--lp-muted);
 }
+.stock-dividend-earned {
+  color: var(--stock-dividend);
+}
 .stock-trades-heading {
-  margin: 28px 0 10px;
+  margin: 22px 0 12px;
   flex-wrap: wrap;
 }
 .ledger-page .stock-trades-heading h3 {
   margin: 0;
 }
 .stock-trade-row {
+  --stock-entry-color: var(--stock-tax);
+  --stock-entry-tint: var(--stock-tax-tint);
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) minmax(100px, 0.5fr);
-  column-gap: 14px;
-  padding: 16px 0;
+  grid-template-columns: 110px minmax(0, 1fr) minmax(150px, 0.6fr);
+  gap: 8px 18px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--lp-rule);
+}
+.stock-trades {
   border-top: 1px solid var(--lp-rule);
+}
+.stock-trade-buy {
+  --stock-entry-color: var(--stock-buy);
+  --stock-entry-tint: var(--stock-buy-tint);
+}
+.stock-trade-sell {
+  --stock-entry-color: var(--stock-sell);
+  --stock-entry-tint: var(--stock-sell-tint);
+}
+.stock-trade-dividend {
+  --stock-entry-color: var(--stock-dividend);
+  --stock-entry-tint: var(--stock-dividend-tint);
+}
+.stock-trade-row .stock-trade-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--stock-entry-color);
+  background: var(--stock-entry-tint);
+  font-size: 0.875rem;
+  font-weight: 650;
+  white-space: nowrap;
 }
 .stock-trade-type,
 .stock-trade-values,
 .stock-trade-total {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 4px;
 }
 .stock-channel-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  font-weight: 500;
+  gap: 6px 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .stock-channel-chip {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--lp-surface-muted, rgba(127, 127, 127, 0.12));
-  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--lp-background);
+  color: var(--lp-text);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.stock-channel-chip strong {
+  font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
 .stock-channel {
-  color: var(--lp-text-muted, #6b7280);
+  overflow-wrap: anywhere;
 }
 .stock-trade-row strong {
   font-weight: 550;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.stock-trade-row .stock-trade-values,
+.stock-trade-row .stock-trade-total {
+  padding-top: 1px;
+  overflow-wrap: anywhere;
+}
+.stock-trade-row .stock-trade-amount {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.stock-trade-dividend .stock-trade-amount {
+  color: var(--stock-dividend);
+}
+.stock-trade-amount small {
+  white-space: nowrap;
+  margin-left: 4px;
 }
 .stock-trade-total {
   align-items: flex-end;
@@ -517,20 +637,77 @@
   .stock-row .stock-identity strong {
     font-size: 17px;
   }
+  .ledger-page .stock-detail-dialog .lp-dialog-header {
+    gap: 10px;
+    padding: 14px;
+  }
+  .stock-detail-dialog .lp-dialog-header > div {
+    gap: 4px 12px;
+  }
+  .ledger-page .stock-detail-dialog .lp-dialog-header h2 {
+    font-size: 1.25rem;
+  }
+  .ledger-page .stock-detail-dialog .lp-dialog-body {
+    padding: 14px;
+  }
+  .stock-quote strong {
+    font-size: 1.25rem;
+  }
+  .stock-quote-label {
+    display: none;
+  }
   .stock-metrics {
-    column-gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding: 14px;
+  }
+  .stock-metrics > div + div {
+    padding-left: 0;
+    border-left: 0;
   }
   .stock-metrics strong {
-    font-size: 19px;
+    font-size: 1.375rem;
   }
-  .stock-metrics span {
-    font-size: 12px;
+  .stock-metric-label,
+  .stock-metric-note {
+    font-size: 0.75rem;
   }
-  .stock-lifetime {
-    gap: 6px 10px;
+  .stock-metrics > .stock-lifetime {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--lp-rule);
   }
-  .stock-lifetime strong {
-    font-size: 23px;
+  .stock-lifetime .stock-metric-label {
+    flex-basis: 100%;
+  }
+  .stock-position-facts {
+    gap: 12px;
+    padding: 16px 0;
+  }
+  .stock-detail-fx {
+    padding: 0;
+  }
+  .stock-position-facts > div + div {
+    padding-left: 0;
+  }
+  .stock-position-facts > div > span {
+    font-size: 0.75rem;
+  }
+  .stock-position-facts strong {
+    font-size: 1rem;
+  }
+  .stock-channels {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 0 0 14px;
+  }
+  .stock-dividend-summary {
+    padding: 10px 0;
+    font-size: 0.75rem;
   }
   .stock-trades-heading .stock-actions {
     width: 100%;
@@ -541,33 +718,9 @@
     font-size: 13px;
   }
   .stock-trade-row {
-    grid-template-columns: 78px minmax(0, 1fr) 75px;
-    column-gap: 8px;
-  }
-  .stock-channel-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    font-weight: 500;
-  }
-  .stock-channel-chip {
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: var(--lp-surface-muted, rgba(127, 127, 127, 0.12));
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-  }
-  .stock-channel {
-    color: var(--lp-text-muted, #6b7280);
-  }
-  .stock-trade-row strong {
-    font-size: 13px;
-  }
-  .stock-trade-row small {
-    font-size: 11px;
-  }
-  .stock-trade-total {
-    justify-content: center;
+    grid-template-columns: 90px minmax(0, 1fr) minmax(110px, 0.6fr);
+    column-gap: 12px;
+    padding: 12px;
   }
   .stock-row-actions {
     flex-wrap: wrap;
@@ -579,13 +732,29 @@
   }
 }
 @media (max-width: 480px) {
-  .stock-detail-dialog .stock-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .stock-trade-row {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 12px 10px;
   }
-  .stock-detail-dialog .stock-metrics > div {
+  .stock-trade-type {
+    grid-row: 1 / 3;
+  }
+  .stock-trade-values,
+  .stock-trade-total {
+    grid-column: 2;
+  }
+  .stock-trade-total {
+    align-items: flex-start;
     text-align: left;
   }
-  .stock-detail-dialog .stock-metrics > div:nth-child(even) {
-    text-align: right;
+  .stock-trade-row strong {
+    font-size: 0.8125rem;
+  }
+  .stock-trade-row .stock-trade-amount {
+    font-size: 0.9375rem;
+  }
+  .stock-row-actions {
+    align-self: flex-end;
   }
 }

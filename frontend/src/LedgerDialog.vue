@@ -97,6 +97,7 @@ onBeforeUnmount(() => {
       <div>
         <span class="lp-caption">{{ caption }}</span>
         <h2 :id="titleId">{{ title }}</h2>
+        <slot name="title-extra" />
       </div>
       <button
         type="button"

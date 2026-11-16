@@ -24,6 +24,9 @@ type Quote struct {
 type QuoteResult struct {
 	Quote     *Quote
 	ErrorCode string
+	// An inactive spot row can nominate a previous close, but it is not a
+	// usable mark until unadjusted daily history confirms its price and date.
+	previousClose Price
 }
 
 // Results are keyed by instrument ID. Missing results are unavailable, never zero.
@@ -121,6 +124,14 @@ func (p *TencentQuotes) Fetch(ctx context.Context, instruments []Instrument) map
 					row.ErrorCode = "quote_timeout"
 				}
 			}
+			if row.ErrorCode == "quote_inactive" && row.previousClose > 0 {
+				q, err := p.lastClosingQuote(ctx, bySymbol[symbol][0], row.previousClose)
+				if err == nil {
+					row = QuoteResult{Quote: q}
+				} else if fxFailure(err) == ErrFXTimeout {
+					row.ErrorCode = "quote_timeout"
+				}
+			}
 			for _, i := range bySymbol[symbol] {
 				result[i.ID] = row
 			}
@@ -213,13 +224,17 @@ func parseStockQuotes(body []byte, symbols []string, instruments map[string][]In
 		if priceErr != nil || price <= 0 || stampErr != nil || stamp.Year() < 1 || stamp.Format(layout) != fields[30] || stamp.After(now) {
 			continue
 		}
-		// Delisted securities and today's zero-volume/open placeholders are not
-		// tradable marks, even when Tencent gives them a fresh timestamp.
+		// A fresh timestamp on a zero-volume/open placeholder is not a trade.
+		// Delisted instruments are never eligible for a historical fallback.
 		volume, volumeErr := ParseQuantity(fields[6])
 		open, openErr := ParsePrice(fields[5])
 		if i.Market != "HK" && fields[40] == "D" ||
 			stamp.Format(time.DateOnly) == now.In(fxBeijing).Format(time.DateOnly) && (volumeErr != nil || volume <= 0 || openErr != nil || open <= 0) {
 			result[symbol] = QuoteResult{ErrorCode: "quote_inactive"}
+			previous, previousErr := ParsePrice(fields[4])
+			if fields[40] != "D" && volumeErr == nil && volume == 0 && openErr == nil && open == 0 && previousErr == nil && previous > 0 && previous == price {
+				result[symbol] = QuoteResult{ErrorCode: "quote_inactive", previousClose: previous}
+			}
 			continue
 		}
 		result[symbol] = QuoteResult{Quote: &Quote{Symbol: symbol, Price: price, Currency: i.Currency, Source: "Tencent",

@@ -234,3 +234,56 @@ it("uses the account's currency and retains precise backend values instead of as
   expect(wrapper.get(".stock-value-converted").text()).toContain("153.87 USD");
   expect(wrapper.get(".stock-fx-trigger").text()).toContain("0.128225 USD");
 });
+
+it("shows recovered position weights with the actual reference-price date", async () => {
+  const item = foreign();
+  item.quote = {
+    ...item.quote!,
+    date: "2026-03-19",
+    quoted_at: "2026-03-19T00:00:00+08:00",
+  };
+  item.quote_status = "prior_date";
+  item.weight = "45.95";
+  const local = { ...domestic(), weight: "49.55" };
+  await start({
+    ...book([item, local]),
+    cash: "100.00",
+    positions_value: "2120.00",
+    total_assets: "2220.00",
+  });
+  expect(wrapper.get(".stock-totals").text()).toContain("2,220.00");
+  expect(wrapper.get(".stock-total-note").text()).toBe("含历史参考价估值");
+  const rows = wrapper.findAll(".stock-row");
+  expect(rows[0]!.text()).toContain("45.95%");
+  expect(rows[1]!.text()).toContain("49.55%");
+  expect(rows[0]!.get(".stock-price-reference").text()).toContain("2026-03-19");
+  expect(rows[1]!.find(".stock-price-reference").exists()).toBe(false);
+  await rows[0]!.trigger("click");
+  const detail = wrapper.get(".stock-detail-dialog");
+  expect(detail.get(".stock-quote").attributes("aria-label")).toBe("参考价");
+  expect(detail.get(".stock-quote-date").text()).toBe("参考价日期 2026-03-19");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("identifies a partial subtotal and explains unavailable weights without inventing percentages", async () => {
+  const item = {
+    ...foreign(),
+    quote: null,
+    price: null,
+    market_value: null,
+    account_market_value: null,
+    weight: null,
+    quote_status: "unavailable" as const,
+  };
+  await start({
+    ...book([item, { ...domestic(), weight: null }]),
+    complete: false,
+    total_assets: null,
+    positions_value: "1100.00",
+  });
+  expect(wrapper.get(".stock-totals").text()).toContain("已知持仓市值");
+  expect(wrapper.get(".stock-total-note").text()).toContain("仓位暂不可算");
+  for (const row of wrapper.findAll(".stock-row")) {
+    expect(row.get("span:nth-child(3) > strong").text()).toBe("—");
+  }
+});

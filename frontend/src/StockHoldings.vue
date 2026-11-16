@@ -40,6 +40,9 @@ const sortDir = ref<1 | -1>(-1);
 const accountCurrencyName = computed(
   () => ({ CNY: "人民币", HKD: "港币", USD: "美元" })[props.account.currency],
 );
+const usesPriorPrice = (item: StockItem) =>
+  !!item.quote && item.quote.date < (read.data?.as_of ?? "");
+const hasPriorPrices = computed(() => read.data?.items.some(usesPriorPrice));
 const rows = computed(() => {
   const list =
     read.data?.items.filter(
@@ -194,7 +197,9 @@ defineExpose({ load });
             }}</small>
           </span>
           <span class="stock-total">
-            <small>持仓市值</small>
+            <small>{{
+              read.data?.complete === false ? "已知持仓市值" : "持仓市值"
+            }}</small>
             <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
             <small>{{ account.currency }}</small>
           </span>
@@ -212,7 +217,10 @@ defineExpose({ load });
           <small
             v-if="read.data && !read.data.complete"
             class="stock-total-note"
-            >部分行情不可用，总资金暂缺</small
+            >部分估值暂缺，总资金及仓位暂不可算</small
+          >
+          <small v-else-if="hasPriorPrices" class="stock-total-note"
+            >含历史参考价估值</small
           >
         </div>
       </div>
@@ -325,7 +333,10 @@ defineExpose({ load });
                 ><template v-else
                   >{{ accountCurrencyName }}估值暂缺</template
                 ></small
-              ><small>{{ holdingNumber(row.quantity) }} 股</small></span
+              ><small>{{ holdingNumber(row.quantity) }} 股</small
+              ><small v-if="usesPriorPrice(row)" class="stock-price-reference"
+                >参考价日期 {{ row.quote!.date }}</small
+              ></span
             >
             <span
               ><strong>{{
@@ -369,13 +380,20 @@ defineExpose({ load });
       >
         <template #title-extra>
           <template v-if="detail">
-            <span class="stock-quote" role="group" aria-label="最新价">
-              <span class="stock-quote-label">最新价</span>
+            <span
+              class="stock-quote"
+              role="group"
+              :aria-label="usesPriorPrice(detail) ? '参考价' : '最新价'"
+            >
+              <span class="stock-quote-label">{{
+                usesPriorPrice(detail) ? "参考价" : "最新价"
+              }}</span>
               <strong>{{ holdingNumber(detail.price) }}</strong>
               <span>{{ detail.instrument.currency }}</span>
             </span>
             <small v-if="detail.quote" class="stock-quote-date"
-              >截至 {{ detail.quote.date }}</small
+              >{{ usesPriorPrice(detail) ? "参考价日期" : "截至" }}
+              {{ detail.quote.date }}</small
             >
             <small v-else class="stock-quote-date">{{
               detail.quantity === "0.000000" ? "已清仓" : "行情暂不可用"

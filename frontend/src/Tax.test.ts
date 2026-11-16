@@ -2,17 +2,29 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import Tax from "./Tax.vue";
+import TaxDetailDialog from "./TaxDetailDialog.vue";
 import {
   taxExact,
   taxKey,
   taxNumber,
   taxMoney,
   taxPrice,
+  taxSum,
+  taxAverage,
   securityIdentity,
   type TaxRecord,
   type TaxState,
   type TaxReport,
+  type TaxSummary,
 } from "./tax";
+
+const incomeFields = {
+  interest: "0",
+  withheld_tax: "0",
+  dividend_credit: "0",
+  interest_tax: "0",
+  income_tax_issue: "",
+};
 
 const row: TaxRecord = {
   date: "20250101",
@@ -61,7 +73,7 @@ beforeEach(() => {
     matches: [],
     entries: [],
     missing: [],
-    method: "fifo-cost-basis-v2",
+    method: "fifo-cost-basis-v3",
   };
   failImport = false;
   state = {
@@ -167,7 +179,7 @@ it("filters dates through the report API and removes an imported batch", async (
   ];
   wrapper = mount(Tax);
   await flushPromises();
-  await wrapper.get('.tax-filters input[type="date"]').setValue("2025-06-01");
+  await wrapper.get(".tax-filters input.ld-input").setValue("2025-06-01");
   await flushPromises();
   expect(
     fetcher.mock.calls.some((c) => String(c[0]).includes("from=2025-06-01")),
@@ -232,6 +244,14 @@ it("formats money with explicit units without floating point rounding", () => {
   expect(taxMoney("-0.005", "USD")).toBe("-0.01 美元");
   expect(taxMoney("0", "CNY")).toBe("0.00 人民币");
   expect(taxPrice("19.79770000", "HKD")).toBe("19.7977 港币");
+  expect(taxSum(["0.335", "0.335"])).toBe("0.67");
+  expect(taxMoney(taxSum(["0.006", "0.006"]), "USD")).toBe("0.01 美元");
+  expect(taxSum(["0.0000001", "0.0000002"])).toBe("0.0000003");
+  expect(taxSum(["9007199254740993.123456789012", "-0.123456789011"])).toBe(
+    "9007199254740993.000000000001",
+  );
+  expect(taxAverage("0.67", "0.3000003")).toBe("2.23");
+  expect(taxAverage("1", "0")).toBeNull();
   expect(
     securityIdentity({ ...row, kind: "证券", market: "SEHK", code: "325" })
       .code,
@@ -280,7 +300,7 @@ it("numbers statement rows continuously, resolves names, and hides source metada
   expect(table.text()).toContain("00325");
 });
 
-it("opens an annual modal with opening lots before closing, full accounts and cash dividends", async () => {
+it("opens an annual modal with closing before matched opening lots, full accounts and cash dividends", async () => {
   const opening = {
     ...row,
     kind: "证券",
@@ -311,6 +331,7 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
   state.records = [opening, closing, row];
   report.rows = [
     {
+      ...incomeFields,
       year: 2025,
       currency: "CNY",
       sell_close: "1200",
@@ -348,6 +369,8 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
       capitalized_fee: "0",
       profit: "188",
       dividends: "0",
+      interest: "0",
+      withheld_tax: "0",
       complete: true,
     },
     {
@@ -358,6 +381,8 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
       capitalized_fee: "0",
       profit: "0",
       dividends: "10",
+      interest: "0",
+      withheld_tax: "0",
       complete: true,
     },
   ];
@@ -376,8 +401,8 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
   expect(modal.textContent).toContain("00325");
   expect(modal.textContent).toContain("188.00 港币");
   expect(modal.textContent).toContain("12.00 港币");
-  expect(modal.textContent!.indexOf("开仓信息")).toBeLessThan(
-    modal.textContent!.indexOf("平仓信息"),
+  expect(modal.textContent!.indexOf("平仓信息")).toBeLessThan(
+    modal.textContent!.indexOf("配对开仓信息"),
   );
   expect(modal.querySelector(".tax-cash-entry")!.textContent).toContain(
     "10.00 港币",
@@ -394,6 +419,7 @@ it("opens an annual modal with opening lots before closing, full accounts and ca
 it("distinguishes incurred opening fees, recognized expense and carryforward in an unsold year", async () => {
   report.rows = [
     {
+      ...incomeFields,
       year: 2024,
       currency: "HKD",
       sell_close: "0",
@@ -425,6 +451,129 @@ it("distinguishes incurred opening fees, recognized expense and carryforward in 
   const table = wrapper.get(".tax-summary");
   expect(table.text()).toContain("计入损益交易费");
   expect(table.text()).toContain("期内发生 12.00 港币");
-  expect(table.get("tbody .tax-deferred-fee").text()).toBe("12.00 港币");
+  expect(table.get('tbody [data-field="deferred_open_fees"]').text()).toBe(
+    "12.00 港币",
+  );
   expect(table.get("tbody .tax-emphasis").text()).toContain("0.00 港币");
+});
+
+const incomeSummary = (overrides: Partial<TaxSummary> = {}): TaxSummary => ({
+  ...incomeFields,
+  year: 2025,
+  currency: "USD",
+  sell_close: "0",
+  buy_open: "0",
+  buy_close: "0",
+  sell_open: "0",
+  redemption: "0",
+  subscription: "0",
+  trade_fees: "0",
+  incurred_trade_fees: "0",
+  realized_open_fees: "0",
+  realized_close_fees: "0",
+  deferred_open_fees: "0",
+  unmatched_close_fees: "0",
+  other_fees: "0",
+  fees: "0",
+  net: "0",
+  dividends: "13.37",
+  withheld_tax: "1.34",
+  dividend_credit: "1.34",
+  interest: "5",
+  profit_tax: "0",
+  dividend_tax: "1.33",
+  interest_tax: "1",
+  tax: "2.33",
+  rate: "1",
+  complete: true,
+  missing_rate: false,
+  ...overrides,
+});
+
+it("shows actual withholding and separately taxed interest with a twenty-percent formula", async () => {
+  report.rows = [incomeSummary()];
+  wrapper = mount(Tax);
+  await flushPromises();
+  const table = wrapper.get(".tax-summary");
+  expect(table.text()).toContain("预扣税 1.34 美元");
+  expect(table.text()).toContain("利息 5.00 美元");
+  expect(table.text()).toContain("利息应补（20%）1.00 人民币");
+  expect(table.text()).toContain("股息应补");
+  expect(table.text()).toContain("2.33 人民币");
+  await table.get('[aria-label="股息税额计算"]').trigger("focus");
+  await flushPromises();
+  expect(document.body.textContent).toContain("× 20% − 已抵预扣税 1.34 美元");
+});
+
+it("shows unresolved withholding rather than a zero total", async () => {
+  const issue = "美元预扣税超出普通美股10%口径，需核对所得来源及抵免资格。";
+  report.rows = [
+    incomeSummary({ income_tax_issue: issue, dividend_tax: null, tax: null }),
+  ];
+  wrapper = mount(Tax);
+  await flushPromises();
+  expect(wrapper.get(".tax-summary").text()).toContain(issue);
+  expect(wrapper.get(".tax-summary tbody").text()).toContain("股息应补");
+  expect(wrapper.get(".tax-summary tbody").text()).not.toContain("2.33 人民币");
+});
+
+it("sums fractional opening amounts, fees and quantities before display rounding", async () => {
+  const record = {
+    ...row,
+    kind: "证券",
+    market: "US",
+    code: "XYZ",
+    currency: "USD",
+    quantity: "-0.3000003",
+    price: "3",
+    amount: "1",
+    fee: "0",
+    direction: "卖出平仓",
+  };
+  wrapper = mount(TaxDetailDialog, {
+    attachTo: document.body,
+    props: {
+      year: 2025,
+      names: {},
+      namesLoading: false,
+      entries: [
+        {
+          record,
+          openings: [
+            {
+              record: { ...record, direction: "买入开仓" },
+              quantity: "0.1000001",
+              amount: "0.335",
+              fee: "0.006",
+            },
+            {
+              record: { ...record, direction: "买入开仓" },
+              quantity: "0.2000002",
+              amount: "0.335",
+              fee: "0.006",
+            },
+          ],
+          has_close: true,
+          fees: "0.012",
+          capitalized_fee: "0",
+          profit: "0.318",
+          dividends: "0",
+          interest: "0",
+          withheld_tax: "0",
+          complete: true,
+        },
+      ],
+    },
+  });
+  await flushPromises();
+  const cells = Array.from(
+    document.querySelectorAll(".tax-pair-summary-value"),
+    (cell) => cell.textContent,
+  );
+  expect(cells).toEqual([
+    "共0.3000003",
+    "成交均价2.23 美元",
+    "总配对金额0.67 美元",
+    "总开仓费用0.01 美元",
+  ]);
 });

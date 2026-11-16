@@ -6,7 +6,8 @@ import {
   taxMoney,
   taxNumber,
   taxPrice,
-  currencyName,
+  taxSum,
+  taxAverage,
   securityIdentity,
   type TaxDetail,
 } from "./tax";
@@ -30,41 +31,23 @@ const visible = computed(() =>
 const date = (value: string) => (value.length === 8 ? taxDay(value) : value);
 const quantity = (value: string) =>
   taxNumber(taxExact(value.replace(/^-/, "")));
-const cents = (value: string) => {
-  const negative = value.startsWith("-");
-  const [whole = "0", fraction = ""] = (
-    negative ? value.slice(1) : value
-  ).split(".");
-  const amount =
-    BigInt(whole || "0") * 100n + BigInt((fraction + "00").slice(0, 2));
-  return negative ? -amount : amount;
-};
-const money = (value: bigint) => {
-  const negative = value < 0n;
-  const absolute = negative ? -value : value;
-  return `${negative ? "-" : ""}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, "0")}`;
-};
-const openingQuantity = (entry: TaxDetail) => {
-  const total = entry.openings.reduce(
-    (sum, row) => sum + Number(row.quantity),
-    0,
-  );
-  return total.toFixed(6).replace(/\.?0+$/, "") || "0";
-};
-const openingAmountCents = (entry: TaxDetail) =>
-  entry.openings.reduce((sum, row) => sum + cents(row.amount), 0n);
-const openingFeeCents = (entry: TaxDetail) =>
-  entry.openings.reduce((sum, row) => sum + cents(row.fee), 0n);
+const openingQuantity = (entry: TaxDetail) =>
+  taxNumber(taxSum(entry.openings.map((row) => row.quantity)));
 const openingAmount = (entry: TaxDetail) =>
-  taxMoney(money(openingAmountCents(entry)), entry.record.currency);
+  taxMoney(
+    taxSum(entry.openings.map((row) => row.amount)),
+    entry.record.currency,
+  );
 const openingFees = (entry: TaxDetail) =>
-  taxMoney(money(openingFeeCents(entry)), entry.record.currency);
-const openingAverage = (entry: TaxDetail) => {
-  const total = Number(openingQuantity(entry));
-  if (!total) return "—";
-  const average = Number(openingAmountCents(entry)) / 100 / total;
-  return `${taxNumber(average.toFixed(2))} ${currencyName(entry.record.currency)}`;
-};
+  taxMoney(taxSum(entry.openings.map((row) => row.fee)), entry.record.currency);
+const openingAverage = (entry: TaxDetail) =>
+  taxMoney(
+    taxAverage(
+      taxSum(entry.openings.map((row) => row.amount)),
+      taxSum(entry.openings.map((row) => row.quantity)),
+    ),
+    entry.record.currency,
+  );
 let focus: HTMLElement | null = null;
 let overflow = "";
 onMounted(() => {
@@ -113,7 +96,7 @@ function outside(event: MouseEvent) {
         </button>
       </header>
       <p class="tax-detail-hint">
-        开仓费用计入持仓成本，平仓时按配对数量分摊扣除；本行计入费用包含对应开仓费与平仓费，股息单列。
+        开仓费用计入持仓成本，平仓时按配对数量分摊扣除；本行计入费用包含对应开仓费与平仓费，股息、利息及预扣税单列。
       </p>
       <div class="tax-detail-scroll" tabindex="0" aria-label="年度开平仓明细表">
         <table class="tax-detail-table">
@@ -129,7 +112,9 @@ function outside(event: MouseEvent) {
               </th>
               <th rowspan="2" class="tax-num">本行计入费用</th>
               <th rowspan="2" class="tax-num tax-result-profit">净利润</th>
-              <th rowspan="2" class="tax-num tax-result-dividend">股息收入</th>
+              <th rowspan="2" class="tax-num tax-result-dividend">
+                股息／利息／扣税
+              </th>
             </tr>
             <tr>
               <th class="tax-detail-date">平仓日期</th>
@@ -193,7 +178,17 @@ function outside(event: MouseEvent) {
                 {{ taxMoney(entry.profit, entry.record.currency) }}
               </td>
               <td class="tax-num tax-emphasis tax-result-dividend">
-                {{ taxMoney(entry.dividends, entry.record.currency) }}
+                <template v-if="/[1-9]/.test(entry.withheld_tax || '')">
+                  <small>预扣税（负数为退税）</small>
+                  {{ taxMoney(entry.withheld_tax, entry.record.currency) }}
+                </template>
+                <template v-else-if="/[1-9]/.test(entry.interest || '')">
+                  <small>利息收入</small>
+                  {{ taxMoney(entry.interest, entry.record.currency) }}
+                </template>
+                <template v-else>
+                  {{ taxMoney(entry.dividends, entry.record.currency) }}
+                </template>
               </td>
             </tr>
             <template v-else>
@@ -407,7 +402,7 @@ function outside(event: MouseEvent) {
           <tbody v-if="!entries.length">
             <tr>
               <td colspan="17" class="tax-empty">
-                当前筛选范围没有交易、费用或股息明细。
+                当前筛选范围没有交易、费用、股息或利息明细。
               </td>
             </tr>
           </tbody>

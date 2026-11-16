@@ -55,9 +55,14 @@ export interface TaxSummary {
   fees: string;
   net: string;
   dividends: string;
+  interest: string;
+  withheld_tax: string;
+  dividend_credit: string;
   profit_tax: string | null;
   dividend_tax: string | null;
+  interest_tax: string | null;
   tax: string | null;
+  income_tax_issue: string;
   rate: string | null;
   complete: boolean;
   missing_rate: boolean;
@@ -96,7 +101,39 @@ export interface TaxDetail {
   capitalized_fee: string;
   profit: string;
   dividends: string;
+  interest: string;
+  withheld_tax: string;
   complete: boolean;
+}
+
+const taxScale = 10n ** 12n;
+function taxUnits(value: string): bigint {
+  if (!/^-?\d+(?:\.\d{1,12})?$/.test(value)) {
+    throw new Error("无效的税务金额");
+  }
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  const amount = BigInt(whole!) * taxScale + BigInt(fraction.padEnd(12, "0"));
+  return negative ? -amount : amount;
+}
+
+export function taxSum(values: string[]): string {
+  const total = values.reduce((sum, value) => sum + taxUnits(value), 0n);
+  const absolute = total < 0n ? -total : total;
+  return taxExact(
+    `${total < 0n ? "-" : ""}${absolute / taxScale}.${(absolute % taxScale).toString().padStart(12, "0")}`,
+  );
+}
+
+export function taxAverage(amount: string, quantity: string): string | null {
+  const numerator = taxUnits(amount);
+  const denominator = taxUnits(quantity);
+  if (denominator <= 0n) return null;
+  const absolute = (numerator < 0n ? -numerator : numerator) * 100n;
+  const cents =
+    absolute / denominator +
+    ((absolute % denominator) * 2n >= denominator ? 1n : 0n);
+  return `${numerator < 0n && cents ? "-" : ""}${cents / 100n}.${(cents % 100n).toString().padStart(2, "0")}`;
 }
 
 export function currencyName(currency: string): string {

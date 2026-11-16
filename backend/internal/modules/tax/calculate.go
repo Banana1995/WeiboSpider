@@ -73,9 +73,14 @@ type Summary struct {
 	Fees               string  `json:"fees"`
 	Net                string  `json:"net"`
 	Dividends          string  `json:"dividends"`
+	Interest           string  `json:"interest"`
+	WithheldTax        string  `json:"withheld_tax"`
+	DividendCredit     string  `json:"dividend_credit"`
 	ProfitTax          *string `json:"profit_tax"`
 	DividendTax        *string `json:"dividend_tax"`
+	InterestTax        *string `json:"interest_tax"`
 	Tax                *string `json:"tax"`
+	IncomeTaxIssue     string  `json:"income_tax_issue"`
 	Rate               *string `json:"rate"`
 	Complete           bool    `json:"complete"`
 	MissingRate        bool    `json:"missing_rate"`
@@ -104,21 +109,24 @@ type Detail struct {
 	CapitalizedFee string    `json:"capitalized_fee"`
 	Profit         string    `json:"profit"`
 	Dividends      string    `json:"dividends"`
+	Interest       string    `json:"interest"`
+	WithheldTax    string    `json:"withheld_tax"`
 	Complete       bool      `json:"complete"`
 }
 
 func newDetail(r Record) Detail {
-	return Detail{Record: r, Openings: []Opening{}, Fees: "0", CapitalizedFee: "0", Profit: "0", Dividends: "0", Complete: true}
+	return Detail{Record: r, Openings: []Opening{}, Fees: "0", CapitalizedFee: "0", Profit: "0", Dividends: "0", Interest: "0", WithheldTax: "0", Complete: true}
 }
 
 type amounts struct {
-	year                   int
-	currency               string
-	v                      [amountCount]*big.Rat
-	profitTax, dividendTax *big.Rat
-	missing                bool
-	rate                   *big.Rat
-	rateMissing            bool
+	year                                int
+	currency                            string
+	v                                   [amountCount]*big.Rat
+	profitTax, dividendTax, interestTax *big.Rat
+	incomeTaxIssue                      string
+	missing                             bool
+	rate                                *big.Rat
+	rateMissing                         bool
 }
 
 const (
@@ -138,11 +146,14 @@ const (
 	realizedCloseFees
 	deferredOpenFees
 	unmatchedCloseFees
+	interest
+	withheldTax
+	dividendCredit
 	amountCount
 )
 
 func newAmounts(year int, currency string) *amounts {
-	a := &amounts{year: year, currency: currency, profitTax: zero(), dividendTax: zero()}
+	a := &amounts{year: year, currency: currency, profitTax: zero(), dividendTax: zero(), interestTax: zero()}
 	for i := range a.v {
 		a.v[i] = zero()
 	}
@@ -209,7 +220,7 @@ func poolKey(r Record) string {
 }
 
 func Calculate(records []Record, rates []Rate, filter Filter) Report {
-	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Entries: []Detail{}, Method: "fifo-cost-basis-v2"}
+	result := Report{Rows: []Summary{}, Matches: []Match{}, Missing: []Missing{}, Entries: []Detail{}, Method: "fifo-cost-basis-v3"}
 	ordered := append([]Record{}, records...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].timestamp() != ordered[j].timestamp() {
@@ -231,6 +242,7 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 	}
 	longs, shorts := map[string][]*lot{}, map[string][]*lot{}
 	feeChanges := []feeChange{}
+	income := incomeGroups{}
 	for _, r := range ordered {
 		selected := filter.includes(r)
 		var a *amounts
@@ -242,11 +254,20 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 				continue
 			}
 			entry := newDetail(r)
-			switch r.Reason {
-			case "股息收入":
+			switch classifyCash(r) {
+			case cashDividend:
 				a.v[dividends].Add(a.v[dividends], number(r.Change))
 				entry.Dividends = r.Change
-			case "", "银证转账":
+				income.add(r, a, false)
+			case cashInterest:
+				a.v[interest].Add(a.v[interest], number(r.Change))
+				entry.Interest = r.Change
+			case cashWithholding:
+				tax := sub(zero(), number(r.Change))
+				a.v[withheldTax].Add(a.v[withheldTax], tax)
+				entry.WithheldTax = fixed(tax, 12)
+				income.add(r, a, true)
+			case cashTransfer:
 				continue
 			default:
 				a.v[otherFees].Sub(a.v[otherFees], number(r.Change))
@@ -338,6 +359,7 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 			result.Entries = append(result.Entries, entry)
 		}
 	}
+	income.applyCredits()
 	applyDeferredFees(annual, feeChanges, filter)
 	rateMap := map[string]*big.Rat{}
 	for _, r := range rates {
@@ -364,18 +386,17 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 		}
 		total := totals[a.year]
 		total.missing = total.missing || a.missing
+		total.flagIncomeTax(a.incomeTaxIssue)
 		if a.rate != nil {
 			a.profitTax = mul(mul(positive(a.v[net]), number("0.2")), a.rate)
-			dr := number("0.2")
-			if a.currency == "USD" {
-				dr = number("0.1")
-			}
-			a.dividendTax = mul(mul(positive(a.v[dividends]), dr), a.rate)
+			a.dividendTax = mul(positive(sub(mul(positive(a.v[dividends]), number("0.2")), a.v[dividendCredit])), a.rate)
+			a.interestTax = mul(mul(positive(a.v[interest]), number("0.2")), a.rate)
 			for i := range a.v {
 				total.v[i].Add(total.v[i], mul(a.v[i], a.rate))
 			}
 			total.profitTax.Add(total.profitTax, a.profitTax)
 			total.dividendTax.Add(total.dividendTax, a.dividendTax)
+			total.interestTax.Add(total.interestTax, a.interestTax)
 		} else {
 			total.rateMissing = true
 		}
@@ -396,8 +417,8 @@ func Calculate(records []Record, rates []Rate, filter Filter) Report {
 }
 
 func (a *amounts) summary() Summary {
-	s := Summary{Year: a.year, Currency: a.currency, Complete: !a.missing, MissingRate: a.rateMissing}
-	fields := []*string{&s.SellClose, &s.BuyOpen, &s.BuyClose, &s.SellOpen, &s.Redemption, &s.Subscription, &s.TradeFees, &s.OtherFees, &s.Net, &s.Dividends, &s.Fees, &s.IncurredTradeFees, &s.RealizedOpenFees, &s.RealizedCloseFees, &s.DeferredOpenFees, &s.UnmatchedCloseFees}
+	s := Summary{Year: a.year, Currency: a.currency, Complete: !a.missing, MissingRate: a.rateMissing, IncomeTaxIssue: a.incomeTaxIssue}
+	fields := []*string{&s.SellClose, &s.BuyOpen, &s.BuyClose, &s.SellOpen, &s.Redemption, &s.Subscription, &s.TradeFees, &s.OtherFees, &s.Net, &s.Dividends, &s.Fees, &s.IncurredTradeFees, &s.RealizedOpenFees, &s.RealizedCloseFees, &s.DeferredOpenFees, &s.UnmatchedCloseFees, &s.Interest, &s.WithheldTax, &s.DividendCredit}
 	for i, f := range fields {
 		if a.currency != "CNY" || !a.rateMissing {
 			*f = fixed(a.v[i], 2)
@@ -408,8 +429,12 @@ func (a *amounts) summary() Summary {
 		s.Rate = &rate
 	}
 	if !a.rateMissing {
-		pt, dt, total := fixed(a.profitTax, 2), fixed(a.dividendTax, 2), fixed(add(a.profitTax, a.dividendTax), 2)
-		s.ProfitTax, s.DividendTax, s.Tax = &pt, &dt, &total
+		pt, it := fixed(a.profitTax, 2), fixed(a.interestTax, 2)
+		s.ProfitTax, s.InterestTax = &pt, &it
+		if a.incomeTaxIssue == "" {
+			dt, total := fixed(a.dividendTax, 2), fixed(add(add(a.profitTax, a.dividendTax), a.interestTax), 2)
+			s.DividendTax, s.Tax = &dt, &total
+		}
 	}
 	return s
 }

@@ -77,7 +77,7 @@ func TestCashClassificationMissingRatesAndAggregateRounding(t *testing.T) {
 	require.Equal(t, "2.00", *h.Tax)
 	require.Nil(t, find(t, r, 2025, "USD").Tax)
 	require.Empty(t, find(t, r, 2025, "CNY").Net)
-	r = Calculate([]Record{cash("20250101", "股息收入", "HKD", "0.02"), cash("20250101", "股息收入", "USD", "0.04")}, []Rate{{Year: 2025, Currency: "HKD", Value: "1"}, {Year: 2025, Currency: "USD", Value: "1"}}, Filter{})
+	r = Calculate([]Record{cash("20250101", "股息收入", "HKD", "0.02"), cash("20250101", "股息收入", "USD", "0.02")}, []Rate{{Year: 2025, Currency: "HKD", Value: "1"}, {Year: 2025, Currency: "USD", Value: "1"}}, Filter{})
 	require.Equal(t, "0.00", *find(t, r, 2025, "HKD").Tax)
 	require.Equal(t, "0.00", *find(t, r, 2025, "USD").Tax)
 	require.Equal(t, "0.01", *find(t, r, 2025, "CNY").Tax)

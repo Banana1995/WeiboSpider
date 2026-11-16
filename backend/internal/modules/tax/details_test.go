@@ -13,7 +13,7 @@ func requireDetailsReconcile(t *testing.T, report Report) {
 		if row.Currency == "CNY" {
 			continue
 		}
-		profit, fees, dividend := zero(), zero(), zero()
+		profit, fees, dividend, interest, withheld := zero(), zero(), zero(), zero(), zero()
 		for _, entry := range report.Entries {
 			year, _ := strconv.Atoi(entry.Record.Date[:4])
 			if year != row.Year || entry.Record.Currency != row.Currency {
@@ -22,10 +22,14 @@ func requireDetailsReconcile(t *testing.T, report Report) {
 			profit.Add(profit, number(entry.Profit))
 			fees.Add(fees, number(entry.Fees))
 			dividend.Add(dividend, number(entry.Dividends))
+			interest.Add(interest, number(entry.Interest))
+			withheld.Add(withheld, number(entry.WithheldTax))
 		}
 		require.Equal(t, row.Net, fixed(profit, 2))
 		require.Equal(t, row.Fees, fixed(fees, 2))
 		require.Equal(t, row.Dividends, fixed(dividend, 2))
+		require.Equal(t, row.Interest, fixed(interest, 2))
+		require.Equal(t, row.WithheldTax, fixed(withheld, 2))
 	}
 }
 func TestAnnualDetailsPreserveAccountsAndCountFeesOnce(t *testing.T) {

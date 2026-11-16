@@ -144,6 +144,7 @@ function profitTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
   return `${taxNumber(row.net)} ${currencyName(row.currency)} × 20% × ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.profit_tax)} 人民币`;
 }
 function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
+  if (row.income_tax_issue) return row.income_tax_issue;
   if (!row.dividend_tax) return "缺少年度汇率，暂时无法折算税额。";
   if (row.currency === "CNY") {
     const parts = rows
@@ -156,8 +157,11 @@ function dividendTaxTip(row: TaxSummary, rows: TaxSummary[]): string {
       ? `按币种分别计算后合计：${parts.join(" ＋ ")} ＝ ${taxNumber(row.dividend_tax)} 人民币`
       : "没有股息收入，股息税额为 0。";
   }
-  const rate = row.currency === "USD" ? "10%" : "20%";
-  return `${taxNumber(row.dividends)} ${currencyName(row.currency)} × ${rate} × ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
+  const credit =
+    row.currency === "USD"
+      ? ` − 已抵预扣税 ${taxNumber(row.dividend_credit)} ${currencyName(row.currency)}`
+      : "";
+  return `（${taxNumber(row.dividends)} ${currencyName(row.currency)} × 20%${credit}）× ${row.rate ? taxExact(row.rate) : "—"} ＝ ${taxNumber(row.dividend_tax)} 人民币`;
 }
 const readyFiles = computed(() =>
   pending.value.filter((p) => p.preview && !p.imported && !p.error),
@@ -586,8 +590,8 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                     label="已实现净利润说明"
                   />
                 </th>
-                <th class="tax-num">股息收入</th>
-                <th class="tax-num">估算税额（元）</th>
+                <th class="tax-num">股息／利息</th>
+                <th class="tax-num">预计应补税额（元）</th>
                 <th>明细</th>
               </tr>
             </thead>
@@ -617,6 +621,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 <td
                   v-for="c in summaryColumns"
                   :key="c[0]"
+                  :data-field="c[0]"
                   class="tax-num"
                   :class="{ 'tax-group-end': groupEnds.has(String(c[0])) }"
                 >
@@ -637,18 +642,32 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
                 </td>
                 <td class="tax-num">
                   {{ taxMoney(r.dividends, r.currency) }}
+                  <small v-if="/[1-9]/.test(r.withheld_tax || '')">
+                    预扣税 {{ taxMoney(r.withheld_tax, r.currency) }}
+                  </small>
                   <small
-                    >税额<TaxTip
+                    >股息应补<TaxTip
                       :text="dividendTaxTip(r, group.rows)"
                       label="股息税额计算"
                     />{{ taxMoney(r.dividend_tax, "CNY") }}</small
                   >
+                  <template v-if="/[1-9]/.test(r.interest || '')">
+                    <small>利息 {{ taxMoney(r.interest, r.currency) }}</small>
+                    <small
+                      >利息应补（20%）{{
+                        taxMoney(r.interest_tax, "CNY")
+                      }}</small
+                    >
+                  </template>
                 </td>
                 <td class="tax-num tax-emphasis">
                   {{ taxMoney(r.tax, "CNY") }}
                   <small v-if="r.missing_rate" class="tax-error-text"
                     >缺少年度汇率</small
                   >
+                  <small v-if="r.income_tax_issue" class="tax-error-text">
+                    {{ r.income_tax_issue }}
+                  </small>
                 </td>
                 <td>
                   <button
@@ -742,12 +761,16 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
             HKD／USD。采用先进先出，开仓交易费用计入对应持仓成本，平仓时按匹配数量分摊扣除，未平仓部分结转；平仓费用按已匹配数量计入损益。“期内发生”只作现金费用核对，不重复扣减利润。“期末待结转开仓费”按原始开仓账户汇总至所选截止日期。
           </p>
           <p>
-            “股息收入”单列，“银证转账”不计收益，其他非空变动原因仍单列为其他费用。独立费用的税前扣除资格须按具体项目核实；空原因资金只保留流水。费用分摊采用精确小数计算后汇总展示。
+            股息、利息收入和明确标注的预扣税分别识别；利息按 20%
+            计税，不参与交易盈亏互抵。“银证转账”不计收益，其他非空变动原因仍单列为其他费用。独立费用的税前扣除资格须按具体项目核实；无法识别的空原因资金只保留流水。费用分摊采用精确小数计算后汇总展示。
           </p>
           <p>
-            交易利润按每币种正收益的 20% 估算；港元股息 20%，美元股息按已扣约
-            10% 后再补 10% 的简化口径。股息保留 CSV
-            原金额，不自动调整税前税后。原币合计后折人民币，金额最终保留两位。期权不属于此格式的支持范围。
+            交易利润按每币种正收益的 20% 估算。港元股息按 CSV 中“股息收入”金额的
+            20% 计算，含 (-10%)／NET 的备注沿用入账金额。美元股息按税前金额的
+            20%
+            减去实际可抵免预扣税，同账户、同年度、同证券归集扣税及退税；未匹配或超出普通美股
+            10%
+            预扣口径的记录提示核对，股息应补及合计暂不出数。原币合计后折人民币，金额最终保留两位。期权不属于此格式的支持范围。
           </p>
           <p>
             交易手续费按持仓成本归属核算，申报和缴款由官方税务渠道完成。<a

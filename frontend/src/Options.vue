@@ -290,6 +290,8 @@ function selectStock(code: string) {
   selected.value = code;
   resetFilters();
   page.value = newPage();
+  // A notice from the previous stock must not follow the user to another one.
+  message.value = "";
 }
 function selectStrategy(side: OptionSide) {
   if (optionType.value === side) return;
@@ -427,7 +429,6 @@ async function addStock(value: Instrument) {
     watchlist.value = (await api<{ items: Watch[] }>("/watchlist")).items;
     modal.value = "";
     selectStock(value.code);
-    message.value = `已打开 ${symbolLabel(value.code)} 的 ${strategyName.value} 期权链`;
   });
 }
 function openDetail(value: Candidate) {

@@ -95,20 +95,13 @@ npm run dev
 
 2026-11-17：用户指出未要求网页登录密码，已移除 Basic Auth 与密码文件挂载。需求审计交付后，用户要求先推送部署，现恢复发布；这不代表用户逐项确认了助手自拟默认值。当前代码是共享工作区，访问者可通过入口读写自选和收藏；内部平台令牌不是用户认证。
 
-当前配置使用 `docker-compose.options.yml` 叠加 Compose，原 HTTP 5052 拒绝 `/options` 和 options API，独立 `options-entry` 提供无网页登录密码的 HTTPS 页面。平台端继续验证内部服务令牌和同源写入。
+用户随后明确选择现有5052入口：`http://43.130.247.183:5052/options`。已撤掉原HTTP封锁、独立`options-entry`和证书前置；页面与API由现有`market-entry`代理，无网页登录密码。平台端继续验证内部服务令牌和同源写入。
 
 准备仓库外私有 `/opt/weibospider-private/options/compose.env`（目录权限700、文件600），内容形状如下，替换为实际值。登录密码只输入官方OpenD，不写入此文件：
 
 ```dotenv
 FUTU_LOGIN_ACCOUNT=<富途登录帐号>
-OPTIONS_PRIVATE_DIR=/opt/weibospider-private/options
-OPTIONS_HTTPS_PORT=443
 ```
-
-`OPTIONS_PRIVATE_DIR` 位于仓库外，目录权限 700，保存：
-
-- `fullchain.pem`：与最终 HTTPS 域名或 IP 匹配的有效证书链。
-- `privkey.pem`：证书私钥，权限 600，Nginx master 可读。
 
 OpenD 与 SDK 均固定为 `10.12.7208`。OpenD 使用官方 Ubuntu 压缩包并校验 SHA-256，Dockerfile 只复制命令行发行目录，不把 GUI 带入运行镜像。官方原始下载包约 469 MB，需要先确认服务器构建空间。
 
@@ -116,7 +109,7 @@ OpenD 与 SDK 均固定为 `10.12.7208`。OpenD 使用官方 Ubuntu 压缩包并
 
 ```bash
 source scripts/compose-command.sh
-"${COMPOSE[@]}" build futu-opend option-quotes options-entry platform
+"${COMPOSE[@]}" build futu-opend option-quotes market-entry platform
 "${COMPOSE[@]}" run --rm --no-deps futu-opend -console=1
 ```
 
@@ -128,9 +121,9 @@ source scripts/compose-command.sh
 
 `futu-login` 卷保存整个 OpenD 用户目录，账号状态和日志不进镜像、不进 Git；11111 与适配层 5053 均不映射到宿主机公网端口。现有 `platform-data` 卷中新增 `options.db`，不复用账本或税务库。
 
-`update.sh` / `install.sh` 通过 `scripts/compose-command.sh` 检查仓库外私有环境文件，可用 `OPTIONS_ENV_FILE` 指定其他路径；兼容旧 `.env.options`。文件存在时使用同一 overlay，后续发布仍更新期权服务。平台重建后重新启动两个 Nginx 入口以刷新上游地址。没有期权环境文件时仍使用原三服务部署。
+`update.sh` / `install.sh` 通过 `scripts/compose-command.sh` 检查仓库外私有环境文件，可用 `OPTIONS_ENV_FILE` 指定其他路径；兼容旧 `.env.options`。文件存在时使用同一 overlay，后续发布仍更新期权服务。平台重建后重新启动`market-entry`刷新上游地址，并检查期权状态接口。没有期权环境文件时仍使用原三服务部署。
 
-当前容器内存上限是初始保护边界（OpenD 512 MiB、适配层 384 MiB、私有入口 64 MiB），不是已经验收的常驻占用。上线前应在目标 Linux 主机验证官方二进制、首次登录、证书及常驻／峰值内存；本地 macOS 浏览器验收不能替代 Linux 容器运行验收。
+当前容器内存上限是初始配置（OpenD 512 MiB、适配层384 MiB），不是实际常驻占用。目标Linux主机的官方二进制、首次登录及资源验证另记生产验收；本地macOS浏览器验收不能替代Linux容器运行验收。
 
 ## 存储、保留及恢复
 
@@ -176,4 +169,4 @@ npm run format:check
 python3 scripts/check-options-entry.py
 ```
 
-该检查生成一次性本地证书和测试内部令牌，验证无网页登录密码的HTTPS页面／API、旧HTTP路由和内部令牌注入，结束后清理。真实富途取数由用户明确触发；参见 [首版验收](../validation/2026-11-13-options.md)及 [卖 Call 验收](../validation/2026-11-16-options-call.md)。
+该检查使用临时本地Nginx及测试内部令牌，验证同一HTTP入口的页面／API、无网页登录密码、未开放API路由和内部令牌注入，结束后清理。真实富途取数由用户明确触发；参见 [首版验收](../validation/2026-11-13-options.md)及 [卖 Call 验收](../validation/2026-11-16-options-call.md)。

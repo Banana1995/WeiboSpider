@@ -44,7 +44,7 @@
 - 卖 Put 按现金担保、卖 Call 按每份100股备兑测算，都取 Bid 卖出参考价。Call 的收入率基数是股票参考市值，交股金额与含权利金卖出价单列；持股成本仅用于独立情景，未知时不计算备兑合计盈亏。计算版本 `option-premium-act365-v2`，旧收藏保留原版本。
 - 迁移004按股票／PUT或CALL隔离目录、latest和每日摘要，原数据归入PUT但不改原始快照／收藏JSON；旧Put回执可重放，跨类型刷新不合并。切换类型只读缓存，每股条件与默认方案分别保存。列表按当前美东日期排除到期当日及更早合约，旧快照的年化仍沿用原估值日期。
 - 收藏是独立冻结副本，保存行情、输入、结果、费用版本和估值日期；删除自选、合约到期、清理行情及重启不改写收藏。只按用户取消操作删除。
-- 2026-11-17 用户明确没有要求网页登录密码：已移除 `options-entry` 的 Basic Auth 与 htpasswd 挂载，不得再自行加回。独立 HTTPS 入口、原 5052 拒绝 options 及其余自拟默认值已列入需求审计；审计交付后用户要求先推送部署，发布恢复，但不等于逐项确认全部默认值。Go内部服务令牌与网页登录密码不同。期权环境文件默认在仓库外 `/opt/weibospider-private/options/compose.env`（可用 `OPTIONS_ENV_FILE` 指定，兼容旧 `.env.options`）。
+- 2026-11-17 用户明确不要求网页登录密码；审计后要求恢复推送部署，并明确选择现有 `http://43.130.247.183:5052/options`。已删除Basic Auth／htpasswd、独立`options-entry`、证书前置和原HTTP封锁，不得自行加回。其余自拟默认值已披露，本次发布不等于逐项确认全部默认值。Go内部服务令牌与网页登录密码不同。期权环境文件默认在仓库外 `/opt/weibospider-private/options/compose.env`（可用 `OPTIONS_ENV_FILE` 指定，兼容旧 `.env.options`）。
 - 测试：Go `make check/test`，Python `services/option-quotes/tests`，前端 `npm run test:options-e2e`，入口 `python3 scripts/check-options-entry.py`。浏览器测试使用隔离 SQLite 与 SDK fixture；真实富途验证和生产验收分别记录。
 - 指南：[期权工具](docs/guides/options.md)；验收：[首版本地验收](docs/validation/2026-11-13-options.md)、[卖Call验收](docs/validation/2026-11-16-options-call.md)。
 

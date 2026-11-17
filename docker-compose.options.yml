@@ -40,32 +40,5 @@ services:
       driver: json-file
       options: { max-size: 5m, max-file: "3" }
 
-  options-entry:
-    build:
-      context: ./frontend
-    restart: unless-stopped
-    ports:
-      - "${OPTIONS_HTTPS_PORT:-443}:8443"
-    env_file:
-      - .env.platform
-    volumes:
-      - type: bind
-        source: ./frontend/nginx.options.conf.template
-        target: /etc/nginx/templates/default.conf.template
-        read_only: true
-      - type: bind
-        source: ${OPTIONS_PRIVATE_DIR:?Set OPTIONS_PRIVATE_DIR}/fullchain.pem
-        target: /run/options/fullchain.pem
-        read_only: true
-        bind: { create_host_path: false }
-      - type: bind
-        source: ${OPTIONS_PRIVATE_DIR}/privkey.pem
-        target: /run/options/privkey.pem
-        read_only: true
-        bind: { create_host_path: false }
-    depends_on:
-      - platform
-    mem_limit: 64m
-
 volumes:
   futu-login:

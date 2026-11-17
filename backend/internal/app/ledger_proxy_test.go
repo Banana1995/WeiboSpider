@@ -24,7 +24,7 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	for _, location := range locations {
 		pattern, body := strings.TrimSpace(location[1]), location[2]
 		if strings.Contains(body, "${BACKEND_API_TOKEN}") {
-			require.Contains(t, []string{"/api/platform/liquor/", "^~ /api/platform/tax/"}, pattern, "internal token must only reach reviewed routes")
+			require.Contains(t, []string{"/api/platform/liquor/", "^~ /api/platform/tax/", "^~ /api/platform/options/"}, pattern, "internal token must only reach reviewed routes")
 		}
 		switch pattern {
 		case "= /mcp":
@@ -62,9 +62,12 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 			require.Contains(t, body, `return 404 '{"code":"not_found","message":"route not found"}';`)
 			require.NotContains(t, body, "proxy_")
 			require.NotContains(t, body, "try_files")
-		case "~ ^/options(?:/|$)":
-			require.Contains(t, body, "return 404;")
-			require.NotContains(t, body, "proxy_")
+		case "^~ /api/platform/options/":
+			require.Contains(t, body, "proxy_pass http://platform:5051;")
+			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
+			require.Contains(t, body, "proxy_set_header Host $http_host;")
+			require.Contains(t, body, "client_max_body_size 64k;")
+			require.NotContains(t, body, "auth_basic")
 		default:
 			require.Contains(t, []string{"= /healthz", "/"}, pattern, "review new locations for private API bypasses")
 		}
@@ -73,12 +76,12 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	require.True(t, ledgerProxy)
 	require.True(t, taxProxy)
 	require.True(t, platformDenied)
-	proxies := 3
+	proxies := 4
 	if archiveProxy {
 		proxies++
 	}
 	require.Equal(t, proxies, strings.Count(config, "proxy_pass"))
-	require.Equal(t, 2, strings.Count(config, "${BACKEND_API_TOKEN}"))
+	require.Equal(t, 3, strings.Count(config, "${BACKEND_API_TOKEN}"))
 }
 
 func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {

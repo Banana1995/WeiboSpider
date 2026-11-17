@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Exercise the no-login HTTPS template with disposable local TLS fixtures."""
+"""Exercise the shared HTTP options entry without browser authentication."""
 import http.server
 import os
 from pathlib import Path
 import secrets
 import shutil
 import socket
-import ssl
 import subprocess
 import tempfile
 import threading
@@ -19,7 +18,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     nginx = os.getenv("NGINX_BIN") or shutil.which("nginx")
     if not nginx:
-        raise SystemExit("nginx is required for this local HTTPS route test")
+        raise SystemExit("nginx is required for this local route test")
     token = secrets.token_urlsafe(32)
     seen = []
 
@@ -36,35 +35,29 @@ def main():
 
     upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
     threading.Thread(target=upstream.serve_forever, daemon=True).start()
-    ports = []
-    for _ in range(2):
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            ports.append(sock.getsockname()[1])
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
     with tempfile.TemporaryDirectory(prefix="options-entry-", dir=os.getenv("OPTIONS_E2E_ROOT")) as work:
         work = Path(work)
-        cert, key = work / "fullchain.pem", work / "privkey.pem"
-        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-                        "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost",
-                        "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
-        os.chmod(key, 0o600)
-        (work / "index.html").write_text("<!doctype html><title>private options fixture</title>")
+        (work / "index.html").write_text("<!doctype html><title>options fixture</title>")
         (work / "assets").mkdir()
-        (work / "assets" / "probe.js").write_text("// protected asset\n")
-        configurations = []
-        for filename, port, old in (("nginx.conf.template", ports[0], "listen 8080;"),
-                                     ("nginx.options.conf.template", ports[1], "listen 8443 ssl;")):
-            text = (root / "frontend" / filename).read_text()
-            text = text.replace(old, f"listen 127.0.0.1:{port}" + (" ssl;" if "ssl" in old else ";"))
-            text = text.replace("/usr/share/nginx/html", str(work)).replace("/run/options", str(work))
-            text = text.replace("http://platform:5051", f"http://127.0.0.1:{upstream.server_port}")
-            text = text.replace("${BACKEND_API_TOKEN}", token)
-            configurations.append(text)
+        (work / "assets" / "probe.js").write_text("// public asset\n")
+        text = (root / "frontend" / "nginx.conf.template").read_text()
+        text = text.replace("listen 8080;", f"listen 127.0.0.1:{port};")
+        text = text.replace("/usr/share/nginx/html", str(work))
+        text = text.replace("http://platform:5051", f"http://127.0.0.1:{upstream.server_port}")
+        text = text.replace("${BACKEND_API_TOKEN}", token)
         config = work / "nginx.conf"
-        config.write_text(f"pid {work}/nginx.pid;\nerror_log {work}/error.log;\nevents {{}}\nhttp {{ access_log off;\n" + "\n".join(configurations) + "\n}\n")
+        config.write_text(f"pid {work}/nginx.pid;\nerror_log {work}/error.log;\nevents {{}}\nhttp {{ access_log off;\n" + text + "\n}\n")
         subprocess.run([nginx, "-p", str(work) + "/", "-c", str(config), "-t"], check=True, capture_output=True)
         process = subprocess.Popen([nginx, "-p", str(work) + "/", "-c", str(config), "-g", "daemon off;"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        context = ssl.create_default_context(cafile=str(cert))
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
 
         def get(url, auth=False):
             headers = {}
@@ -73,14 +66,14 @@ def main():
                 headers["Authorization"] = "Basic dGVzdDp0ZXN0"
             req = urllib.request.Request(url, headers=headers)
             try:
-                with urllib.request.urlopen(req, context=context, timeout=2) as response:
+                with opener.open(req, timeout=2) as response:
+                    assert not response.headers.get("WWW-Authenticate"), "unexpected browser authentication"
                     return response.status, response.read()
             except urllib.error.HTTPError as error:
                 return error.code, error.read()
 
         try:
-            public = f"http://127.0.0.1:{ports[0]}"
-            private = f"https://127.0.0.1:{ports[1]}"
+            public = f"http://127.0.0.1:{port}"
             for attempt in range(40):
                 try:
                     if get(public + "/healthz")[0] == 200:
@@ -90,24 +83,25 @@ def main():
                         raise RuntimeError("test nginx exited")
                     time.sleep(.05)
             checks = [
-                (public + "/options", False, 404),
-                (public + "/options/", False, 404),
-                (public + "/api/platform/options/status", False, 404),
-                (private + "/options", False, 200),
-                (private + "/assets/probe.js", False, 200),
-                (private + "/api/platform/options/status", False, 200),
-                (private + "/options", True, 200),
-                (private + "/options/", True, 200),
-                (private + "/assets/probe.js", True, 200),
-                (private + "/api/platform/options/status", True, 200),
-                (private + "/api/platform/ledger/accounts", True, 404),
-                (private + "/index.html", True, 404),
+                (public + "/options", False, 200),
+                (public + "/options/", False, 200),
+                (public + "/assets/probe.js", False, 200),
+                (public + "/api/platform/options/status", False, 200),
+                (public + "/options", True, 200),
+                (public + "/api/platform/options/status", True, 200),
+                (public + "/api/platform/unknown", False, 404),
+                (public + "/api/platform/options", False, 301),
+                (public + "/api/platform/options-other/status", False, 404),
+                (public + "/ledger", False, 200),
+                (public + "/tax", False, 200),
+                (public + "/liquor", False, 200),
             ]
             for url, auth, expected in checks:
-                actual, _ = get(url, auth)
+                actual, body = get(url, auth)
                 assert actual == expected, (url, expected, actual)
+                assert token.encode() not in body, "internal token leaked in response"
             assert seen == [("/api/platform/options/status", True)] * 2, seen
-            print(f"PASS: {len(checks)} no-login HTTPS/public-route checks; internal bearer injection verified")
+            print(f"PASS: {len(checks)} shared HTTP route checks; no browser login; internal bearer injection verified")
         finally:
             process.terminate()
             process.wait(timeout=10)

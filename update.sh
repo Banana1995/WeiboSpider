@@ -29,10 +29,6 @@ echo "→ 重建镜像并重启容器..."
 # 未重建的 market-entry 仍指向旧 IP，导致 /api/platform 502。
 echo "→ 刷新入口反向代理的上游地址..."
 "${COMPOSE[@]}" restart market-entry >/dev/null
-if [ -s "$OPTIONS_ENV_FILE" ]; then
-    "${COMPOSE[@]}" restart options-entry >/dev/null
-    "${COMPOSE[@]}" exec -T options-entry nginx -t
-fi
 
 # 2. 健康检查
 echo "→ 健康检查微博服务..."
@@ -56,7 +52,9 @@ fi
 echo "→ 健康检查白酒行情服务..."
 for i in $(seq 1 30); do
     if curl -sf http://localhost:5052/healthz >/dev/null 2>&1 \
-        && curl -sf http://localhost:5052/api/platform/liquor/latest >/dev/null 2>&1; then
+        && curl -sf http://localhost:5052/api/platform/liquor/latest >/dev/null 2>&1 \
+        && { [ ! -s "$OPTIONS_ENV_FILE" ] || curl -sf http://localhost:5052/api/platform/options/status >/dev/null 2>&1; }; then
+        "${COMPOSE[@]}" exec -T market-entry nginx -t
         echo ""
         echo "✓ 更新成功"
         SERVER_IP=$(hostname -I | awk '{print $1}')

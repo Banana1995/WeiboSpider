@@ -66,6 +66,26 @@
   font-size: 0.875rem;
   font-weight: 500;
 }
+.opt-modules {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 0.8125rem;
+}
+.opt-modules a {
+  color: var(--opt-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.opt-modules a:hover {
+  color: var(--opt-green);
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+.opt-modules a[aria-current] {
+  color: var(--opt-green);
+  font-weight: 600;
+}
 .opt-header-actions,
 .opt-inline {
   display: flex;
@@ -876,8 +896,16 @@
 }
 @media (max-width: 620px) {
   .opt-masthead {
+    flex-wrap: wrap;
     padding: 12px;
     gap: 8px;
+  }
+  .opt-modules {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: center;
+    gap: 16px;
+    font-size: 0.75rem;
   }
   .opt-brand {
     gap: 7px;

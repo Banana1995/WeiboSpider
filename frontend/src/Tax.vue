@@ -336,7 +336,8 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
       <nav aria-label="模块导航">
         <a :href="weiboURL">微博管理</a><a href="/liquor">白酒行情</a
         ><a href="/ledger">投资账本</a
-        ><a href="/tax" aria-current="page">税务计算</a>
+        ><a href="/tax" aria-current="page">税务计算</a
+        ><a href="/options">期权</a>
       </nav>
     </header>
     <main class="tax-main">

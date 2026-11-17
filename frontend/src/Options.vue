@@ -639,6 +639,11 @@ onBeforeUnmount(() => {
         ><span class="opt-brand-divider"></span
         ><span class="opt-brand-sub">期权</span>
       </div>
+      <nav class="opt-modules" aria-label="模块导航">
+        <a href="/liquor">白酒行情</a><a href="/ledger">投资账本</a
+        ><a href="/tax">税务计算</a
+        ><a href="/options" aria-current="page">期权</a>
+      </nav>
       <div class="opt-header-actions">
         <button class="opt-btn opt-quiet" @click="modal = 'settings'">
           设置</button

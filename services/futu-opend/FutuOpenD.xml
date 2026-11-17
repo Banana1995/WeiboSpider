@@ -1,0 +1,10 @@
+<futu_opend>
+  <ip>0.0.0.0</ip>
+  <api_port>11111</api_port>
+  <lang>chs</lang>
+  <log_level>info</log_level>
+  <log_path>/home/app/logs</log_path>
+  <push_proto_type>0</push_proto_type>
+  <price_reminder_push>0</price_reminder_push>
+  <auto_hold_quote_right>0</auto_hold_quote_right>
+</futu_opend>

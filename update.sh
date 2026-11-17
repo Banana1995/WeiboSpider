@@ -21,13 +21,18 @@ if [ ! -s .env.platform ]; then
 fi
 
 # 1. 重建并重启容器（--build 失败不影响已运行容器）
+source scripts/compose-command.sh
 echo "→ 重建镜像并重启容器..."
-docker compose up -d --build
+"${COMPOSE[@]}" up -d --build
 
 # Nginx 在启动时解析 upstream 并缓存地址；platform 重建后 IP 变化时，
 # 未重建的 market-entry 仍指向旧 IP，导致 /api/platform 502。
 echo "→ 刷新入口反向代理的上游地址..."
-docker compose restart market-entry >/dev/null
+"${COMPOSE[@]}" restart market-entry >/dev/null
+if [ -s "$OPTIONS_ENV_FILE" ]; then
+    "${COMPOSE[@]}" restart options-entry >/dev/null
+    "${COMPOSE[@]}" exec -T options-entry nginx -t
+fi
 
 # 2. 健康检查
 echo "→ 健康检查微博服务..."

@@ -54,7 +54,8 @@ fi
 
 # 6. 构建并启动
 echo "→ 构建镜像并启动容器（首次可能需 2-3 分钟）..."
-docker compose up -d --build
+source scripts/compose-command.sh
+"${COMPOSE[@]}" up -d --build
 
 # 7. 健康检查
 echo "→ 等待服务启动..."

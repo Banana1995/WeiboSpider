@@ -62,6 +62,9 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 			require.Contains(t, body, `return 404 '{"code":"not_found","message":"route not found"}';`)
 			require.NotContains(t, body, "proxy_")
 			require.NotContains(t, body, "try_files")
+		case "~ ^/options(?:/|$)":
+			require.Contains(t, body, "return 404;")
+			require.NotContains(t, body, "proxy_")
 		default:
 			require.Contains(t, []string{"= /healthz", "/"}, pattern, "review new locations for private API bypasses")
 		}
@@ -84,8 +87,8 @@ func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "vite.config.ts"))
 	require.NoError(t, err)
 	paths := regexp.MustCompile(`"(/api/platform[^"]*)":`).FindAllStringSubmatch(string(data), -1)
-	require.Len(t, paths, 2)
-	require.ElementsMatch(t, []string{"/api/platform/liquor/", "/api/platform/tax/"}, []string{paths[0][1], paths[1][1]})
+	require.Len(t, paths, 3)
+	require.ElementsMatch(t, []string{"/api/platform/liquor/", "/api/platform/tax/", "/api/platform/options/"}, []string{paths[0][1], paths[1][1], paths[2][1]})
 	require.Contains(t, string(data), "...ledger.proxy")
 	boundary, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "dev", "ledger-proxy.ts"))
 	require.NoError(t, err)

@@ -13,3 +13,7 @@ server.log
 venv/
 *.pid
 .env.platform
+.env.options
+*.db.lock
+services/option-quotes/.venv/
+services/futu-opend/runtime/

@@ -13,6 +13,7 @@ import (
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/ledger"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/liquor"
+	"github.com/Banana1995/WeiboSpider/backend/internal/modules/options"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/tax"
 )
 
@@ -21,6 +22,8 @@ type Application struct {
 	db              *database.DB
 	ledgerDB        *database.DB
 	taxStore        *tax.Store
+	optionsStore    *options.Store
+	optionsScanner  *options.Scanner
 	source          *liquor.SinaSource
 	worker          *liquor.Worker
 	ledgerWorker    *ledger.WeeklyWorker
@@ -59,6 +62,18 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 		return nil, errors.Join(err, application.Close())
 	}
 	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient()}.Register(mux)
+	if cfg.OptionsEnabled {
+		application.optionsStore, err = options.Open(ctx, cfg.DataDir, cfg.OptionsLimits)
+		if err != nil {
+			return nil, errors.Join(err, application.Close())
+		}
+		provider, providerErr := options.NewHTTPProvider(cfg.OptionsQuotesURL)
+		if providerErr != nil {
+			return nil, errors.Join(providerErr, application.Close())
+		}
+		application.optionsScanner = options.NewScanner(ctx, application.optionsStore, provider)
+		options.Handler{Store: application.optionsStore, Scanner: application.optionsScanner, Provider: provider}.Register(mux)
+	}
 	if cfg.LedgerEnabled {
 		application.ledgerDB, err = ledger.Open(ctx, cfg.DataDir)
 		if err != nil {
@@ -181,8 +196,14 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 func (a *Application) Close() error {
 	a.source.Close()
 	var err error
+	if a.optionsScanner != nil {
+		a.optionsScanner.Close()
+	}
+	if a.optionsStore != nil {
+		err = errors.Join(err, a.optionsStore.Close())
+	}
 	if a.taxStore != nil {
-		err = a.taxStore.Close()
+		err = errors.Join(err, a.taxStore.Close())
 	}
 	if a.ledgerDB != nil {
 		err = errors.Join(err, a.ledgerDB.Close())

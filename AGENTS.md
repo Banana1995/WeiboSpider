@@ -35,6 +35,19 @@
 - 查询默认不依赖行情；流水游标绑定账户、持仓版本、业务日和筛选。升级后关闭开关需继续使用认识 008 的程序，旧 007 程序不能直接打开升级后的库。
 - 规格：[设计与路线图](docs/specs/2026-10-25-ledger-mcp.md)、[严格字段契约](docs/specs/2026-11-06-ledger-mcp-strict.md)；[接入指南](docs/guides/ledger-mcp.md)；[初版验收](docs/validation/2026-10-25-ledger-mcp.md)、[本轮验收](docs/validation/2026-11-06-ledger-mcp.md)。
 
+## 美股卖出期权工具（Put / Call，2026-11-16）
+
+- Vue `/options`、Go `internal/modules/options`、独立 `options.db`；本地实现及验收已完成，生产发布状态以实际部署为准。
+- 行情仅由用户明确点击“更新行情”发起。页面加载、自选添加／切换、筛选、收藏读取和服务启动不采集。状态查询只读；重启将运行任务标记中断，不自动补抓。名称搜索可按需查询静态证券目录，不取报价。
+- 官方 OpenD／Python SDK 固定 10.12.7208，`services/option-quotes` 只使用 `OpenQuoteContext`。11111 与适配服务不公开映射；账户登录只在官方 OpenD 完成。
+- 金额以十进制字符串传输，Go 精确有理数计算，排序和筛选采用未舍入值。未知费用不补零，0 Bid／缺失／非标准合约不伪造收益；到期日及年化天数按美东 civil day，采集及收藏时间按北京显示。
+- 卖 Put 按现金担保、卖 Call 按每份100股备兑测算，都取 Bid 卖出参考价。Call 的收入率基数是股票参考市值，交股金额与含权利金卖出价单列；持股成本仅用于独立情景，未知时不计算备兑合计盈亏。计算版本 `option-premium-act365-v2`，旧收藏保留原版本。
+- 迁移004按股票／PUT或CALL隔离目录、latest和每日摘要，原数据归入PUT但不改原始快照／收藏JSON；旧Put回执可重放，跨类型刷新不合并。切换类型只读缓存，每股条件与默认方案分别保存。列表按当前美东日期排除到期当日及更早合约，旧快照的年化仍沿用原估值日期。
+- 收藏是独立冻结副本，保存行情、输入、结果、费用版本和估值日期；删除自选、合约到期、清理行情及重启不改写收藏。只按用户取消操作删除。
+- 2026-11-17 用户明确没有要求网页登录密码：已移除 `options-entry` 的 Basic Auth 与 htpasswd 挂载，不得再自行加回。独立 HTTPS 入口、原 5052 拒绝 options 及其余自拟默认值已列入需求审计；审计交付后用户要求先推送部署，发布恢复，但不等于逐项确认全部默认值。Go内部服务令牌与网页登录密码不同。期权环境文件默认在仓库外 `/opt/weibospider-private/options/compose.env`（可用 `OPTIONS_ENV_FILE` 指定，兼容旧 `.env.options`）。
+- 测试：Go `make check/test`，Python `services/option-quotes/tests`，前端 `npm run test:options-e2e`，入口 `python3 scripts/check-options-entry.py`。浏览器测试使用隔离 SQLite 与 SDK fixture；真实富途验证和生产验收分别记录。
+- 指南：[期权工具](docs/guides/options.md)；验收：[首版本地验收](docs/validation/2026-11-13-options.md)、[卖Call验收](docs/validation/2026-11-16-options-call.md)。
+
 ## 税务计算（2026-10-23）
 
 - 与投资账本平级：Vue `/tax`、Go `/api/platform/tax/`、独立 `tax.db`，不读写账本资料。

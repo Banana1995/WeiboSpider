@@ -10,6 +10,21 @@ server {
         return 200 "ok\n";
     }
 
+    location = /mcp {
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        set $archive_upstream value-explore:5053;
+        proxy_pass http://$archive_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        client_max_body_size 1m;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 120s;
+    }
+
     location /api/platform/liquor/ {
         limit_except GET HEAD { deny all; }
         proxy_pass http://platform:5051;
@@ -66,6 +81,11 @@ server {
         add_header Cache-Control "no-store" always;
         add_header X-Content-Type-Options "nosniff" always;
         return 404 '{"code":"not_found","message":"route not found"}';
+    }
+
+    location ~ ^/options(?:/|$) {
+        # Options uses the dedicated HTTPS entry, without a browser login.
+        return 404;
     }
 
     location / {

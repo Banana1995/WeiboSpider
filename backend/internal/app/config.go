@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/ledger"
+	"github.com/Banana1995/WeiboSpider/backend/internal/modules/options"
 )
 
 type Config struct {
@@ -25,6 +26,9 @@ type Config struct {
 	LedgerMCPEnabled    bool
 	LedgerWeeklyEnabled bool
 	LedgerWeeklyTime    string
+	OptionsEnabled      bool
+	OptionsQuotesURL    string
+	OptionsLimits       options.Limits
 }
 
 func DefaultConfig() Config {
@@ -35,6 +39,8 @@ func DefaultConfig() Config {
 		RequestInterval:  time.Second,
 		SyncTimeout:      5 * time.Minute,
 		LedgerWeeklyTime: ledger.DefaultWeeklyTime,
+		OptionsQuotesURL: "http://127.0.0.1:5053",
+		OptionsLimits:    options.DefaultLimits(),
 	}
 }
 
@@ -44,6 +50,7 @@ func LoadConfig() (Config, error) {
 		"BACKEND_ADDR": &cfg.Address, "BACKEND_DATA_DIR": &cfg.DataDir,
 		"BACKEND_API_TOKEN": &cfg.APIToken, "LIQUOR_SOURCE_URL": &cfg.SourceURL,
 		"LEDGER_WEEKLY_TIME": &cfg.LedgerWeeklyTime,
+		"OPTIONS_QUOTES_URL": &cfg.OptionsQuotesURL,
 	} {
 		if value, exists := os.LookupEnv(name); exists {
 			*field = value
@@ -51,6 +58,8 @@ func LoadConfig() (Config, error) {
 	}
 	for name, field := range map[string]*time.Duration{
 		"LIQUOR_REQUEST_INTERVAL": &cfg.RequestInterval, "LIQUOR_SYNC_TIMEOUT": &cfg.SyncTimeout,
+		"OPTIONS_TASK_TIMEOUT":  &cfg.OptionsLimits.Timeout,
+		"OPTIONS_DIRECTORY_TTL": &cfg.OptionsLimits.DirectoryTTL,
 	} {
 		if value, exists := os.LookupEnv(name); exists {
 			parsed, err := time.ParseDuration(value)
@@ -63,6 +72,7 @@ func LoadConfig() (Config, error) {
 	for name, field := range map[string]*bool{
 		"LIQUOR_AUTO_SYNC": &cfg.AutoSync, "LEDGER_ENABLED": &cfg.LedgerEnabled,
 		"LEDGER_MCP_ENABLED": &cfg.LedgerMCPEnabled,
+		"OPTIONS_ENABLED":    &cfg.OptionsEnabled,
 	} {
 		if value, exists := os.LookupEnv(name); exists {
 			parsed, err := strconv.ParseBool(value)
@@ -78,10 +88,35 @@ func LoadConfig() (Config, error) {
 		}
 		cfg.LedgerWeeklyEnabled = value == "true"
 	}
+	for name, field := range map[string]*int{"OPTIONS_MAX_WATCH": &cfg.OptionsLimits.MaxWatch, "OPTIONS_MAX_CONTRACTS": &cfg.OptionsLimits.MaxContracts} {
+		if value, exists := os.LookupEnv(name); exists {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", name, err)
+			}
+			*field = parsed
+		}
+	}
+	if value, exists := os.LookupEnv("OPTIONS_HISTORY_BUDGET_MB"); exists {
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || n < 1 || n > 4096 {
+			return Config{}, errors.New("OPTIONS_HISTORY_BUDGET_MB must be in 1..4096")
+		}
+		cfg.OptionsLimits.HistoryBytes = n << 20
+	}
 	return cfg, cfg.Validate()
 }
 
 func (c Config) Validate() error {
+	if c.OptionsEnabled {
+		if _, err := options.NewHTTPProvider(c.OptionsQuotesURL); err != nil {
+			return err
+		}
+		v := c.OptionsLimits
+		if v.MaxWatch < 1 || v.MaxWatch > 100 || v.MaxContracts < 1 || v.MaxContracts > 20000 || v.Timeout < time.Second || v.Timeout > time.Hour || v.DirectoryTTL < time.Minute || v.DirectoryTTL > 7*24*time.Hour || v.HistoryBytes < 1024 {
+			return errors.New("options resource limits are invalid")
+		}
+	}
 	if c.LedgerMCPEnabled && !c.LedgerEnabled {
 		return errors.New("LEDGER_MCP_ENABLED requires LEDGER_ENABLED")
 	}

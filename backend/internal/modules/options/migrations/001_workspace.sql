@@ -1,0 +1,12 @@
+CREATE TABLE instruments(code TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE watchlist(code TEXT PRIMARY KEY REFERENCES instruments(code), version INTEGER NOT NULL, data TEXT NOT NULL);
+CREATE TABLE settings(version INTEGER PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE directories(symbol TEXT PRIMARY KEY, from_date TEXT NOT NULL, to_date TEXT NOT NULL, captured_at TEXT NOT NULL, data TEXT NOT NULL);
+CREATE TABLE snapshots(id TEXT PRIMARY KEY, symbol TEXT NOT NULL, captured_at TEXT NOT NULL, data TEXT NOT NULL);
+CREATE INDEX snapshots_time ON snapshots(captured_at);
+CREATE TABLE latest(symbol TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES snapshots(id));
+CREATE TABLE daily_history(symbol TEXT NOT NULL, day TEXT NOT NULL, captured_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(symbol,day));
+CREATE TABLE favorites(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, snapshot_id TEXT NOT NULL, contract_code TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL);
+CREATE INDEX favorites_time ON favorites(created_at DESC,id DESC);
+CREATE TABLE receipts(request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, favorite_id TEXT NOT NULL);
+CREATE TABLE scan_runs(id TEXT PRIMARY KEY, created_at TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);

@@ -1,0 +1,71 @@
+# Opt-in production overlay. Supply a private env file to Compose interpolation.
+services:
+  platform:
+    environment:
+      OPTIONS_ENABLED: "true"
+      OPTIONS_QUOTES_URL: http://option-quotes:5053
+      OPTIONS_MAX_WATCH: "20"
+      OPTIONS_MAX_CONTRACTS: "5000"
+      OPTIONS_TASK_TIMEOUT: 20m
+      OPTIONS_DIRECTORY_TTL: 24h
+
+  futu-opend:
+    platform: linux/amd64
+    build:
+      context: ./services/futu-opend
+    restart: unless-stopped
+    init: true
+    command:
+      - -login_account=${FUTU_LOGIN_ACCOUNT:?Set FUTU_LOGIN_ACCOUNT in the private options env file}
+      - -login_by_remember=1
+    volumes:
+      - futu-login:/home/app
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: 5m, max-file: "3" }
+
+  option-quotes:
+    build:
+      context: ./services/option-quotes
+    restart: unless-stopped
+    init: true
+    environment:
+      FUTU_HOST: futu-opend
+      FUTU_PORT: "11111"
+    depends_on:
+      - futu-opend
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options: { max-size: 5m, max-file: "3" }
+
+  options-entry:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${OPTIONS_HTTPS_PORT:-443}:8443"
+    env_file:
+      - .env.platform
+    volumes:
+      - type: bind
+        source: ./frontend/nginx.options.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+      - type: bind
+        source: ${OPTIONS_PRIVATE_DIR:?Set OPTIONS_PRIVATE_DIR}/fullchain.pem
+        target: /run/options/fullchain.pem
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${OPTIONS_PRIVATE_DIR}/privkey.pem
+        target: /run/options/privkey.pem
+        read_only: true
+        bind: { create_host_path: false }
+    depends_on:
+      - platform
+    mem_limit: 64m
+
+volumes:
+  futu-login:

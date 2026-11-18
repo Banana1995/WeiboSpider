@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModuleHeader from "./ModuleHeader.vue";
 import LedgerDate from "./LedgerDate.vue";
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import {
@@ -329,18 +330,8 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
 
 <template>
   <div class="tax-page">
-    <header class="tax-header">
-      <a class="tax-brand" href="/tax"
-        ><span>观</span>观价 <b>/</b> <small>税务计算</small></a
-      >
-      <nav aria-label="模块导航">
-        <a :href="weiboURL">微博管理</a><a href="/liquor">白酒行情</a
-        ><a href="/ledger">投资账本</a
-        ><a href="/tax" aria-current="page">税务计算</a
-        ><a href="/options">期权</a>
-      </nav>
-    </header>
-    <main class="tax-main">
+    <ModuleHeader current="tax"><a :href="weiboURL">微博管理</a></ModuleHeader>
+    <main class="workspace-frame tax-main">
       <div class="tax-heading">
         <div>
           <h1>税务计算</h1>

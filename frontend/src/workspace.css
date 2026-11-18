@@ -1,0 +1,30 @@
+:root {
+  --workspace-width: 1840px;
+  --workspace-gutter: 24px;
+  --workspace-font:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  --lp-rule: #dce4ec;
+  --lp-control-border: #ccd7e2;
+  --lp-surface: #fff;
+  --lp-background: #f5f7fa;
+  --lp-text: #263445;
+  --lp-muted: #62748b;
+  --lp-primary: #1766b6;
+  --lp-primary-hover: #105594;
+  --lp-emphasis: #144f85;
+  --lp-tint: #eaf3fb;
+  --lp-hover: #f5f9ff;
+  --lp-table-heading: #edf2f7;
+}
+.workspace-frame {
+  width: 100%;
+  max-width: var(--workspace-width);
+  margin-inline: auto;
+  padding-inline: var(--workspace-gutter);
+}
+@media (max-width: 720px) {
+  :root {
+    --workspace-gutter: 14px;
+  }
+}

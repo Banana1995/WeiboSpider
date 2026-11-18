@@ -1,25 +1,10 @@
 .ledger-page {
-  /* Match the tax workspace, including the less prominent ledger views. */
-  --lp-rule: #dce4ec;
-  --lp-control-border: #ccd7e2;
-  --lp-surface: #fff;
-  --lp-background: #f5f7fa;
-  --lp-text: #263445;
-  --lp-muted: #62748b;
-  --lp-primary: #1766b6;
-  --lp-primary-hover: #105594;
-  --lp-emphasis: #144f85;
-  --lp-tint: #eaf3fb;
-  --lp-hover: #f5f9ff;
-  --lp-table-heading: #edf2f7;
   --lp-danger: #b4482d;
   --lp-down: #365c4a;
   --lp-warning: #8c641f;
   color: var(--lp-text);
   background: var(--lp-background);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
-    sans-serif;
+  font-family: var(--workspace-font);
   font-size: 14px;
   line-height: 1.6;
   font-variant-numeric: tabular-nums;
@@ -221,60 +206,11 @@
 .ledger-page .lp-banner strong {
   font-weight: 600;
 }
-.ledger-page .lp-masthead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 18px 16px;
-  border-bottom: 1px solid var(--lp-rule);
-  background: var(--lp-surface);
-}
-.ledger-page .brand {
-  gap: 10px;
-  font-size: 20px;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-.ledger-page .brand-mark {
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--lp-primary);
-  font-size: 20px;
-}
-.ledger-page .brand-divider {
-  margin: 0;
-  color: #9cabbc;
-  font-weight: 400;
-}
-.ledger-page .brand-sub {
-  font-size: 14px;
-  letter-spacing: 0;
-}
-.ledger-page .lp-masthead nav {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-  color: var(--lp-muted);
-  font-size: 13px;
-}
-.ledger-page .lp-masthead [aria-current] {
-  color: var(--lp-primary);
-  font-weight: 650;
-}
-.ledger-page .lp-masthead a:hover {
-  color: var(--lp-primary);
-  text-decoration: underline;
-  text-underline-offset: 5px;
-}
 .ledger-page a[aria-disabled="true"] {
   cursor: not-allowed;
 }
 .ledger-page .lp-main {
-  width: 100%;
-  max-width: 1840px;
-  padding: 24px;
-  margin: auto;
+  padding-block: 24px;
 }
 .ledger-page .lp-account-heading {
   display: flex;
@@ -2042,26 +1978,8 @@ html.lp-tab-grabbing * {
   }
 }
 @media (max-width: 720px) {
-  .ledger-page .lp-masthead {
-    padding: 14px 16px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .ledger-page .lp-masthead .brand {
-    gap: 10px;
-    font-size: 20px;
-  }
-  .ledger-page .lp-masthead .brand-sub,
-  .ledger-page .lp-masthead .brand-divider {
-    display: inline;
-  }
-  .ledger-page .lp-masthead nav {
-    gap: 18px;
-    font-size: 13px;
-  }
   .ledger-page .lp-main {
-    padding: 20px 14px;
+    padding-block: 20px;
   }
   .ledger-page h1 {
     font-size: 23px;

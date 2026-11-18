@@ -38,54 +38,8 @@
   background: #105594;
   color: white;
 }
-.tax-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 18px 16px;
-  background: #fff;
-  border-bottom: 1px solid #dce4ec;
-}
-.tax-brand {
-  font-size: 20px;
-  font-weight: 650;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  white-space: nowrap;
-}
-.tax-brand > span {
-  background: #1766b6;
-  color: white;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: serif;
-}
-.tax-brand b {
-  font-weight: 400;
-  color: #9cabbc;
-}
-.tax-brand small {
-  font-weight: 400;
-  font-size: 14px;
-}
-.tax-header nav {
-  display: flex;
-  gap: 24px;
-  font-size: 13px;
-  color: #62748b;
-  flex-wrap: wrap;
-}
-.tax-header nav [aria-current] {
-  color: #1766b6;
-  font-weight: 650;
-}
 .tax-main {
-  width: 100%;
-  max-width: 1840px;
-  margin: 0 auto;
-  padding: 24px;
+  padding-block: 24px;
 }
 .tax-heading {
   display: flex;
@@ -402,17 +356,8 @@
   margin: 8px 0;
 }
 @media (max-width: 700px) {
-  .tax-header {
-    padding: 14px 16px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .tax-header nav {
-    gap: 18px;
-  }
   .tax-main {
-    padding: 20px 14px;
+    padding-block: 20px;
   }
   .tax-heading {
     align-items: flex-start;

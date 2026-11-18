@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModuleHeader from "./ModuleHeader.vue";
 import {
   computed,
   nextTick,
@@ -392,21 +393,8 @@ onBeforeUnmount(() => {
       <strong>公开共享账本</strong
       ><span>任何人均可查看与修改，请勿上传私人财务信息</span>
     </div>
-    <header class="lp-masthead">
-      <div class="brand">
-        <span class="brand-mark">观</span>观价<span class="brand-divider"
-          >/</span
-        ><span class="brand-sub">投资账本</span>
-      </div>
-      <nav aria-label="模块导航">
-        <a href="/liquor" :aria-disabled="navigationLocked">白酒行情</a
-        ><a href="/ledger" aria-current="page" :aria-disabled="navigationLocked"
-          >投资账本</a
-        ><a href="/tax" :aria-disabled="navigationLocked">税务计算</a
-        ><a href="/options" :aria-disabled="navigationLocked">期权</a>
-      </nav>
-    </header>
-    <main class="lp-main">
+    <ModuleHeader current="ledger" :locked="navigationLocked" />
+    <main class="workspace-frame lp-main">
       <div class="lp-account-heading">
         <h1>投资账本</h1>
         <div class="lp-actions">

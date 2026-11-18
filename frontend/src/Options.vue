@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModuleHeader from "./ModuleHeader.vue";
 import {
   computed,
   nextTick,
@@ -634,33 +635,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="options-app">
-    <header class="opt-masthead">
-      <div class="opt-brand">
-        <span class="opt-mark">观</span><span>观价</span
-        ><span class="opt-brand-divider"></span
-        ><span class="opt-brand-sub">期权</span>
-      </div>
-      <nav class="opt-modules" aria-label="模块导航">
-        <a href="/liquor">白酒行情</a><a href="/ledger">投资账本</a
-        ><a href="/tax">税务计算</a
-        ><a href="/options" aria-current="page">期权</a>
-      </nav>
-      <div class="opt-header-actions">
-        <button class="opt-btn opt-quiet" @click="modal = 'settings'">
-          设置</button
-        ><button class="opt-btn" @click="openFavorites()">
-          收藏 <span class="opt-count">{{ favoriteCount }}</span></button
-        ><button
-          class="opt-btn opt-primary"
-          :disabled="busy || isRunning || !watchlist.length || !ready"
-          :title="isRunning ? '当前已有行情任务在运行，完成后可再次更新' : ''"
-          @click="refresh()"
-        >
-          {{ isRunning ? "更新中…" : "更新行情" }}
-        </button>
-      </div>
-    </header>
-    <div class="opt-workspace">
+    <ModuleHeader current="options" />
+    <main class="workspace-frame opt-workspace">
       <aside class="opt-sidebar">
         <p class="opt-label">我的股票池</p>
         <nav class="opt-watchlist" aria-label="选择股票">
@@ -713,6 +689,24 @@ onBeforeUnmount(() => {
           <div v-if="snapshot" class="opt-stock-price">
             <span>正股参考价</span
             ><strong>USD {{ money(snapshot.underlying) }}</strong>
+          </div>
+          <div class="opt-header-actions">
+            <button class="opt-btn opt-quiet" @click="modal = 'settings'">
+              设置
+            </button>
+            <button class="opt-btn" @click="openFavorites()">
+              收藏 <span class="opt-count">{{ favoriteCount }}</span>
+            </button>
+            <button
+              class="opt-btn opt-primary"
+              :disabled="busy || isRunning || !watchlist.length || !ready"
+              :title="
+                isRunning ? '当前已有行情任务在运行，完成后可再次更新' : ''
+              "
+              @click="refresh()"
+            >
+              {{ isRunning ? "更新中…" : "更新行情" }}
+            </button>
           </div>
         </div>
         <div class="opt-strategy-row">
@@ -1194,7 +1188,7 @@ onBeforeUnmount(() => {
           </div>
         </footer>
       </section>
-    </div>
+    </main>
     <div v-if="comparison.length" class="opt-comparison-bar">
       <div class="opt-selected-tags">
         <button

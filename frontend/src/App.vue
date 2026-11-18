@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModuleHeader from "./ModuleHeader.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -166,19 +167,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <header class="masthead">
-    <a class="brand" href="/liquor"
-      ><span class="brand-mark">观</span>观价
-      <span class="brand-divider">/</span
-      ><span class="brand-sub">白酒行情</span></a
-    >
-    <nav class="module-nav" aria-label="模块导航">
-      <a href="/liquor" aria-current="page">白酒行情</a
-      ><a href="/ledger">投资账本</a><a href="/tax">税务计算</a
-      ><a href="/options">期权</a>
-    </nav>
-  </header>
-  <main>
+  <ModuleHeader current="liquor" />
+  <main class="workspace-frame">
     <section class="page-heading">
       <div>
         <div class="eyebrow">MARKET OBSERVATORY / 01</div>

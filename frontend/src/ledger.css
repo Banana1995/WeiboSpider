@@ -694,12 +694,25 @@ html.lp-tab-grabbing * {
 .ledger-page .lp-records > .lp-section-title {
   padding: 16px 20px;
 }
+.ledger-page .lp-records > summary.lp-record-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+}
+.ledger-page .lp-records > summary::-webkit-details-marker {
+  display: none;
+}
 .ledger-page .lp-record-summary {
   padding: 16px 20px;
 }
 .ledger-page .lp-record-summary h2 {
   display: inline;
-  margin-right: 14px;
+  margin: 0 4px 0 0;
+}
+.ledger-page summary:hover .lp-disclosure,
+.ledger-page .stock-toggle:hover .lp-disclosure {
+  color: var(--lp-primary);
 }
 .ledger-page .lp-record-summary > span {
   font-size: 12px;

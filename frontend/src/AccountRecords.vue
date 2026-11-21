@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import LedgerDate from "./LedgerDate.vue";
+import LedgerDisclosure from "./LedgerDisclosure.vue";
 import { nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { errorText, query, request, type Account, type Page } from "./ledger";
 import type { AccountRecord } from "./accountRecords";
@@ -223,6 +224,7 @@ onBeforeUnmount(() => {
     @toggle="toggle"
   >
     <summary class="lp-record-summary">
+      <LedgerDisclosure :open="expanded" />
       <h2 id="records-title">账户记录</h2>
       <span
         v-if="rows.loading && rows.data"

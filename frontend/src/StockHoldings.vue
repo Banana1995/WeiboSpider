@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
+import LedgerDisclosure from "./LedgerDisclosure.vue";
 import StockTradeDialog from "./StockTradeDialog.vue";
 import StockSyncStatus from "./StockSyncStatus.vue";
 import StockFxReference from "./StockFxReference.vue";
@@ -201,9 +202,7 @@ defineExpose({ load });
           aria-controls="stock-book-body"
           @click="expanded = !expanded"
         >
-          <span class="stock-chevron" aria-hidden="true">{{
-            expanded ? "▾" : "▸"
-          }}</span>
+          <LedgerDisclosure :open="expanded" />
           我的持仓
         </button>
       </h2>

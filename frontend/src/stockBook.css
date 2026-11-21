@@ -44,10 +44,6 @@
   background: transparent;
   color: var(--lp-primary);
 }
-.stock-toggle .stock-chevron {
-  color: var(--lp-muted);
-  font-size: 11px;
-}
 .stock-heading-status {
   color: var(--lp-muted);
   font-size: 12px;

@@ -521,7 +521,6 @@ it("sets stock cash on an imported account, locks navigation on uncertainty and 
   await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
   const panel = wrapper.get('[data-test="stock-book"]');
-  await panel.get("summary").trigger("click");
   expect(panel.text()).toContain("添加第一只股票");
   await panel.get(".stock-cash").trigger("click");
   await wrapper.get('[name="cash"]').setValue("100.00");
@@ -557,10 +556,10 @@ it("sets stock cash on an imported account, locks navigation on uncertainty and 
   );
   await panel
     .findAll("button")
-    .find((b) => b.text() === "刷新")!
+    .find((b) => b.text() === "刷新行情")!
     .trigger("click");
   await flushPromises();
-  expect(panel.get("summary .stock-total-cash").text()).toContain("100.00");
+  expect(panel.get(".stock-cash").text()).toContain("100.00");
   expect(
     fetcher.mock.calls.some(([url]) =>
       /\/accounts\/reported\/(positions|operations)/.test(url),

@@ -710,7 +710,7 @@ html.lp-tab-grabbing * {
   vertical-align: middle;
   margin-left: 2px;
 }
-.ledger-page :is(.lp-records, .stock-book)[open] > .lp-record-summary {
+.ledger-page .lp-records[open] > .lp-record-summary {
   border-bottom: 1px solid var(--lp-rule);
 }
 .ledger-page .lp-record-tools {

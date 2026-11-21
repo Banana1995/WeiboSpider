@@ -62,19 +62,21 @@ it("reads a single stock book, shows cash and refreshes without writing account 
   start();
   await flushPromises();
   expect(wrapper.text()).toContain("我的持仓");
-  const disclosure = wrapper.get<HTMLDetailsElement>("details.stock-book");
-  expect(disclosure.element.open).toBe(false);
-  expect(disclosure.get("summary").text()).toContain("123.00");
-  await disclosure.get("summary").trigger("click");
-  expect(disclosure.element.open).toBe(true);
+  const toggle = wrapper.get('[data-test="stock-toggle"]');
+  expect(toggle.attributes("aria-expanded")).toBe("false");
+  expect(wrapper.get(".stock-cash").text()).toContain("123.00");
   expect(wrapper.findAll(".stock-cash")).toHaveLength(1);
+  expect(wrapper.get("#stock-book-body").isVisible()).toBe(false);
+  await toggle.trigger("click");
+  expect(toggle.attributes("aria-expanded")).toBe("true");
+  expect(wrapper.get("#stock-book-body").isVisible()).toBe(true);
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "刷新")!
+    .find((b) => b.text() === "刷新行情")!
     .trigger("click");
   await flushPromises();
-  await disclosure.get("summary").trigger("click");
-  expect(disclosure.element.open).toBe(false);
+  await toggle.trigger("click");
+  expect(toggle.attributes("aria-expanded")).toBe("false");
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(
     fetcher.mock.calls.every(
@@ -114,7 +116,7 @@ it("opens each stock with its costs and profits, preserving a visibly stale list
   failed = true;
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "刷新")!
+    .find((b) => b.text() === "刷新行情")!
     .trigger("click");
   await flushPromises();
   expect(detail.get('[role="alert"]').text()).toContain("可能已过期");

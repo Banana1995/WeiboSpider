@@ -14,8 +14,45 @@
 .stock-book-body {
   padding: 16px 20px 20px;
 }
+.stock-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding: 16px 20px;
+}
+.stock-book-open .stock-heading {
+  border-bottom: 1px solid var(--lp-rule);
+}
+.stock-title {
+  margin: 0;
+}
+.ledger-page .stock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+}
+.ledger-page .stock-toggle:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--lp-primary);
+}
+.stock-toggle .stock-chevron {
+  color: var(--lp-muted);
+  font-size: 11px;
+}
+.stock-heading-status {
+  color: var(--lp-muted);
+  font-size: 12px;
+}
 .stock-trades-heading,
-.stock-actions,
 .stock-list-toolbar {
   display: flex;
   align-items: center;
@@ -23,9 +60,12 @@
   gap: 12px;
 }
 .stock-actions {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+  margin-left: auto;
 }
 .stock-totals {
   display: inline-flex;
@@ -46,7 +86,7 @@
   font-size: 12px;
 }
 .stock-total > strong,
-.stock-total-cash > strong {
+.stock-cash > strong {
   font-size: 19px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -54,8 +94,41 @@
 .stock-total-note {
   align-self: center;
 }
+.stock-total-note[title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
 .ledger-page .stock-totals .stock-total > strong {
   color: var(--lp-text);
+}
+.ledger-page .stock-cash {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.ledger-page .stock-cash:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--lp-primary);
+}
+.stock-cash > small {
+  color: var(--lp-muted);
+  font-size: 12px;
+}
+.stock-cash > strong {
+  color: var(--lp-text);
+}
+.stock-valuation-note {
+  margin: 0 0 12px;
+  color: var(--lp-muted);
+  font-size: 12px;
 }
 .stock-list-toolbar {
   margin: 16px 0 8px;
@@ -545,6 +618,27 @@
   grid-column: 1/-1;
 }
 @media (max-width: 700px) {
+  .stock-heading {
+    align-items: flex-start;
+    padding: 16px 14px;
+  }
+  .stock-title {
+    order: 1;
+  }
+  .stock-actions {
+    order: 2;
+    margin-left: auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .stock-heading-status {
+    order: 4;
+    flex-basis: 100%;
+  }
+  .ledger-page .stock-actions button {
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
   .stock-book-body {
     padding: 16px 14px;
   }
@@ -580,12 +674,14 @@
     border-radius: 5px;
   }
   .stock-totals {
+    order: 3;
     display: flex;
-    margin-top: 6px;
+    flex-basis: 100%;
+    margin-top: 0;
     gap: 4px 18px;
   }
   .stock-total > strong,
-  .stock-total-cash > strong {
+  .stock-cash > strong {
     font-size: 16px;
   }
   .ledger-page .stock-row {

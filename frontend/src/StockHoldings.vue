@@ -22,6 +22,7 @@ const props = defineProps<{ account: Account; refreshKey: number }>();
 const emit = defineEmits<{ changed: [] }>();
 const { locked } = useLedgerWorkspace();
 const read = reactive(useLedgerRead<StockBook>());
+const expanded = ref(false);
 const selected = ref("");
 const filter = ref("open");
 const limit = ref(30);
@@ -184,9 +185,28 @@ defineExpose({ load });
 </script>
 
 <template>
-  <details class="stock-book" aria-label="股票持仓" data-test="stock-book">
-    <summary class="lp-record-summary">
-      <h2>我的持仓</h2>
+  <section
+    class="stock-book"
+    :class="{ 'stock-book-open': expanded }"
+    aria-label="股票持仓"
+    data-test="stock-book"
+  >
+    <header class="stock-heading">
+      <h2 class="stock-title">
+        <button
+          type="button"
+          class="stock-toggle"
+          data-test="stock-toggle"
+          :aria-expanded="expanded"
+          aria-controls="stock-book-body"
+          @click="expanded = !expanded"
+        >
+          <span class="stock-chevron" aria-hidden="true">{{
+            expanded ? "▾" : "▸"
+          }}</span>
+          我的持仓
+        </button>
+      </h2>
       <span class="stock-totals">
         <span class="stock-total">
           <small>总资金</small>
@@ -202,40 +222,49 @@ defineExpose({ load });
           <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
           <small>{{ account.currency }}</small>
         </span>
-        <span class="stock-total stock-total-cash">
+        <button
+          type="button"
+          class="stock-cash"
+          :disabled="locked || read.loading || !!read.error || !read.data"
+          :aria-label="`修改现金余额，当前 ${holdingNumber(read.data?.cash ?? '0', 2)} ${account.currency}`"
+          title="修改现金余额"
+          @click="open('cash')"
+        >
           <small>现金</small>
           <strong>{{ holdingNumber(read.data?.cash, 2) }}</strong>
           <small>{{ account.currency }}</small>
-        </span>
+          <span aria-hidden="true">✎</span>
+        </button>
         <small v-if="read.data && !read.data.complete" class="stock-total-note"
           >部分估值暂缺，总资金及仓位暂不可算</small
         >
-        <small v-else-if="hasPriorPrices" class="stock-total-note"
+        <small
+          v-else-if="hasPriorPrices"
+          class="stock-total-note"
+          title="部分持仓当天没有报价，按最近一个交易日的参考价估算；不是实时成交价。"
           >含历史参考价估值</small
         >
       </span>
       <span
         v-if="read.loading"
-        class="lp-spinner lp-record-spinner"
+        class="stock-heading-status lp-spinner lp-record-spinner"
         role="status"
         aria-label="正在读取持仓"
       />
-      <span v-else-if="read.error" role="status">{{
+      <span v-else-if="read.error" class="stock-heading-status" role="status">{{
         read.data ? "刷新失败，显示上次数据" : "持仓读取失败"
       }}</span>
-    </summary>
-    <div class="stock-book-body">
       <div class="stock-actions">
         <button
-          class="stock-cash"
-          :disabled="locked || read.loading || !!read.error || !read.data"
-          @click="open('cash')"
+          type="button"
+          :disabled="locked || read.loading"
+          aria-label="刷新持仓和最新行情"
+          title="重新读取持仓、现金和最新行情，不保存或修改账本"
+          @click="load"
         >
-          修改现金余额
-        </button>
-        <button :disabled="locked || read.loading" @click="load">
-          {{ read.loading ? "刷新中…" : "刷新" }}</button
+          {{ read.loading ? "刷新中…" : "刷新行情" }}</button
         ><button
+          type="button"
           class="lp-primary"
           :disabled="locked || read.loading || !!read.error || !read.data"
           @click="open('buy')"
@@ -243,6 +272,11 @@ defineExpose({ load });
           ＋ 添加持仓
         </button>
       </div>
+    </header>
+    <div v-show="expanded" id="stock-book-body" class="stock-book-body">
+      <p v-if="hasPriorPrices" class="stock-valuation-note">
+        含历史参考价估值：部分持仓当天没有新报价，按最近一个交易日的价格估算，不是实时成交价。
+      </p>
       <p v-if="read.error && !selected" class="lp-error" role="alert">
         {{ errorText(read.error) }}
       </p>
@@ -701,5 +735,5 @@ defineExpose({ load });
       @close="editor = undefined"
       @saved="saved"
     />
-  </details>
+  </section>
 </template>

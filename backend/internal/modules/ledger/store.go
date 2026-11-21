@@ -29,15 +29,17 @@ const (
 // Store owns neither the database nor authentication. The HTTP boundary applies
 // the configured public-ledger same-origin and request-size protections.
 type Store struct {
-	db  *database.DB
-	now func() time.Time
+	db               *database.DB
+	now              func() time.Time
+	marketUpdates    chan struct{}        // serializes market-data writers, never ledger readers/writers
+	marketRetryAfter map[string]time.Time // guarded by marketUpdates
 }
 
 func NewStore(db *database.DB, now func() time.Time) *Store {
 	if now == nil {
 		now = time.Now
 	}
-	return &Store{db: db, now: now}
+	return &Store{db: db, now: now, marketUpdates: make(chan struct{}, 1), marketRetryAfter: make(map[string]time.Time)}
 }
 
 func (s *Store) cutoff() (string, string, error) {

@@ -203,3 +203,20 @@ func TestClosingQuoteDoesNotRescueInvalidOrDelistedSpot(t *testing.T) {
 		})
 	}
 }
+
+func TestWeekendInactiveSpotStillNeedsHistoricalConfirmation(t *testing.T) {
+	i := Instrument{ID: "suspended", Market: "HK", Code: "01448", Currency: HKD}
+	var queried []string
+	p := newTencentQuotes(stockTransport(func(r *http.Request) (*http.Response, error) {
+		queried = append(queried, r.URL.Host)
+		body := inactiveStockRow(i, func(f []string) { f[30] = "2026/09/04 16:00:00" })
+		if r.URL.Host == "web.ifzq.gtimg.cn" {
+			body = string(closingQuoteJSON(t, closingQuoteFixture(i)))
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	}), func() time.Time { return stockNow })
+	row := p.Fetch(t.Context(), []Instrument{i})[i.ID]
+	require.Equal(t, []string{"qt.gtimg.cn", "web.ifzq.gtimg.cn"}, queried)
+	require.NotNil(t, row.Quote)
+	require.Equal(t, "2026-03-19", row.Quote.Date)
+}

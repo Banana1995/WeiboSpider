@@ -104,15 +104,20 @@ func TestStockMarketWorkerSharesPricesAndKeepsPreviousGoodEvidence(t *testing.T)
 			}
 			return FXQuote{Base: HKD, Quote: CNY, Mode: "latest", Rate: 50_000_000, Date: stamp.Format(time.DateOnly), QuotedAt: stamp.Format(time.RFC3339), FetchedAt: now.Format(time.RFC3339), Source: "Tencent/spot/HKDCNY"}, nil
 		})}
-	// No cache and no provider calls in GET; missing prices are not zeros.
-	reads := Handler{Store: s, Quotes: valuationQuotes(func(context.Context, []Instrument) map[string]QuoteResult { panic("stock-book made a live request") }), FX: valuationFX(func(context.Context, FXRequest) (FXQuote, error) { panic("stock-book made a live FX request") })}
+	// Without a quote source missing prices are unknown, not zeros.
+	reads := Handler{Store: s}
 	current := func(id string) StockBook { b, err := reads.stockBookView(ctx, id); require.NoError(t, err); return b }
 	cold := current("a")
 	require.False(t, cold.Complete)
 	require.Nil(t, cold.TotalAssets)
+	require.Nil(t, cold.PositionsValue)
 	require.Nil(t, cold.Items[0].Price)
 	count := auditCount(t, s)
 	require.NoError(t, w.refreshSlot(ctx, now, stockMarkets[:]))
+	reads.Quotes = valuationQuotes(func(context.Context, []Instrument) map[string]QuoteResult {
+		panic("stock-book refetched a cached quote")
+	})
+	reads.FX = valuationFX(func(context.Context, FXRequest) (FXQuote, error) { panic("stock-book refetched a cached FX rate") })
 	require.ElementsMatch(t, []string{"SH", "HK"}, checked)
 	require.ElementsMatch(t, []string{"hk00700", "sh600000"}, requested)
 	require.Equal(t, 1, fxCalls)

@@ -151,8 +151,8 @@ function load() {
     ),
   );
 }
-// Visible pages reread the server's saved prices. Only the server worker
-// contacts the quote source, independently of visits and tab count.
+// Open pages reread the stock book. The server handles scheduled price
+// updates and fetches any missing marks on first use.
 function readIfIdle() {
   if (
     document.visibilityState !== "hidden" &&
@@ -244,10 +244,14 @@ defineExpose({ load });
         </span>
         <span class="stock-total">
           <small>{{
-            read.data?.complete === false ? "已知持仓市值" : "持仓市值"
+            read.data?.complete === false && read.data.positions_value !== null
+              ? "已知持仓市值"
+              : "持仓市值"
           }}</small>
           <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
-          <small>{{ account.currency }}</small>
+          <small v-if="read.data?.positions_value != null">{{
+            account.currency
+          }}</small>
         </span>
         <button
           type="button"
@@ -262,8 +266,14 @@ defineExpose({ load });
           <small>{{ account.currency }}</small>
           <span aria-hidden="true">✎</span>
         </button>
-        <small v-if="read.data && !read.data.complete" class="stock-total-note"
-          >部分估值暂缺，总资金及仓位暂不可算</small
+        <small
+          v-if="read.data && !read.data.complete"
+          class="stock-total-note"
+          >{{
+            read.data.positions_value === null
+              ? "持仓已载入，报价或汇率暂缺"
+              : "部分估值暂缺，总资金及仓位暂不可算"
+          }}</small
         >
       </span>
       <span

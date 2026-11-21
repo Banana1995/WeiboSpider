@@ -235,6 +235,29 @@ it("uses the account's currency and retains precise backend values instead of as
   expect(wrapper.get(".stock-fx-trigger").text()).toContain("0.128225 USD");
 });
 
+it("does not display a zero subtotal when none of the holdings can be valued", async () => {
+  const missing: StockItem = {
+    ...foreign(),
+    price: null,
+    quote: null,
+    fx: null,
+    market_value: null,
+    account_market_value: null,
+    weight: null,
+    quote_status: "unavailable",
+  };
+  await start({
+    ...book([missing]),
+    complete: false,
+    positions_value: null,
+    total_assets: null,
+  });
+  const subtotal = wrapper.get(".stock-totals").findAll(".stock-total")[1]!;
+  expect(subtotal.get("strong").text()).toBe("—");
+  expect(subtotal.text()).not.toContain("0.00");
+  expect(wrapper.get(".stock-total-note").text()).toContain("报价或汇率暂缺");
+});
+
 it("shows recovered weights and the last available price without historical price labels", async () => {
   const item = foreign();
   item.quote = {

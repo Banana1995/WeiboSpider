@@ -703,12 +703,16 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 	slices.Sort(ids)
 	view := HoldingsView{Configured: true, Currency: out.Currency, AsOf: today, Cash: &out.Cash, Items: []HoldingItem{}}
 	instruments := []Instrument{}
+	var held []Instrument
 	for _, id := range ids {
 		i := st.instruments[id]
 		view.Items = append(view.Items, HoldingItem{Instrument: instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, Quantity: positions[id].quantity})
 		instruments = append(instruments, i)
+		if positions[id].quantity > 0 {
+			held = append(held, i)
+		}
 	}
-	quotes, rates, err := h.Store.readStockPrices(ctx, instruments, out.Currency)
+	quotes, rates, err := h.stockBookPrices(ctx, held, out.Currency)
 	if err != nil {
 		return out, err
 	}
@@ -717,12 +721,16 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 	}
 	out.Complete, out.TotalAssets = view.Complete, copyMoney(view.TotalAssets)
 	known := Money(0)
+	hasValuedPosition := false
 	for n, item := range view.Items {
 		if item.Quantity == 0 {
 			z := Money(0)
 			item.MarketValue = &z
 		}
 		if item.AccountMarketValue != nil {
+			if item.Quantity > 0 {
+				hasValuedPosition = true
+			}
 			if known, err = AddMoney(known, *item.AccountMarketValue); err != nil {
 				return out, err
 			}
@@ -734,7 +742,9 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 		opening := slices.ContainsFunc(st.journal.Openings, func(p OpeningPosition) bool { return p.InstrumentID == ids[n] })
 		out.Items = append(out.Items, StockItem{item, m, opening, channelBreakdown(positions[ids[n]])})
 	}
-	out.PositionsValue = &known
+	if out.Complete || hasValuedPosition {
+		out.PositionsValue = &known
+	}
 	return out, nil
 }
 

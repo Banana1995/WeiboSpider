@@ -224,12 +224,12 @@ func parseStockQuotes(body []byte, symbols []string, instruments map[string][]In
 		if priceErr != nil || price <= 0 || stampErr != nil || stamp.Year() < 1 || stamp.Format(layout) != fields[30] || stamp.After(now) {
 			continue
 		}
-		// A fresh timestamp on a zero-volume/open placeholder is not a trade.
+		// A zero-volume/open placeholder is not a trade, even if the source
+		// still serves Friday's inactive row over the weekend.
 		// Delisted instruments are never eligible for a historical fallback.
 		volume, volumeErr := ParseQuantity(fields[6])
 		open, openErr := ParsePrice(fields[5])
-		if i.Market != "HK" && fields[40] == "D" ||
-			stamp.Format(time.DateOnly) == now.In(fxBeijing).Format(time.DateOnly) && (volumeErr != nil || volume <= 0 || openErr != nil || open <= 0) {
+		if i.Market != "HK" && fields[40] == "D" || volumeErr != nil || volume <= 0 || openErr != nil || open <= 0 {
 			result[symbol] = QuoteResult{ErrorCode: "quote_inactive"}
 			previous, previousErr := ParsePrice(fields[4])
 			if fields[40] != "D" && volumeErr == nil && volume == 0 && openErr == nil && open == 0 && previousErr == nil && previous > 0 && previous == price {

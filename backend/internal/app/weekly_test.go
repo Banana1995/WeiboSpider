@@ -74,6 +74,9 @@ func TestServeWaitsForLedgerCancellationBeforeStorageClose(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, a.Close()) })
 	now, _ := time.Parse(time.RFC3339, "2026-09-12T08:00:00+08:00")
+	// This fixture exercises the weekly worker's injected provider. A real
+	// holdings-price worker would independently warm the same synthetic symbol.
+	a.stockMarketWorker = nil
 	s := ledger.NewStore(a.ledgerDB, func() time.Time { return now })
 	require.NoError(t, s.AddInstrument(t.Context(), ledger.Instrument{ID: "i", Market: "SH", Code: "600000", Name: "Synthetic", Currency: ledger.CNY}))
 	_, err = s.CreateReportedAccount(t.Context(), "create-a", ledger.ReportedAccountInput{ID: "a", Name: "Synthetic", Currency: ledger.CNY, OpeningDate: "2026-01-01"})

@@ -110,7 +110,8 @@ install.sh / update.sh  # 服务器一键部署/更新
 - **已知旧环境问题**：曾在本机 `venv` 观察到 Werkzeug 缺少 `__version__`，导致 Flask test client fixture 报错；这是历史环境记录，不是当前测试数量或必然失败的承诺，需按实测判断。
 - **白酒后端**：在 `backend/` 执行 `go run ./cmd/server`，默认回环 5051、本地自动采集关闭；验证用 `make check`、`make test`、`make test-e2e`，真实来源需显式 `make test-e2e-live`。生产 Compose 另设 `LIQUOR_AUTO_SYNC=true`。
 - **白酒前端**：在 `frontend/` 执行 `npm ci`、`npm run dev`，访问回环 5173；`npm test`、`npm run build`、`npm run format:check`。不要把服务令牌放入 `VITE_*`。
-- **Git 约束**：仅在用户授权时提交、推送或部署，push `master` 会触发三服务的共同发布；检查工作树，保留其他人的修改，**不要随意 force push**。
+- **默认发布流程（用户已授权）**：每修复一个缺陷或完成一个功能，运行与改动相关的测试和构建。验证通过后，自动提交本次改动并推送到 `origin/master`，由 GitHub Actions 触发部署，无需再等用户说“推送”。若用户明确要求本次暂不推送或部署，以该要求为准。
+- **Git 约束**：提交前检查工作树和暂存区，只纳入本次任务的文件或改动片段。保留其他人的修改，不强制推送。
 
 ## 服务器与部署
 
@@ -142,6 +143,7 @@ ssh weibo 'docker compose --project-directory /opt/weibospider ps'
 ### 自动部署
 
 - **触发**：push 到 master → GitHub Actions（deploy.yml）SSH 到服务器跑 `update.sh` → 快进拉取并重新执行新版脚本 → 初始化缺失的 `.env.platform` → 在服务器构建三个镜像并 `docker compose up -d --build` → 双入口健康检查 → 邮件通知。
+- **结果确认**：推送后按提交 SHA 核对对应的 `deploy.yml` 运行，确认部署结果，并向用户报告版本和运行链接。若失败，说明失败环节；不要把推送成功当成已经上线。
 - **发布边界**：镜像、依赖和数据独立，但流水线统一；镜像或配置变化会重建对应容器，本次发布曾重建微博容器。未实现 CI 预构建分发或按路径选择服务发布。
 - **GitHub Secrets**（9 个，已配置）：SSH_HOST / SSH_USER / SSH_PORT / SSH_KEY / SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / MAIL_TO
 - **服务器上 git 已设置**：`git branch --set-upstream-to=origin/master` 且 `pull.ff only`

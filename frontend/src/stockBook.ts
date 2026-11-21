@@ -52,6 +52,7 @@ export interface StockMetrics {
   total_profit: string | null;
   total_rate: string | null;
   dividends: string;
+  fees: string;
   tax: string;
   pending_dividend: string;
 }
@@ -171,6 +172,7 @@ export function validateStockBook(
       !ratio(m.profit_rate) ||
       !ratio(m.total_rate) ||
       !number(m.dividends, 2) ||
+      !number(m.fees, 2) ||
       !number(m.tax, 2) ||
       !number(m.pending_dividend, 2)
     )

@@ -574,6 +574,9 @@ defineExpose({ load });
                   >其中待到账 / 待补汇率
                   {{ holdingNumber(detail.metrics.pending_dividend, 2) }}
                   {{ detail.instrument.currency }}</span
+                ><span
+                  >累计手续费 {{ holdingNumber(detail.metrics.fees, 2) }}
+                  {{ detail.instrument.currency }}</span
                 >
               </div>
             </section>

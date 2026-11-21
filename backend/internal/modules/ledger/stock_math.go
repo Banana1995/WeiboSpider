@@ -70,6 +70,7 @@ type StockMetrics struct {
 	TotalProfit     *Money  `json:"total_profit"`
 	TotalRate       *string `json:"total_rate"`
 	Dividends       Money   `json:"dividends"`
+	Fees            Money   `json:"fees"`
 	Tax             Money   `json:"tax"`
 	PendingDividend Money   `json:"pending_dividend"`
 }
@@ -78,7 +79,7 @@ type stockPosition struct {
 	quantity                              Quantity
 	cycle                                 string
 	known, allKnown                       bool
-	buys, sells, dividends, taxes         Money
+	buys, sells, dividends, taxes, fees   Money
 	cycleBuys, cycleSells, cycleDividends Money
 	cycleTaxes                            Money
 	bought                                Quantity
@@ -238,6 +239,11 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 		default:
 			return nil, ErrCorrupt
 		}
+		// Trade amounts already include the fee. Track its lifetime total for
+		// display without deducting it again from cash or profit.
+		if err == nil && (e.Kind == "buy" || e.Kind == "sell") {
+			p.fees, err = AddMoney(p.fees, e.Fee)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -324,7 +330,7 @@ func stockPercent(n, d Money) *string {
 	return &s
 }
 func metricsFor(p *stockPosition, market *Money) (StockMetrics, error) {
-	m := StockMetrics{Dividends: p.dividends, Tax: p.taxes, PendingDividend: p.pending}
+	m := StockMetrics{Dividends: p.dividends, Fees: p.fees, Tax: p.taxes, PendingDividend: p.pending}
 	if p.known && p.quantity > 0 && p.bought > 0 {
 		cost, err := UnitCost(p.cycleBuys, p.bought)
 		if err != nil {

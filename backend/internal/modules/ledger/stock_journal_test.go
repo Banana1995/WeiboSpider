@@ -70,6 +70,7 @@ func TestStockBookCashAnchorTradingCorrectionsAndReceipts(t *testing.T) {
 	stockWrite(t, s, "sell", sell)
 	b = readBook(t, s)
 	require.Equal(t, Money(509800), b.Cash)
+	require.Equal(t, Money(200), b.Items[0].Metrics.Fees)
 	require.Equal(t, Quantity(1000000000), b.Items[0].Quantity)
 	count := auditCount(t, s)
 	again, err := s.WriteStock(t.Context(), "a", "first-key", first)
@@ -83,8 +84,11 @@ func TestStockBookCashAnchorTradingCorrectionsAndReceipts(t *testing.T) {
 	first.Security = nil
 	first.ExpectedVersion = "4"
 	first.Entry.Price = 11000000
+	first.Entry.Fee = 125
 	stockWrite(t, s, "fix-old", first)
-	require.Equal(t, Money(509800), readBook(t, s).Cash)
+	b = readBook(t, s)
+	require.Equal(t, Money(509800), b.Cash)
+	require.Equal(t, Money(325), b.Items[0].Metrics.Fees)
 	// Correcting a post-anchor cash movement replays cash from the anchor.
 	sell.Action = "replace"
 	sell.ExpectedVersion = "5"
@@ -101,7 +105,9 @@ func TestStockBookCashAnchorTradingCorrectionsAndReceipts(t *testing.T) {
 	_, err = s.WriteStock(t.Context(), "a", "too-many-shares", tooMuch)
 	require.ErrorIs(t, err, ErrStockQuantity)
 	stockWrite(t, s, "delete-sell", StockCommand{Action: "void", ExpectedVersion: "6", ID: "sell"})
-	require.Equal(t, Money(379900), readBook(t, s).Cash)
+	b = readBook(t, s)
+	require.Equal(t, Money(379900), b.Cash)
+	require.Equal(t, Money(225), b.Items[0].Metrics.Fees)
 	var records int
 	require.NoError(t, s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM account_records`).Scan(&records))
 	require.Zero(t, records)
@@ -134,8 +140,8 @@ func TestStockBookExposesTotalAssetsPositionsValueAndWeight(t *testing.T) {
 func TestStockCostFormulaCyclesAndNegativeDilution(t *testing.T) {
 	j := StockJournal{Openings: []OpeningPosition{}}
 	entries := []StockEntry{
-		{ID: "b1", InstrumentID: "i", Kind: "buy", Date: "2026-01-01", Sequence: 1, Quantity: 10000000, Amount: 10100},
-		{ID: "s1", InstrumentID: "i", Kind: "sell", Date: "2026-01-02", Sequence: 2, Quantity: 4000000, Amount: 7800},
+		{ID: "b1", InstrumentID: "i", Kind: "buy", Date: "2026-01-01", Sequence: 1, Quantity: 10000000, Amount: 10100, Fee: 100},
+		{ID: "s1", InstrumentID: "i", Kind: "sell", Date: "2026-01-02", Sequence: 2, Quantity: 4000000, Amount: 7800, Fee: 200},
 		{ID: "b2", InstrumentID: "i", Kind: "buy", Date: "2026-01-03", Sequence: 3, Quantity: 4000000, Amount: 12300},
 	}
 	p, err := replayStocks(j, entries, "2026-09-06")
@@ -160,12 +166,14 @@ func TestStockCostFormulaCyclesAndNegativeDilution(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, m.Cost)
 	require.Equal(t, Money(35400), *m.TotalProfit)
-	entries = append(entries, StockEntry{ID: "reopen", InstrumentID: "i", Kind: "buy", Date: "2026-01-06", Sequence: 6, Quantity: 1000000, Amount: 5000})
+	require.Equal(t, Money(300), m.Fees)
+	entries = append(entries, StockEntry{ID: "reopen", InstrumentID: "i", Kind: "buy", Date: "2026-01-06", Sequence: 6, Quantity: 1000000, Amount: 5000, Fee: 25})
 	p, err = replayStocks(j, entries, "2026-09-06")
 	require.NoError(t, err)
 	m, err = metricsFor(p["i"], nil)
 	require.NoError(t, err)
 	require.Equal(t, Price(50000000), *m.DilutedCost)
+	require.Equal(t, Money(325), m.Fees)
 }
 
 type stockDivFixture struct {

@@ -235,6 +235,29 @@ it("uses the account's currency and retains precise backend values instead of as
   expect(wrapper.get(".stock-fx-trigger").text()).toContain("0.128225 USD");
 });
 
+it("shows lifetime trade fees alongside dividends in the stock's own currency", async () => {
+  const hk = foreign(),
+    cn = domestic();
+  hk.metrics = { ...hk.metrics, fees: "1234.56", tax: "0.20" };
+  await start(book([hk, cn]));
+  const open = async (name: string) => {
+    await wrapper
+      .findAll(".stock-row")
+      .find((row) => row.text().includes(name))!
+      .trigger("click");
+    return wrapper.get("dialog.stock-detail-dialog");
+  };
+  const detail = await open(hk.instrument.name);
+  const summary = detail.get(".stock-dividend-summary").text();
+  expect(summary).toContain("累计手续费 1,234.56 HKD");
+  expect(summary).toContain("累计分红");
+  expect(summary).toContain("已扣红利税 0.20 HKD");
+  await detail.get(".lp-close").trigger("click");
+  expect(
+    (await open(cn.instrument.name)).get(".stock-dividend-summary").text(),
+  ).toContain("累计手续费 0.00 CNY");
+});
+
 it("does not display a zero subtotal when none of the holdings can be valued", async () => {
   const missing: StockItem = {
     ...foreign(),

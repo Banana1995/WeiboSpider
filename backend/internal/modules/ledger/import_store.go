@@ -5,15 +5,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strconv"
 	"strings"
 )
 
 type ImportResult struct {
+	importReceipt
+	// Only mixed imports need coordinates; all other rows in the same preview
+	// were skipped. Do not store a second copy of the workbook in the receipt.
+	AddedSourceRows []int `json:"added_source_rows,omitempty"`
+}
+
+// The original frozen receipt shape is independent of the UI's row projection.
+type importReceipt struct {
 	AccountID     string `json:"account_id"`
 	BatchID       string `json:"batch_id"`
 	ImportedCount int    `json:"imported_count"`
+	SkippedCount  int    `json:"skipped_count,omitempty"`
 	Duplicate     bool   `json:"duplicate"`
 }
 
@@ -44,6 +52,7 @@ type importManifestMetadata struct {
 	Digest        string   `json:"digest"`
 	CreateAccount bool     `json:"create_account"`
 	RecordIDs     []string `json:"record_ids"`
+	SkippedCount  int      `json:"skipped_count,omitempty"`
 }
 
 type storedImport struct {
@@ -56,33 +65,7 @@ type storedImport struct {
 	Metadata    importManifestMetadata
 }
 
-func readImport(ctx context.Context, tx *sql.Tx, accountID string) (storedImport, error) {
-	var result storedImport
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=?)`, accountID).Scan(&exists); err != nil {
-		return result, err
-	}
-	if !exists {
-		return result, ErrNotFound
-	}
-	var manifest, metadata string
-	err := tx.QueryRowContext(ctx, `SELECT id,entity_id,account_id,recorded_at,correlation_id,after_json,metadata_json
-		FROM audit_log WHERE entity_type='import' AND account_id=? AND action='initialize'`, accountID).
-		Scan(&result.AuditID, &result.BatchID, &result.AccountID, &result.ImportedAt, &result.Correlation, &manifest, &metadata)
-	if errors.Is(err, sql.ErrNoRows) {
-		return result, ErrNotFound
-	}
-	if err != nil {
-		return result, err
-	}
-	if _, err := positiveInteger(result.BatchID); err != nil || decodeReceipt(manifest, &result.Manifest) != nil || decodeReceipt(metadata, &result.Metadata) != nil ||
-		result.Metadata.Digest == "" || len(result.Metadata.RecordIDs) != result.Manifest.Summary.RowCount {
-		return storedImport{}, ErrCorrupt
-	}
-	return result, nil
-}
-
-// ConfirmAccountImport reparses caller bytes and initializes one account timeline.
+// ConfirmAccountImport reparses caller bytes and adds missing source occurrences.
 // Canonical rows are account_records; the manifest and exact source rows are audit.
 func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string, create bool, data []byte) (ImportResult, error) {
 	if !validID(id) || !validID(key) {
@@ -97,17 +80,12 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 	}
 	intent := importIntent{AccountID: id, Digest: p.Digest, Create: create}
 	request, _ := json.Marshal(intent)
-	var result ImportResult
+	var result importReceipt
+	var added []ImportedRow
 	err = s.db.WithTx(ctx, func(tx *sql.Tx) error {
 		receipt, found, err := loadReceipt(ctx, tx, key, "import", string(request))
 		if err != nil {
 			return err
-		}
-		if found {
-			if decodeReceipt(receipt.Response, &result) != nil {
-				return ErrCorrupt
-			}
-			return validateImportReceipt(ctx, tx, result, p, key, receipt.AuditID)
 		}
 
 		var deleted bool
@@ -120,23 +98,29 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 			}
 			return ErrNotFound
 		}
-		stored, importErr := readImport(ctx, tx, id)
-		if importErr == nil {
-			if stored.Metadata.Digest != p.Digest {
-				return importConflict("import_already_exists")
+		history, err := readImportHistory(ctx, tx, id, p)
+		if err != nil {
+			return err
+		}
+		if found {
+			if decodeReceipt(receipt.Response, &result) != nil {
+				return ErrCorrupt
 			}
+			if err := validateImportReceipt(history.match, result, key, receipt.AuditID); err != nil {
+				return err
+			}
+			if !result.Duplicate {
+				added = history.matchAdded
+			}
+			return nil
+		}
+		if stored := history.match; stored != nil {
 			if create && !stored.Metadata.CreateAccount {
 				return ErrConflict
 			}
-			result = ImportResult{AccountID: id, BatchID: stored.BatchID, ImportedCount: len(p.Rows), Duplicate: true}
-			if err := validateImportReceipt(ctx, tx, result, p, key, stored.AuditID); err != nil {
-				return err
-			}
+			result = stored.result(key)
 			response, _ := json.Marshal(result)
 			return saveReceipt(ctx, tx, key, "import", string(request), string(response), stored.AuditID)
-		}
-		if !errors.Is(importErr, ErrNotFound) {
-			return importErr
 		}
 
 		var currency Currency
@@ -154,12 +138,17 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 		if exists && currency != p.Metadata.Currency {
 			return importConflict("currency_mismatch")
 		}
-		var occupied bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_records WHERE account_id=?)`, id).Scan(&occupied); err != nil {
-			return err
-		}
-		if occupied {
-			return importConflict("initialization_requires_empty_account")
+		action := "initialize"
+		if history.latest != nil {
+			action = "append"
+		} else if exists {
+			var occupied bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_records WHERE account_id=?)`, id).Scan(&occupied); err != nil {
+				return err
+			}
+			if occupied {
+				return importConflict("initialization_requires_empty_account")
+			}
 		}
 		_, stamp, err := s.cutoff()
 		if err != nil {
@@ -185,17 +174,21 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sequence),0)+1 FROM account_records`).Scan(&nextSequence); err != nil {
 			return err
 		}
-		recordIDs := make([]string, len(p.Rows))
-		for i := range recordIDs {
+		added = history.counts.missing(p.Rows)
+		recordIDs := make([]string, len(added))
+		for i, row := range added {
+			if err := history.summary.add(row); err != nil {
+				return err
+			}
 			recordIDs[i] = strconv.FormatInt(nextSequence+int64(i), 10)
 		}
 		manifest := importManifest{Metadata: p.Metadata, Summary: p.Summary}
-		manifestMetadata := importManifestMetadata{Digest: p.Digest, CreateAccount: create, RecordIDs: recordIDs}
-		manifestAuditID, err := appendAudit(ctx, tx, key, "initialize", "import", strconv.FormatInt(batch, 10), id, 1, stamp, "human", nil, manifest, manifestMetadata)
+		manifestMetadata := importManifestMetadata{Digest: p.Digest, CreateAccount: create, RecordIDs: recordIDs, SkippedCount: len(p.Rows) - len(added)}
+		manifestAuditID, err := appendAudit(ctx, tx, key, action, "import", strconv.FormatInt(batch, 10), id, 1, stamp, "human", nil, manifest, manifestMetadata)
 		if err != nil {
 			return err
 		}
-		for i, row := range p.Rows {
+		for i, row := range added {
 			recordID := recordIDs[i]
 			if _, err := appendAudit(ctx, tx, key, "import", "import_row", recordID, id, 1, stamp, "human", nil, row,
 				map[string]any{"batch_id": batch, "source_row": row.SourceRow, "account_record_id": "import-" + recordID}); err != nil {
@@ -204,18 +197,25 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 			next := AccountRecord{ID: "import-" + recordID, AccountID: id,
 				AccountEntry: AccountEntry{Kind: row.Kind, Date: row.Date, Flow: row.Flow, TotalAssets: row.TotalAssets, Note: row.Note, ChannelAssets: importChannelAssets(row.Detail, row.TotalAssets)},
 				Sequence:     recordID, Origin: "import", Original: &row, Version: "1", CreatedAt: stamp, UpdatedAt: stamp}
-			if _, err := putAccountRecord(ctx, tx, &next, nil, key, "initialization", "human"); err != nil {
+			if _, err := putAccountRecord(ctx, tx, &next, nil, key, "Excel import", "human"); err != nil {
 				return err
 			}
 		}
-		result = ImportResult{AccountID: id, BatchID: strconv.FormatInt(batch, 10), ImportedCount: len(p.Rows)}
+		result = importReceipt{AccountID: id, BatchID: strconv.FormatInt(batch, 10), ImportedCount: len(added), SkippedCount: manifestMetadata.SkippedCount, Duplicate: len(added) == 0}
 		response, _ := json.Marshal(result)
 		return saveReceipt(ctx, tx, key, "import", string(request), string(response), manifestAuditID)
 	})
 	if err != nil {
 		return ImportResult{}, err
 	}
-	return result, nil
+	out := ImportResult{importReceipt: result}
+	if !result.Duplicate && result.SkippedCount > 0 {
+		out.AddedSourceRows = make([]int, len(added))
+		for i, row := range added {
+			out.AddedSourceRows[i] = row.SourceRow
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) ImportSummary(ctx context.Context, id string) (ImportedSummary, error) {
@@ -224,38 +224,22 @@ func (s *Store) ImportSummary(ctx context.Context, id string) (ImportedSummary, 
 	}
 	var result ImportedSummary
 	err := s.db.WithTx(ctx, func(tx *sql.Tx) error {
-		stored, err := readImport(ctx, tx, id)
+		history, err := readImportHistory(ctx, tx, id, nil)
 		if err != nil {
 			return err
 		}
-		if err := validateStoredImport(ctx, tx, stored, nil); err != nil {
-			return err
+		stored := history.latest
+		if stored == nil {
+			return ErrNotFound
 		}
-		result = ImportedSummary{BatchID: stored.BatchID, Metadata: stored.Manifest.Metadata, Summary: stored.Manifest.Summary, ImportedAt: stored.ImportedAt}
+		result = ImportedSummary{BatchID: stored.BatchID, Metadata: stored.Manifest.Metadata, Summary: history.summary, ImportedAt: stored.ImportedAt}
 		return nil
 	})
 	return result, err
 }
 
-func validateStoredImport(ctx context.Context, tx *sql.Tx, stored storedImport, rows []ImportedRow) error {
-	if len(stored.Metadata.RecordIDs) != stored.Manifest.Summary.RowCount {
-		return ErrCorrupt
-	}
-	for i, id := range stored.Metadata.RecordIDs {
-		r, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND id=?`,
-			stored.AccountID, "import-"+id))
-		if err != nil || r.Origin != "import" || r.Original == nil || r.Sequence != id {
-			return ErrCorrupt
-		}
-		if rows != nil && (i >= len(rows) || !reflect.DeepEqual(*r.Original, rows[i])) {
-			return ErrCorrupt
-		}
-	}
-	return nil
-}
-
 func (s *Store) ImportedRecords(ctx context.Context, id string, q OperationQuery) ([]ImportedRecord, error) {
-	if !validID(id) || q.Limit < 1 || q.Limit > 100 || q.From != "" && !validDate(q.From) || q.To != "" && !validDate(q.To) || q.From != "" && q.To != "" && q.From > q.To || q.BeforeDate != "" && (!validDate(q.BeforeDate) || q.BeforeSequence < 5) || q.BeforeDate == "" && q.BeforeSequence != 0 {
+	if !validID(id) || q.Limit < 1 || q.Limit > 100 || q.From != "" && !validDate(q.From) || q.To != "" && !validDate(q.To) || q.From != "" && q.To != "" && q.From > q.To || q.BeforeDate != "" && (!validDate(q.BeforeDate) || q.BeforeSourceRow < 5 || q.BeforeSourceRow > maxImportRows+4 || q.BeforeSequence < 0) || q.BeforeDate == "" && (q.BeforeSourceRow != 0 || q.BeforeSequence != 0) {
 		return nil, ErrQuery
 	}
 	result := make([]ImportedRecord, 0)
@@ -268,21 +252,23 @@ func (s *Store) ImportedRecords(ctx context.Context, id string, q OperationQuery
 			return ErrNotFound
 		}
 		where := ` WHERE account_id=? AND origin='import'`
+		const day = `json_extract(payload,'$.original.date')`
+		const sourceRow = `CAST(json_extract(payload,'$.original.source_row') AS INTEGER)`
 		args := []any{id}
 		if q.From != "" {
-			where += ` AND business_date>=?`
+			where += ` AND ` + day + `>=?`
 			args = append(args, q.From)
 		}
 		if q.To != "" {
-			where += ` AND business_date<=?`
+			where += ` AND ` + day + `<=?`
 			args = append(args, q.To)
 		}
 		if q.BeforeDate != "" {
-			where += ` AND (business_date<? OR (business_date=? AND CAST(json_extract(payload,'$.original.source_row') AS INTEGER)<?))`
-			args = append(args, q.BeforeDate, q.BeforeDate, q.BeforeSequence)
+			where += ` AND (` + day + `,` + sourceRow + `,sequence) < (?,?,?)`
+			args = append(args, q.BeforeDate, q.BeforeSourceRow, q.BeforeSequence)
 		}
 		args = append(args, q.Limit)
-		rows, err := tx.QueryContext(ctx, accountRecordSelect+where+` ORDER BY business_date DESC,CAST(json_extract(payload,'$.original.source_row') AS INTEGER) DESC LIMIT ?`, args...)
+		rows, err := tx.QueryContext(ctx, accountRecordSelect+where+` ORDER BY `+day+` DESC,`+sourceRow+` DESC,sequence DESC LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}

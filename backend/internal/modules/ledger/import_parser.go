@@ -437,8 +437,7 @@ func ParseAccountImport(ctx context.Context, data []byte) (*ImportPreview, error
 	if !validText(m[0]) {
 		return nil, invalidImport("account_name", 2, "A")
 	}
-	p := &ImportPreview{Metadata: ImportMetadata{Name: m[0], Goal: m[1], ExpectedReturn: expectedReturn, ExpectedReturnRaw: m[2], InvestmentHorizon: m[3], Currency: currency, MoneyBucket: m[5]}, Rows: make([]ImportedRow, 0), Warnings: []string{"reported_history_only", "incremental_import_not_supported", "creation_time_precision_nanoseconds_truncated"}}
-	totalIn, totalOut := new(big.Int), new(big.Int)
+	p := &ImportPreview{Metadata: ImportMetadata{Name: m[0], Goal: m[1], ExpectedReturn: expectedReturn, ExpectedReturnRaw: m[2], InvestmentHorizon: m[3], Currency: currency, MoneyBucket: m[5]}, Rows: make([]ImportedRow, 0), Warnings: []string{"reported_history_only", "creation_time_precision_nanoseconds_truncated"}}
 	for n := 5; n <= lastRow; n++ {
 		v := cells[n]
 		blank := true
@@ -484,39 +483,13 @@ func ParseAccountImport(ctx context.Context, data []byte) (*ImportPreview, error
 			return nil, invalidImport("required_flow", n, "C")
 		}
 		p.Rows = append(p.Rows, r)
-		s := &p.Summary
-		s.RowCount++
-		if s.From == "" || r.Date < s.From {
-			s.From = r.Date
-		}
-		if r.Date > s.To {
-			s.To = r.Date
-		}
-		if r.Flow != nil {
-			s.FlowCount++
-			amount := big.NewInt(int64(*r.Flow))
-			if amount.Sign() < 0 {
-				totalOut.Sub(totalOut, amount)
-			} else {
-				totalIn.Add(totalIn, amount)
-			}
-		}
-		if r.TotalAssets != nil {
-			s.AssetCount++
-			if s.LatestAssetDate == nil || r.Date >= *s.LatestAssetDate {
-				date := r.Date
-				s.LatestAssetDate = &date
-				s.LatestAssets = copyMoney(r.TotalAssets)
-			}
+		if err := p.Summary.add(r); err != nil {
+			return nil, err
 		}
 	}
 	if len(p.Rows) == 0 {
 		return nil, invalidImport("empty_records", 0, "")
 	}
-	if !totalIn.IsInt64() || !totalOut.IsInt64() {
-		return nil, invalidImport("summary_overflow", 0, "")
-	}
-	p.Summary.TotalIn, p.Summary.TotalOut = Money(totalIn.Int64()), Money(totalOut.Int64())
 	p.Channels = summarizeImportChannels(p.Rows)
 	canonical, err := json.Marshal(struct {
 		Version  string         `json:"version"`
@@ -532,6 +505,37 @@ func ParseAccountImport(ctx context.Context, data []byte) (*ImportPreview, error
 		return nil, err
 	}
 	return p, nil
+}
+
+// Input order breaks ties between asset observations on the same business day.
+func (s *ImportSummary) add(r ImportedRow) error {
+	s.RowCount++
+	if s.From == "" || r.Date < s.From {
+		s.From = r.Date
+	}
+	if r.Date > s.To {
+		s.To = r.Date
+	}
+	if r.Flow != nil {
+		s.FlowCount++
+		var err error
+		if *r.Flow < 0 {
+			s.TotalOut, err = SubMoney(s.TotalOut, *r.Flow)
+		} else {
+			s.TotalIn, err = AddMoney(s.TotalIn, *r.Flow)
+		}
+		if err != nil {
+			return invalidImport("summary_overflow", 0, "")
+		}
+	}
+	if r.TotalAssets != nil {
+		s.AssetCount++
+		if s.LatestAssetDate == nil || r.Date >= *s.LatestAssetDate {
+			s.LatestAssetDate = &r.Date
+			s.LatestAssets = copyMoney(r.TotalAssets)
+		}
+	}
+	return nil
 }
 
 var importNumber = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]{1,3})?$`)

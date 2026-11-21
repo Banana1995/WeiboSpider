@@ -223,39 +223,18 @@ func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload
 	}
 }
 
-func validateImportReceipt(ctx context.Context, tx *sql.Tx, result ImportResult, p *ImportPreview, key string, auditID int64) error {
-	if result.AccountID == "" || result.BatchID == "" || result.ImportedCount != len(p.Rows) {
+func validateImportReceipt(batch *storedImport, result importReceipt, key string, auditID int64) error {
+	if batch == nil || batch.AuditID != auditID {
 		return ErrCorrupt
 	}
-	stored, err := readImport(ctx, tx, result.AccountID)
-	if err != nil || stored.AuditID != auditID || stored.BatchID != result.BatchID || stored.Metadata.Digest != p.Digest ||
-		!reflect.DeepEqual(stored.Manifest.Metadata, p.Metadata) || !reflect.DeepEqual(stored.Manifest.Summary, p.Summary) ||
-		stored.Correlation == "" || result.Duplicate == (stored.Correlation == key) {
+	want := batch.result(key)
+	// Pre-incremental duplicate receipts reported the original file size. Return
+	// those frozen receipts verbatim, including after subsequent appends.
+	if want.Duplicate && key != batch.Correlation && batch.Metadata.SkippedCount == 0 && result.SkippedCount == 0 {
+		want.ImportedCount, want.SkippedCount = want.SkippedCount, 0
+	}
+	if result != want {
 		return ErrCorrupt
-	}
-	if err := validateStoredImport(ctx, tx, stored, p.Rows); err != nil {
-		return err
-	}
-	for i, id := range stored.Metadata.RecordIDs {
-		var raw, metadata, stamp, correlation, source string
-		if err := tx.QueryRowContext(ctx, `SELECT after_json,metadata_json,recorded_at,correlation_id,source
-			FROM audit_log WHERE entity_type='import_row' AND entity_id=? AND account_id=?
-			AND version=1 AND action='import'`, id, result.AccountID).
-			Scan(&raw, &metadata, &stamp, &correlation, &source); err != nil {
-			return ErrCorrupt
-		}
-		var row ImportedRow
-		var detail struct {
-			BatchID         int64  `json:"batch_id"`
-			SourceRow       int    `json:"source_row"`
-			AccountRecordID string `json:"account_record_id"`
-		}
-		if decodeReceipt(raw, &row) != nil || decodeReceipt(metadata, &detail) != nil ||
-			!reflect.DeepEqual(row, p.Rows[i]) || strconv.FormatInt(detail.BatchID, 10) != result.BatchID ||
-			detail.SourceRow != row.SourceRow || detail.AccountRecordID != "import-"+id ||
-			stamp != stored.ImportedAt || correlation != stored.Correlation || source != "human" {
-			return ErrCorrupt
-		}
 	}
 	return nil
 }

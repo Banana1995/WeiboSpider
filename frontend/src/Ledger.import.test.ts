@@ -59,7 +59,6 @@ const preview: ImportPreview = {
   },
   warnings: [
     "reported_history_only",
-    "incremental_import_not_supported",
     "creation_time_precision_nanoseconds_truncated",
   ],
 };
@@ -266,7 +265,7 @@ it("imports with one click after selecting a file, validates internally and repo
   expect(commits[0]!.body.get("create_account")).toBe("true");
   expect(commits[0]!.body.get("preview_digest")).toBe(preview.digest);
   expect(commits[0]!.key).toBeTruthy();
-  expect(wrapper.text()).toContain("已导入 65 笔记录");
+  expect(wrapper.text()).toContain("本次新增 65 笔，跳过重复 0 笔");
   expect(
     wrapper.get('[data-test="import-submit"]').attributes("disabled"),
   ).toBeDefined();
@@ -312,11 +311,13 @@ it("imports into existing holdings without rewriting its name or creating an acc
 
 it("locks parent navigation and all writes after uncertainty, retries the same File/digest/key/ID and accepts a duplicate receipt", async () => {
   await start(Ledger);
+  await wrapper.get('[data-test="import-target"]').setValue("");
   const file = await upload();
   uncertain = true;
   await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
+  expect(wrapper.find('[data-test="import-diff"]').exists()).toBe(false);
   const event = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(event);
   expect(event.defaultPrevented).toBe(true);
@@ -343,7 +344,11 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
   expect(commits[1]!.path).toBe(commits[0]!.path);
   expect(formEntries(commits[1]!.body)).toEqual(formEntries(commits[0]!.body));
   expect(commits[1]!.body.get("file")).toBe(file);
-  expect(wrapper.text()).toContain("未重复添加");
+  expect(wrapper.text()).toContain("本次新增 0 笔，跳过重复 65 笔");
+  const diff = wrapper.get('dialog[data-test="import-diff"]');
+  expect(diff.get('[aria-pressed="true"]').text()).toBe("跳过的重复记录");
+  expect(diff.findAll("tr[data-source-row]")).toHaveLength(20);
+  await click("完成");
   expect(wrapper.emitted("locked")?.at(-1)).toEqual([false]);
   expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe(
     "合成来源账户",
@@ -360,16 +365,69 @@ it("locks parent navigation and all writes after uncertainty, retries the same F
   ).toBe(false);
 });
 
+it("appends to the selected account and reports added and skipped rows separately", async () => {
+  await start(Ledger);
+  expect(
+    wrapper.get<HTMLSelectElement>('[data-test="import-target"]').element.value,
+  ).toBe("holdings");
+  await upload();
+  fetcher.mockResolvedValueOnce(response(preview));
+  fetcher.mockResolvedValueOnce(
+    response({
+      account_id: "holdings",
+      batch_id: "2",
+      imported_count: 2,
+      skipped_count: 63,
+      added_source_rows: [5, 69],
+      duplicate: false,
+    }),
+  );
+  await click("导入");
+  const diff = wrapper.get('dialog[data-test="import-diff"]');
+  expect(diff.attributes("open")).toBeDefined();
+  expect(diff.text()).toContain("本次新增 2 笔，跳过重复 63 笔");
+  expect(diff.text()).toContain(holdings.name);
+  const visibleRows = () =>
+    diff
+      .findAll("tr[data-source-row]")
+      .map((r) => r.attributes("data-source-row"));
+  expect(visibleRows()).toEqual(["5", "69"]);
+  expect(diff.text()).toContain("90,071,992,547,409.01");
+  await diff.get('[aria-label="Excel 第 5 行的原始记录"]').trigger("click");
+  expect(diff.text()).toContain("合成明细");
+  await click("跳过的重复记录");
+  expect(visibleRows()).toHaveLength(20);
+  expect(visibleRows()[0]).toBe("6");
+  await diff
+    .findAll("button")
+    .find((b) => b.text() === "下一页")!
+    .trigger("click");
+  expect(visibleRows()[0]).toBe("26");
+  await click("新增记录");
+  expect(visibleRows()).toEqual(["5", "69"]);
+  await click("完成");
+  expect(wrapper.find('[data-test="import-diff"]').exists()).toBe(false);
+  const write = fetcher.mock.calls.find(([url]) =>
+    url.endsWith("/accounts/holdings/imports/youzhiyouxing"),
+  );
+  expect((write?.[1].body as FormData).get("create_account")).toBe("false");
+});
+
 it("keeps success final when account and import reads fail, and never retries the commit on refresh", async () => {
   await start(Ledger);
+  await wrapper.get('[data-test="import-target"]').setValue("");
   await upload();
   readFailure = true;
   await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
-  expect(wrapper.text()).toContain("已导入 65 笔记录");
+  const diff = wrapper.get('dialog[data-test="import-diff"]');
+  expect(diff.text()).toContain("本次新增 65 笔，跳过重复 0 笔");
+  expect(diff.get('[aria-pressed="true"]').text()).toBe("新增记录");
+  expect(diff.findAll("tr[data-source-row]")).toHaveLength(20);
   expect(wrapper.text()).toContain("读取失败");
   expect(wrapper.find('[data-test="import-retry"]').exists()).toBe(false);
   expect(wrapper.find('[data-test="valuation"]').exists()).toBe(false);
+  await click("完成");
   readFailure = false;
   await click("重新读取账户");
   await flushPromises();
@@ -381,6 +439,30 @@ it("keeps success final when account and import reads fail, and never retries th
     wrapper.get('[data-test="account-records"]').attributes("open"),
   ).toBeDefined();
 });
+
+it.each([{ coordinates: undefined }, { coordinates: [5, 999] }])(
+  "keeps the committed counts without guessing rows if mixed diff coordinates are missing or invalid ($coordinates)",
+  async ({ coordinates }) => {
+    await start(Ledger);
+    await upload();
+    fetcher.mockResolvedValueOnce(response(preview));
+    fetcher.mockResolvedValueOnce(
+      response({
+        account_id: "holdings",
+        batch_id: "2",
+        imported_count: 2,
+        skipped_count: 63,
+        duplicate: false,
+        added_source_rows: coordinates,
+      }),
+    );
+    await click("导入");
+    const diff = wrapper.get('dialog[data-test="import-diff"]');
+    expect(diff.text()).toContain("本次新增 2 笔，跳过重复 63 笔");
+    expect(diff.find("table").exists()).toBe(false);
+    expect(diff.text()).toContain("仅显示已确认的笔数");
+  },
+);
 
 it("accounts without stocks offer the stock notebook without saving account valuations", async () => {
   await start(Ledger, false);
@@ -439,6 +521,7 @@ it("sets stock cash on an imported account, locks navigation on uncertainty and 
   await wrapper.findAll('[role="tab"]')[1]!.trigger("click");
   await flushPromises();
   const panel = wrapper.get('[data-test="stock-book"]');
+  await panel.get("summary").trigger("click");
   expect(panel.text()).toContain("添加第一只股票");
   await panel.get(".stock-cash").trigger("click");
   await wrapper.get('[name="cash"]').setValue("100.00");
@@ -477,7 +560,7 @@ it("sets stock cash on an imported account, locks navigation on uncertainty and 
     .find((b) => b.text() === "刷新")!
     .trigger("click");
   await flushPromises();
-  expect(wrapper.get(".stock-cash").text()).toContain("100.00");
+  expect(panel.get("summary .stock-total-cash").text()).toContain("100.00");
   expect(
     fetcher.mock.calls.some(([url]) =>
       /\/accounts\/reported\/(positions|operations)/.test(url),
@@ -589,7 +672,7 @@ it("shows Chinese malformed-file errors with coordinates but never echoes cell v
 it.each([
   "preview_mismatch",
   "currency_mismatch",
-  "import_already_exists",
+  "initialization_requires_empty_account",
   "idempotency_conflict",
   "upload_too_large",
 ])(
@@ -673,17 +756,21 @@ it("ignores old account metadata and imported rows after switching to reported",
   ).toBe(false);
 });
 
-it("locks the import dialog during validation, but allows a selected file to be discarded before importing", async () => {
+it("can close just the import dialog and discard a selected file without writing", async () => {
   await start(Ledger);
   await upload();
-  await wrapper.get('[aria-label="关闭弹窗"]').trigger("click");
+  await wrapper
+    .findAll("dialog[open]")
+    .at(-1)!
+    .get('[aria-label="关闭弹窗"]')
+    .trigger("click");
   await flushPromises();
-  expect(wrapper.text()).toContain("放弃尚未保存的修改");
+  expect(wrapper.find('[data-test="import-file"]').exists()).toBe(false);
   expect(commits).toHaveLength(0);
-  await click("继续编辑");
+  await click("导入 Excel 账本");
   expect(
     wrapper.get('[data-test="import-submit"]').attributes("disabled"),
-  ).toBeUndefined();
+  ).toBeDefined();
 });
 
 it.each([
@@ -726,7 +813,7 @@ it("retains the original write after an invalid receipt and safely retries it", 
   expect(commits[0]!.body.get("file")).toBe(
     (first.body as FormData).get("file"),
   );
-  expect(wrapper.text()).toContain("已导入 65 笔记录");
+  expect(wrapper.text()).toContain("本次新增 65 笔，跳过重复 0 笔");
 });
 
 it("imports a file dropped onto the page without using the file picker", async () => {
@@ -740,7 +827,7 @@ it("imports a file dropped onto the page without using the file picker", async (
   await flushPromises();
   expect(commits).toHaveLength(1);
   expect(commits[0]!.body.get("file")).toBe(file);
-  expect(wrapper.text()).toContain("已导入 65 笔记录");
+  expect(wrapper.text()).toContain("本次新增 65 笔，跳过重复 0 笔");
 });
 
 it("highlights the drop zone only while dragging files", async () => {

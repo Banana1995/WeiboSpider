@@ -184,47 +184,55 @@ defineExpose({ load });
 </script>
 
 <template>
-  <section class="stock-book" aria-label="股票持仓" data-test="stock-book">
-    <header class="stock-heading">
-      <div class="stock-heading-title">
-        <h2>我的持仓</h2>
-        <div class="stock-totals">
-          <span class="stock-total">
-            <small>总资金</small>
-            <strong>{{ holdingNumber(read.data?.total_assets, 2) }}</strong>
-            <small v-if="read.data?.total_assets !== null">{{
-              account.currency
-            }}</small>
-          </span>
-          <span class="stock-total">
-            <small>{{
-              read.data?.complete === false ? "已知持仓市值" : "持仓市值"
-            }}</small>
-            <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
-            <small>{{ account.currency }}</small>
-          </span>
-          <button
-            class="stock-cash"
-            :disabled="locked || read.loading || !!read.error || !read.data"
-            @click="open('cash')"
-            :aria-label="`修改现金余额，当前 ${holdingNumber(read.data?.cash ?? '0', 2)} ${account.currency}`"
-          >
-            <small>现金</small>
-            <strong>{{ holdingNumber(read.data?.cash ?? "0", 2) }}</strong>
-            <small>{{ account.currency }}</small
-            ><span aria-hidden="true"> ✎</span>
-          </button>
-          <small
-            v-if="read.data && !read.data.complete"
-            class="stock-total-note"
-            >部分估值暂缺，总资金及仓位暂不可算</small
-          >
-          <small v-else-if="hasPriorPrices" class="stock-total-note"
-            >含历史参考价估值</small
-          >
-        </div>
-      </div>
+  <details class="stock-book" aria-label="股票持仓" data-test="stock-book">
+    <summary class="lp-record-summary">
+      <h2>我的持仓</h2>
+      <span class="stock-totals">
+        <span class="stock-total">
+          <small>总资金</small>
+          <strong>{{ holdingNumber(read.data?.total_assets, 2) }}</strong>
+          <small v-if="read.data?.total_assets != null">{{
+            account.currency
+          }}</small>
+        </span>
+        <span class="stock-total">
+          <small>{{
+            read.data?.complete === false ? "已知持仓市值" : "持仓市值"
+          }}</small>
+          <strong>{{ holdingNumber(read.data?.positions_value, 2) }}</strong>
+          <small>{{ account.currency }}</small>
+        </span>
+        <span class="stock-total stock-total-cash">
+          <small>现金</small>
+          <strong>{{ holdingNumber(read.data?.cash, 2) }}</strong>
+          <small>{{ account.currency }}</small>
+        </span>
+        <small v-if="read.data && !read.data.complete" class="stock-total-note"
+          >部分估值暂缺，总资金及仓位暂不可算</small
+        >
+        <small v-else-if="hasPriorPrices" class="stock-total-note"
+          >含历史参考价估值</small
+        >
+      </span>
+      <span
+        v-if="read.loading"
+        class="lp-spinner lp-record-spinner"
+        role="status"
+        aria-label="正在读取持仓"
+      />
+      <span v-else-if="read.error" role="status">{{
+        read.data ? "刷新失败，显示上次数据" : "持仓读取失败"
+      }}</span>
+    </summary>
+    <div class="stock-book-body">
       <div class="stock-actions">
+        <button
+          class="stock-cash"
+          :disabled="locked || read.loading || !!read.error || !read.data"
+          @click="open('cash')"
+        >
+          修改现金余额
+        </button>
         <button :disabled="locked || read.loading" @click="load">
           {{ read.loading ? "刷新中…" : "刷新" }}</button
         ><button
@@ -235,13 +243,11 @@ defineExpose({ load });
           ＋ 添加持仓
         </button>
       </div>
-    </header>
-    <p v-if="read.error && !selected" class="lp-error" role="alert">
-      {{ errorText(read.error) }}
-    </p>
-    <p v-if="!read.data && read.loading" role="status">正在读取持仓…</p>
-    <template v-if="read.data">
-      <div class="stock-list-content">
+      <p v-if="read.error && !selected" class="lp-error" role="alert">
+        {{ errorText(read.error) }}
+      </p>
+      <p v-if="!read.data && read.loading" role="status">正在读取持仓…</p>
+      <div v-if="read.data" class="stock-list-content">
         <div v-if="read.data.items.length" class="stock-list-toolbar">
           <label
             >显示<select v-model="filter">
@@ -366,6 +372,9 @@ defineExpose({ load });
           </p>
         </div>
       </div>
+      <StockSyncStatus v-if="read.data" :book="read.data" />
+    </div>
+    <template v-if="read.data">
       <LedgerDialog
         v-if="selected"
         class="stock-detail-dialog"
@@ -681,7 +690,6 @@ defineExpose({ load });
           <StockSyncStatus :book="read.data" />
         </div>
       </LedgerDialog>
-      <StockSyncStatus :book="read.data" />
     </template>
     <StockTradeDialog
       v-if="editor"
@@ -693,5 +701,5 @@ defineExpose({ load });
       @close="editor = undefined"
       @saved="saved"
     />
-  </section>
+  </details>
 </template>

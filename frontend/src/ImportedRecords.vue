@@ -80,8 +80,8 @@ watch(
       <p v-if="summary.data === null">此账户尚未导入。</p>
       <template v-if="summary.data">
         <p>
-          批次 {{ summary.data.batch_id }} · 导入于
-          {{ summary.data.imported_at }}
+          最近新增记录的批次 {{ summary.data.batch_id }} · 导入于
+          {{ summary.data.imported_at }}。下方统计包含历次导入的记录。
         </p>
         <ImportSummary
           :metadata="summary.data.metadata"

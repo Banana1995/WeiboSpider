@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ImportedRow } from "./ledgerImport";
-defineProps<{ rows: ImportedRow[] }>();
+defineProps<{ rows: (ImportedRow & { id: string })[] }>();
 </script>
 
 <template>
@@ -19,7 +19,7 @@ defineProps<{ rows: ImportedRow[] }>();
         </tr>
       </thead>
       <tbody>
-        <tr v-for="r in rows" :key="r.source_row">
+        <tr v-for="r in rows" :key="r.id">
           <td>
             #{{ r.source_row }} · {{ r.kind === "asset" ? "资产" : "资金流" }}
           </td>

@@ -62,13 +62,19 @@ it("reads a single stock book, shows cash and refreshes without writing account 
   start();
   await flushPromises();
   expect(wrapper.text()).toContain("我的持仓");
-  expect(wrapper.get(".stock-cash").text()).toContain("123.00");
+  const disclosure = wrapper.get<HTMLDetailsElement>("details.stock-book");
+  expect(disclosure.element.open).toBe(false);
+  expect(disclosure.get("summary").text()).toContain("123.00");
+  await disclosure.get("summary").trigger("click");
+  expect(disclosure.element.open).toBe(true);
   expect(wrapper.findAll(".stock-cash")).toHaveLength(1);
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "刷新")!
     .trigger("click");
   await flushPromises();
+  await disclosure.get("summary").trigger("click");
+  expect(disclosure.element.open).toBe(false);
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(
     fetcher.mock.calls.every(

@@ -8,6 +8,7 @@ import {
   provide,
   reactive,
   ref,
+  shallowRef,
   watch,
 } from "vue";
 import LedgerOverview from "./LedgerOverview.vue";
@@ -16,6 +17,7 @@ import AccountRecords from "./AccountRecords.vue";
 import LedgerRecordDialog from "./LedgerRecordDialog.vue";
 import LedgerAccountDialog from "./LedgerAccountDialog.vue";
 import LedgerDialog from "./LedgerDialog.vue";
+import ImportDiffDialog from "./ImportDiffDialog.vue";
 import LedgerManagement from "./LedgerManagement.vue";
 import LedgerHoldings from "./LedgerHoldings.vue";
 import {
@@ -33,7 +35,7 @@ import {
 import { useLedgerRead } from "./useLedgerRead";
 import { useLedgerPrefetch } from "./useLedgerPrefetch";
 import { applyTabOrder, loadTabOrder, saveTabOrder } from "./ledgerTabOrder";
-import type { ImportResult } from "./ledgerImport";
+import { importResultText, type ImportReport } from "./ledgerImport";
 import "./ledger.css";
 
 const emit = defineEmits<{ locked: [value: boolean] }>();
@@ -64,6 +66,7 @@ const managementTab = ref("info");
 const refreshKey = ref(0);
 const records = ref<InstanceType<typeof AccountRecords>>();
 const importedAccount = ref("");
+const importReport = shallowRef<ImportReport>();
 const modal = ref<"" | "create" | "edit" | "detail" | "account">("");
 const recordId = ref("");
 const workspace = createLedgerWorkspace(() => {
@@ -322,15 +325,14 @@ function manageAccount(tab = "info") {
   manage.value = true;
   if (!instruments.data && !instruments.loading) loadInstruments();
 }
-async function imported(result: ImportResult) {
+async function imported(result: ImportReport) {
   managementTab.value = "info";
   manage.value = false;
-  notice.value = result.duplicate
-    ? `这份文件已导入 ${result.imported_count} 笔记录，未重复添加。`
-    : `已导入 ${result.imported_count} 笔记录。`;
+  importReport.value = result;
+  notice.value = importResultText(result);
   refreshKey.value++;
-  importedAccount.value = result.account_id;
-  await loadAccounts(result.account_id);
+  importedAccount.value = result.accountID;
+  await loadAccounts(result.accountID);
 }
 function created(id: string) {
   managementTab.value = "info";
@@ -591,6 +593,11 @@ onBeforeUnmount(() => {
       @close="modal = ''"
       @created="created"
     />
+    <ImportDiffDialog
+      v-if="importReport"
+      :report="importReport"
+      @close="importReport = undefined"
+    />
     <LedgerDialog
       v-if="manage"
       title="管理账户"
@@ -600,6 +607,7 @@ onBeforeUnmount(() => {
       <div class="lp-dialog-body">
         <LedgerManagement
           :accounts="orderedAccounts"
+          :default-import-target="account?.id"
           :instruments="instruments.data ?? []"
           :instruments-error="instruments.error"
           :instruments-loading="instruments.loading"

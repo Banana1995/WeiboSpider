@@ -13,13 +13,14 @@ type PageQuery struct {
 	After string
 }
 type OperationQuery struct {
-	AccountID      string
-	From           string
-	To             string
-	Status         string
-	Limit          int
-	BeforeDate     string
-	BeforeSequence int64
+	AccountID       string
+	From            string
+	To              string
+	Status          string
+	Limit           int
+	BeforeDate      string
+	BeforeSourceRow int
+	BeforeSequence  int64
 }
 type AccountInfo struct {
 	ID          string

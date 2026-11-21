@@ -106,9 +106,8 @@ const errors: Record<string, string> = {
   portfolio_member_missing: "组合中有已删除的账户，请调整成员后重新计算",
   portfolio_basis_missing:
     "成员的记录无法确定非负资产基准，请检查首次资产、当日出入金或补充更早的总资产",
-  import_already_exists: "账户已有不同的导入批次，不支持增量合并",
   initialization_requires_empty_account:
-    "导入仅用于初始化，账户已有业务记录，不能追加导入或清空重置",
+    "此账户已有历史记录，不能用 Excel 首次初始化。再次导入请选择原先导入的账户。",
   upload_too_large: "文件超过 8 MiB 限制",
   fx_unavailable: "腾讯汇率暂不可用，请稍后重试",
   fx_timeout: "腾讯汇率查询超时，请稍后重试",

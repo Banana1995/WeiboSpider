@@ -11,21 +11,26 @@ import {
 } from "./ledger";
 import {
   PendingImport,
+  importResultText,
   type ImportPreview,
-  type ImportResult,
+  type ImportReport,
 } from "./ledgerImport";
 import { validDay } from "./ledgerView";
 import { validChannelName } from "./ledgerChannels";
 
-const props = defineProps<{ accounts: Account[]; disabled: boolean }>();
+const props = defineProps<{
+  accounts: Account[];
+  disabled: boolean;
+  initialTarget?: string;
+}>();
 const emit = defineEmits<{
   locked: [value: boolean];
-  imported: [result: ImportResult];
+  imported: [report: ImportReport];
 }>();
 const file = shallowRef<File>();
 const preview = shallowRef<ImportPreview>();
 const pending = shallowRef<PendingImport>();
-const target = ref("");
+const target = ref(props.initialTarget ?? "");
 const loading = ref(false);
 const busy = ref(false);
 const error = ref("");
@@ -105,6 +110,7 @@ async function loadPreview() {
       typeof result.metadata.name !== "string" ||
       !["CNY", "HKD", "USD"].includes(result.metadata.currency) ||
       !Array.isArray(result.rows) ||
+      result.rows.length === 0 ||
       result.rows.length > 10000 ||
       !Array.isArray(result.warnings) ||
       result.warnings.some((w) => typeof w !== "string") ||
@@ -125,11 +131,17 @@ async function loadPreview() {
       !result.summary ||
       result.summary.row_count !== result.rows.length ||
       result.rows.some(
-        (r) =>
+        (r, index) =>
           !r ||
+          !Number.isInteger(r.source_row) ||
+          r.source_row < 5 ||
+          r.source_row > 10004 ||
+          (index > 0 && r.source_row <= result.rows[index - 1]!.source_row) ||
           !validDay(r.date) ||
           !["asset", "cash_flow"].includes(r.kind) ||
           typeof r.note !== "string" ||
+          typeof r.detail !== "string" ||
+          typeof r.source_created_at !== "string" ||
           (r.flow !== null &&
             (typeof r.flow !== "string" || !decimal(r.flow, 2))) ||
           (r.total_assets !== null &&
@@ -165,14 +177,15 @@ async function confirm() {
       return;
     pending.value = new PendingImport(
       file.value,
-      preview.value.digest,
+      preview.value,
       target.value || newID(),
       !target.value,
+      targetAccount.value?.name ?? preview.value.metadata.name,
     );
   }
   busy.value = true;
   error.value = "";
-  let result: ImportResult;
+  let result: ImportReport;
   try {
     result = await pending.value.run();
   } catch (e) {
@@ -185,9 +198,7 @@ async function confirm() {
   preview.value = undefined;
   file.value = undefined;
   if (input.value) input.value.value = "";
-  message.value = result.duplicate
-    ? `这份文件已导入 ${result.imported_count} 笔记录，未重复添加。`
-    : `已导入 ${result.imported_count} 笔记录。`;
+  message.value = importResultText(result);
   emit("imported", result);
 }
 onBeforeUnmount(() => {
@@ -235,7 +246,9 @@ onBeforeUnmount(() => {
       </div>
     </fieldset>
     <p class="lp-field-hint">
-      仅支持新建或空账户，不支持追加文件。相同文件重试不会重复添加记录。
+      再次导入时请选择原账户：只补入新增记录，已导入的会跳过。首次导入请选择新建账户或没有历史记录的账户。
+      若要更正旧记录，请在账户记录中编辑；Excel
+      里改了金额或备注的行会按新记录处理。
     </p>
     <p v-if="preview?.channels?.unresolved_rows.length" class="lp-field-hint">
       第

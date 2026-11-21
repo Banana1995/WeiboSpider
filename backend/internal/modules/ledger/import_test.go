@@ -244,9 +244,9 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	require.Equal(t, "preview_mismatch", ie.Code)
 	changed := syntheticImportZip(t, syntheticImportParts(t, [][7]string{{"记总资产", "2020-01-01", "", "2", "", "", ""}}))
 	cp := parseSynthetic(t, changed)
-	_, err = s.ConfirmAccountImport(t.Context(), "reported", "changed", cp.Digest, false, changed)
-	require.ErrorAs(t, err, &ie)
-	require.Equal(t, "import_already_exists", ie.Code)
+	appendResult, err := s.ConfirmAccountImport(t.Context(), "reported", "changed", cp.Digest, false, changed)
+	require.NoError(t, err)
+	require.Equal(t, 1, appendResult.ImportedCount)
 	_, err = s.ConfirmAccountImport(t.Context(), "reported", "key", cp.Digest, true, changed)
 	require.ErrorIs(t, err, ErrIdempotency)
 	for _, query := range []string{
@@ -281,12 +281,14 @@ func TestAccountImportAtomicLifecycleAndIsolation(t *testing.T) {
 	require.Equal(t, "currency_mismatch", ie.Code)
 	summary, err := s.ImportSummary(t.Context(), "reported")
 	require.NoError(t, err)
-	require.Equal(t, p.Summary, summary.Summary)
+	wantSummary := p.Summary
+	require.NoError(t, wantSummary.add(cp.Rows[0]))
+	require.Equal(t, wantSummary, summary.Summary)
 	rows, err := s.ImportedRecords(t.Context(), "reported", OperationQuery{Limit: 2})
 	require.NoError(t, err)
 	require.Equal(t, 10, rows[0].SourceRow)
 	require.Equal(t, 9, rows[1].SourceRow)
-	rows, err = s.ImportedRecords(t.Context(), "reported", OperationQuery{Limit: 2, BeforeDate: rows[1].Date, BeforeSequence: int64(rows[1].SourceRow)})
+	rows, err = s.ImportedRecords(t.Context(), "reported", OperationQuery{Limit: 2, BeforeDate: rows[1].Date, BeforeSourceRow: rows[1].SourceRow})
 	require.NoError(t, err)
 	require.Equal(t, 7, rows[0].SourceRow)
 	require.Equal(t, 6, rows[1].SourceRow)
@@ -430,6 +432,12 @@ func TestAccountImportHTTPContract(t *testing.T) {
 		mux.ServeHTTP(w, httptest.NewRequest("GET", ledgerPrefix+url, nil))
 		require.Equal(t, 400, w.Code)
 	}
+	data = workbook(t, [7]string{"转入转出", "2020-01-02", "-1.25", "", "", "2026-01-01 12:01:00", ""}, [7]string{}, [7]string{"记总资产", "2020-02-01", "", "150.00", "", "", ""})
+	fields = map[string]string{"preview_digest": parseSynthetic(t, data).Digest, "create_account": "false"}
+	w = post("/accounts/a/imports/youzhiyouxing", "diff", fields)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.JSONEq(t, `{"account_id":"a","batch_id":"2","imported_count":1,"skipped_count":1,"duplicate":false,"added_source_rows":[7]}`, w.Body.String())
+	require.Equal(t, w.Body.String(), post("/accounts/a/imports/youzhiyouxing", "diff", fields).Body.String())
 }
 
 type importNoQuotes struct{}

@@ -15,11 +15,12 @@ import {
   type Instrument,
 } from "./ledger";
 import { validPortfolio, type Portfolio } from "./ledgerPortfolios";
-import type { ImportResult } from "./ledgerImport";
+import type { ImportReport } from "./ledgerImport";
 import { useLedgerWorkspace } from "./useLedgerWorkspace";
 
 const props = defineProps<{
   account?: Account;
+  defaultImportTarget?: string;
   accounts: Account[];
   instruments: Instrument[];
   instrumentsError: string;
@@ -30,7 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   locked: [boolean];
   create: [];
-  imported: [ImportResult];
+  imported: [ImportReport];
   instruments: [];
   changed: [];
   deleted: [];
@@ -413,6 +414,7 @@ watch(
       >
         <ImportAccount
           :accounts="accounts"
+          :initial-target="detailAccount?.id ?? defaultImportTarget"
           :disabled="locked"
           @locked="emit('locked', $event)"
           @imported="

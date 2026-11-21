@@ -1,6 +1,6 @@
 .ledger-page .stock-book {
   margin: 16px 0;
-  padding: 20px;
+  padding: 0;
   border: 1px solid var(--lp-rule);
   background: var(--lp-surface);
   border-radius: 8px;
@@ -11,8 +11,9 @@
   padding: 0;
   border: 0;
 }
-.stock-heading,
-.stock-heading-title,
+.stock-book-body {
+  padding: 16px 20px 20px;
+}
 .stock-trades-heading,
 .stock-actions,
 .stock-list-toolbar {
@@ -21,18 +22,15 @@
   justify-content: space-between;
   gap: 12px;
 }
-.stock-heading-title {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-}
 .stock-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
 }
 .stock-totals {
-  display: flex;
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px 28px;
@@ -56,14 +54,8 @@
 .stock-total-note {
   align-self: center;
 }
-.ledger-page .stock-cash {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  font-size: 13px;
+.ledger-page .stock-totals .stock-total > strong {
+  color: var(--lp-text);
 }
 .stock-list-toolbar {
   margin: 16px 0 8px;
@@ -553,29 +545,8 @@
   grid-column: 1/-1;
 }
 @media (max-width: 700px) {
-  .ledger-page .stock-book {
+  .stock-book-body {
     padding: 16px 14px;
-  }
-  .stock-heading {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .stock-heading-title {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-  .stock-heading .stock-actions {
-    gap: 5px;
-    white-space: nowrap;
-  }
-  .ledger-page .stock-heading button {
-    font-size: 12px;
-    padding: 6px 8px;
-    white-space: nowrap;
   }
   .ledger-page .stock-list-toolbar {
     flex-wrap: wrap;
@@ -609,6 +580,8 @@
     border-radius: 5px;
   }
   .stock-totals {
+    display: flex;
+    margin-top: 6px;
     gap: 4px 18px;
   }
   .stock-total > strong,

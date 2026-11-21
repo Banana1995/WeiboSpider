@@ -172,13 +172,21 @@ func (h Handler) importedRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	q := OperationQuery{From: values.Get("from"), To: values.Get("to"), Limit: limit}
 	if c := values.Get("cursor"); c != "" {
-		date, row, ok := strings.Cut(c, ":")
+		date, tail, ok := strings.Cut(c, ":")
+		row, sequence, hasSequence := strings.Cut(tail, ":")
 		n, e := positiveInteger(row)
 		if !ok || !validDate(date) || e != nil || n < 5 || n > maxImportRows+4 {
 			h.fail(w, r, ErrQuery)
 			return
 		}
-		q.BeforeDate, q.BeforeSequence = date, n
+		q.BeforeDate, q.BeforeSourceRow = date, int(n)
+		if hasSequence {
+			q.BeforeSequence, err = positiveInteger(sequence)
+			if err != nil {
+				h.fail(w, r, ErrQuery)
+				return
+			}
+		}
 	}
 	// Fetch the public page size; a full page may advertise a final empty page.
 	rows, err := h.Store.ImportedRecords(r.Context(), r.PathValue("id"), q)
@@ -189,7 +197,7 @@ func (h Handler) importedRecords(w http.ResponseWriter, r *http.Request) {
 	result := listJSON[ImportedRecord]{Items: rows}
 	if len(rows) == limit {
 		last := rows[len(rows)-1]
-		result.NextCursor = last.Date + ":" + strconv.Itoa(last.SourceRow)
+		result.NextCursor = last.Date + ":" + strconv.Itoa(last.SourceRow) + ":" + last.ID
 	}
 	httpapi.Write(w, 200, result)
 }

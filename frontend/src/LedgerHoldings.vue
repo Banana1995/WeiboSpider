@@ -22,7 +22,8 @@ const { locked } = useLedgerWorkspace();
 
 <template>
   <section
-    class="lp-holdings lp-management-body"
+    class="lp-holdings"
+    :class="{ 'lp-management-body': !account }"
     aria-label="账户持仓"
     data-test="account-holdings"
   >

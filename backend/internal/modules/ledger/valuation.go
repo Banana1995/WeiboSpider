@@ -122,6 +122,23 @@ func (h Handler) valuePositions(ctx context.Context, result *Valuation, instrume
 	return valuePositions(ctx, result, instruments, h.Quotes, h.FX, h.Now)
 }
 
+// Use the same evidence checks for prices in a live valuation and prices
+// admitted to the scheduled holdings cache.
+func validPositionQuote(q *Quote, i Instrument, asOf string, now time.Time) bool {
+	symbol, code := quoteSymbol(i)
+	stamp, stampErr := time.Parse(time.RFC3339Nano, q.QuotedAt)
+	_, fetchedErr := time.Parse(time.RFC3339Nano, q.FetchedAt)
+	return code == "" && q.Currency == i.Currency && q.Symbol == symbol && q.Price > 0 && q.Source == "Tencent" &&
+		validDate(q.Date) && q.Date <= asOf && stampErr == nil && fetchedErr == nil && !stamp.After(now) && stamp.In(fxBeijing).Format(time.DateOnly) == q.Date
+}
+
+func validPositionFX(q FXQuote, base, quote Currency, asOf string, now time.Time) bool {
+	stamp, stampErr := time.Parse(time.RFC3339Nano, q.QuotedAt)
+	_, fetchedErr := time.Parse(time.RFC3339Nano, q.FetchedAt)
+	return q.Base == base && q.Quote == quote && q.Mode == "latest" && q.Rate > 0 && q.Source != "" && validDate(q.Date) && q.Date <= asOf &&
+		stampErr == nil && fetchedErr == nil && !stamp.After(now) && q.Date <= stamp.In(fxBeijing).Format(time.DateOnly)
+}
+
 func valuePositions(ctx context.Context, result *Valuation, instruments []Instrument, provider QuotesProvider, fxProvider FXProvider, now func() time.Time) error {
 	if now == nil {
 		now = time.Now
@@ -165,12 +182,9 @@ func valuePositions(ctx context.Context, result *Valuation, instruments []Instru
 				}
 			} else {
 				q := row.Quote
-				symbol, _ := quoteSymbol(i)
-				stamp, stampErr := time.Parse(time.RFC3339Nano, q.QuotedAt)
-				_, fetchedErr := time.Parse(time.RFC3339Nano, q.FetchedAt)
 				if q.Currency != i.Currency {
 					item.ErrorCode = "currency_mismatch"
-				} else if q.Symbol != symbol || q.Price <= 0 || q.Source != "Tencent" || !validDate(q.Date) || q.Date > result.AsOf || stampErr != nil || fetchedErr != nil || stamp.After(now()) || stamp.In(fxBeijing).Format(time.DateOnly) != q.Date {
+				} else if !validPositionQuote(q, i, result.AsOf, now()) {
 					item.ErrorCode = "quote_unavailable"
 				} else {
 					item.Quote = q
@@ -194,10 +208,7 @@ func valuePositions(ctx context.Context, result *Valuation, instruments []Instru
 					fx.quote, fx.err = fxProvider.Fetch(fxCtx, FXRequest{Base: i.Currency, Quote: result.Currency, Mode: "latest"})
 					cancel()
 				}
-				q := fx.quote
-				stamp, stampErr := time.Parse(time.RFC3339Nano, q.QuotedAt)
-				_, fetchedErr := time.Parse(time.RFC3339Nano, q.FetchedAt)
-				if fx.err == nil && (q.Base != i.Currency || q.Quote != result.Currency || q.Mode != "latest" || q.Rate <= 0 || q.Source == "" || !validDate(q.Date) || q.Date > result.AsOf || stampErr != nil || fetchedErr != nil || stamp.After(now()) || q.Date > stamp.In(fxBeijing).Format(time.DateOnly)) {
+				if fx.err == nil && !validPositionFX(fx.quote, i.Currency, result.Currency, result.AsOf, now()) {
 					fx.err = ErrFXUnavailable
 				}
 				fxs[i.Currency] = fx

@@ -38,6 +38,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   wrapper?.unmount();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
 });
@@ -53,7 +55,8 @@ function start() {
     },
   });
 }
-it("reads a single stock book, shows cash and refreshes without writing account assets", async () => {
+it("reads the saved stock book every 20 minutes while visible and stops on unmount", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   const fetcher = vi.fn(
     async () =>
       new Response(JSON.stringify({ ...emptyStockBook(), cash: "123.00" })),
@@ -70,19 +73,48 @@ it("reads a single stock book, shows cash and refreshes without writing account 
   await toggle.trigger("click");
   expect(toggle.attributes("aria-expanded")).toBe("true");
   expect(wrapper.get("#stock-book-body").isVisible()).toBe(true);
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text() === "刷新行情")!
-    .trigger("click");
+  expect(wrapper.text()).not.toContain("刷新行情");
+  await vi.advanceTimersByTimeAsync(20 * 60_000 - 1);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
   await flushPromises();
   await toggle.trigger("click");
   expect(toggle.attributes("aria-expanded")).toBe("false");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  wrapper.unmount();
+  await vi.advanceTimersByTimeAsync(20 * 60_000);
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(
     fetcher.mock.calls.every(
       (args) => !(args as unknown as [string, RequestInit])[1]?.method,
     ),
   ).toBe(true);
+});
+it("catches up on returning to a hidden page and leaves an open cash edit alone", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  const visibility = vi
+    .spyOn(document, "visibilityState", "get")
+    .mockReturnValue("visible");
+  const fetcher = vi.fn(
+    async () => new Response(JSON.stringify(emptyStockBook())),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  start();
+  await flushPromises();
+  visibility.mockReturnValue("hidden");
+  await vi.advanceTimersByTimeAsync(40 * 60_000);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue("visible");
+  document.dispatchEvent(new Event("visibilitychange"));
+  await flushPromises();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await wrapper.get(".stock-cash").trigger("click");
+  await wrapper.get('[name="cash"]').setValue("87.65");
+  await vi.advanceTimersByTimeAsync(20 * 60_000);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect((wrapper.get('[name="cash"]').element as HTMLInputElement).value).toBe(
+    "87.65",
+  );
 });
 it("opens each stock with its costs and profits, preserving a visibly stale list after a failed refresh", async () => {
   let failed = false;
@@ -114,10 +146,7 @@ it("opens each stock with its costs and profits, preserving a visibly stale list
   expect(detail.text()).toContain("个股累计盈亏");
   expect(detail.text()).toContain("86,720.00");
   failed = true;
-  await wrapper
-    .findAll("button")
-    .find((b) => b.text() === "刷新行情")!
-    .trigger("click");
+  await wrapper.setProps({ refreshKey: 1 });
   await flushPromises();
   expect(detail.get('[role="alert"]').text()).toContain("可能已过期");
   expect(wrapper.text()).toContain("合成腾讯");

@@ -235,7 +235,7 @@ it("uses the account's currency and retains precise backend values instead of as
   expect(wrapper.get(".stock-fx-trigger").text()).toContain("0.128225 USD");
 });
 
-it("shows recovered position weights with the actual reference-price date", async () => {
+it("shows recovered weights and the last available price without historical price labels", async () => {
   const item = foreign();
   item.quote = {
     ...item.quote!,
@@ -252,16 +252,15 @@ it("shows recovered position weights with the actual reference-price date", asyn
     total_assets: "2220.00",
   });
   expect(wrapper.get(".stock-totals").text()).toContain("2,220.00");
-  expect(wrapper.get(".stock-total-note").text()).toBe("含历史参考价估值");
+  expect(wrapper.text()).not.toContain("含历史参考价估值");
   const rows = wrapper.findAll(".stock-row");
   expect(rows[0]!.text()).toContain("45.95%");
   expect(rows[1]!.text()).toContain("49.55%");
-  expect(rows[0]!.get(".stock-price-reference").text()).toContain("2026-03-19");
-  expect(rows[1]!.find(".stock-price-reference").exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("参考价日期");
   await rows[0]!.trigger("click");
   const detail = wrapper.get(".stock-detail-dialog");
-  expect(detail.get(".stock-quote").attributes("aria-label")).toBe("参考价");
-  expect(detail.get(".stock-quote-date").text()).toBe("参考价日期 2026-03-19");
+  expect(detail.get(".stock-quote").attributes("aria-label")).toBe("最新价");
+  expect(detail.text()).not.toContain("2026-03-19");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 

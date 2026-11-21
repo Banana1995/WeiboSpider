@@ -18,17 +18,18 @@ import (
 )
 
 type Application struct {
-	Handler         http.Handler
-	db              *database.DB
-	ledgerDB        *database.DB
-	taxStore        *tax.Store
-	optionsStore    *options.Store
-	optionsScanner  *options.Scanner
-	source          *liquor.SinaSource
-	worker          *liquor.Worker
-	ledgerWorker    *ledger.WeeklyWorker
-	benchmarkWorker *ledger.BenchmarkWorker
-	dividendWorker  *ledger.DividendWorker
+	Handler           http.Handler
+	db                *database.DB
+	ledgerDB          *database.DB
+	taxStore          *tax.Store
+	optionsStore      *options.Store
+	optionsScanner    *options.Scanner
+	source            *liquor.SinaSource
+	worker            *liquor.Worker
+	ledgerWorker      *ledger.WeeklyWorker
+	benchmarkWorker   *ledger.BenchmarkWorker
+	dividendWorker    *ledger.DividendWorker
+	stockMarketWorker *ledger.StockMarketWorker
 }
 
 func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
@@ -88,6 +89,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 			return nil, errors.Join(err, application.Close())
 		}
 		application.dividendWorker = ledger.NewDividendWorker(ledgerStore, ledger.NewPublicDividends(), fx, logger)
+		application.stockMarketWorker = ledger.NewStockMarketWorker(ledgerStore, quotes, fx, logger)
 		ledger.Handler{Store: ledgerStore, Logger: logger, FX: fx, Quotes: quotes, InstrumentSearch: quotes, Benchmark: benchmark, BenchmarkStatus: benchmark, Weekly: application.ledgerWorker, Dividends: application.dividendWorker}.Register(ledgerMux)
 		if cfg.LedgerMCPEnabled {
 			ledgerMux.Handle(ledger.MCPPath, ledger.NewMCPHandler(ledger.MCPService{Store: ledgerStore, Instruments: quotes, Dividends: application.dividendWorker}, logger))
@@ -127,6 +129,14 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 	ledgerDone := make(chan error, 1)
 	benchmarkDone := make(chan error, 1)
 	dividendDone := make(chan error, 1)
+	marketDone := make(chan error, 1)
+	go func() {
+		if a.stockMarketWorker != nil {
+			marketDone <- a.stockMarketWorker.Run(runCtx)
+		} else {
+			marketDone <- nil
+		}
+	}()
 	go func() {
 		if a.dividendWorker != nil {
 			dividendDone <- a.dividendWorker.Run(runCtx)
@@ -187,10 +197,11 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 		benchmarkErr = <-benchmarkDone
 	}
 	dividendErr := <-dividendDone
+	marketErr := <-marketDone
 	if errors.Is(webErr, http.ErrServerClosed) {
 		webErr = nil
 	}
-	return errors.Join(webErr, workerErr, ledgerErr, benchmarkErr, dividendErr, shutdownErr)
+	return errors.Join(webErr, workerErr, ledgerErr, benchmarkErr, dividendErr, marketErr, shutdownErr)
 }
 
 func (a *Application) Close() error {

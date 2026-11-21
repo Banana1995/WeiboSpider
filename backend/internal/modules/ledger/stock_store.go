@@ -708,7 +708,11 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 		view.Items = append(view.Items, HoldingItem{Instrument: instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, Quantity: positions[id].quantity})
 		instruments = append(instruments, i)
 	}
-	if err = h.valueHoldings(ctx, &view, instruments); err != nil {
+	quotes, rates, err := h.Store.readStockPrices(ctx, instruments, out.Currency)
+	if err != nil {
+		return out, err
+	}
+	if err = valueHoldings(ctx, &view, instruments, quotes, rates, h.Store.now); err != nil {
 		return out, err
 	}
 	out.Complete, out.TotalAssets = view.Complete, copyMoney(view.TotalAssets)

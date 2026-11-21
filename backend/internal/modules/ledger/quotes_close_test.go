@@ -108,7 +108,7 @@ func TestClosingQuoteRestoresFullAccountWeights(t *testing.T) {
 		{ID: "b", Market: "HK", Code: "01448", Name: "Synthetic suspended", Currency: HKD},
 	}
 	s := valuationFixture(t, []CurrentPosition{{InstrumentID: "a", Quantity: 100_000_000}, {InstrumentID: "b", Quantity: 500_000_000}}, instruments)
-	historyCalls, failHistory := 0, false
+	historyCalls, failHistory := 0, true
 	provider := newTencentQuotes(stockTransport(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, "https", r.URL.Scheme)
 		status, body := 200, ""
@@ -134,10 +134,25 @@ func TestClosingQuoteRestoresFullAccountWeights(t *testing.T) {
 			return FXQuote{Base: HKD, Quote: CNY, Mode: "latest", Rate: 50_000_000, Date: "2026-09-06", Source: "Tencent/spot/HKDCNY", QuotedAt: "2026-09-06T15:00:00+08:00", FetchedAt: stockNow.Format(time.RFC3339)}, nil
 		}),
 	}
+	w := StockMarketWorker{store: s, quotes: provider, fx: h.FX, marketOpen: func(context.Context, string, time.Time) (bool, error) { return true, nil }}
+	// No verified close available yet: persist the successful leg only.
+	require.Error(t, w.refreshSlot(t.Context(), stockNow.Add(-40*time.Minute), []string{"SH", "HK"}))
 	b, err := h.stockBookView(t.Context(), "a")
 	require.NoError(t, err)
-	require.True(t, b.Complete)
+	require.False(t, b.Complete)
+	require.Nil(t, b.TotalAssets)
+	require.Equal(t, Money(100000), *b.PositionsValue)
+	for _, item := range b.Items {
+		require.Nil(t, item.Weight)
+	}
+	require.Nil(t, b.Items[1].Quote)
 	require.Equal(t, 1, historyCalls)
+	failHistory = false
+	require.NoError(t, w.refreshSlot(t.Context(), stockNow.Add(-20*time.Minute), []string{"SH", "HK"}))
+	b, err = h.stockBookView(t.Context(), "a")
+	require.NoError(t, err)
+	require.True(t, b.Complete)
+	require.Equal(t, 2, historyCalls)
 	require.Equal(t, Money(176000), *b.TotalAssets) // 100 cash + 1000 CNY + 1320 HKD × 0.5.
 	require.Equal(t, Money(166000), *b.PositionsValue)
 	require.Equal(t, "56.82", *b.Items[0].Weight)
@@ -156,17 +171,12 @@ func TestClosingQuoteRestoresFullAccountWeights(t *testing.T) {
 	}
 	require.NoError(t, proof.validate())
 
-	// An unverified fallback must not turn a partial subtotal into a full account.
+	// A later upstream failure can't destroy a previously verified price.
 	failHistory = true
-	b, err = h.stockBookView(t.Context(), "a")
+	require.Error(t, w.refreshSlot(t.Context(), stockNow, []string{"SH", "HK"}))
+	after, err := h.stockBookView(t.Context(), "a")
 	require.NoError(t, err)
-	require.False(t, b.Complete)
-	require.Nil(t, b.TotalAssets)
-	require.Equal(t, Money(100000), *b.PositionsValue)
-	for _, item := range b.Items {
-		require.Nil(t, item.Weight)
-	}
-	require.Nil(t, b.Items[1].Quote)
+	require.Equal(t, b, after)
 }
 
 func TestClosingQuoteDoesNotRescueInvalidOrDelistedSpot(t *testing.T) {

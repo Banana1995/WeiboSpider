@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import LedgerDialog from "./LedgerDialog.vue";
 import LedgerDisclosure from "./LedgerDisclosure.vue";
 import StockTradeDialog from "./StockTradeDialog.vue";
@@ -42,9 +49,6 @@ const sortDir = ref<1 | -1>(-1);
 const accountCurrencyName = computed(
   () => ({ CNY: "人民币", HKD: "港币", USD: "美元" })[props.account.currency],
 );
-const usesPriorPrice = (item: StockItem) =>
-  !!item.quote && item.quote.date < (read.data?.as_of ?? "");
-const hasPriorPrices = computed(() => read.data?.items.some(usesPriorPrice));
 const rows = computed(() => {
   const list =
     read.data?.items.filter(
@@ -133,7 +137,11 @@ const editor = ref<{
 }>();
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let secondTimer: ReturnType<typeof setTimeout> | undefined;
+const cacheReadInterval = 20 * 60_000;
+let cacheTimer: ReturnType<typeof setInterval> | undefined;
+let lastRead = 0;
 function load() {
+  lastRead = Date.now();
   void read.load(async (signal) =>
     validateStockBook(
       await request<StockBook>(`/accounts/${props.account.id}/stock-book`, {
@@ -143,6 +151,24 @@ function load() {
     ),
   );
 }
+// Visible pages reread the server's saved prices. Only the server worker
+// contacts the quote source, independently of visits and tab count.
+function readIfIdle() {
+  if (
+    document.visibilityState !== "hidden" &&
+    !read.loading &&
+    !locked.value &&
+    !editor.value
+  )
+    load();
+}
+function onVisibilityChange() {
+  if (Date.now() - lastRead >= cacheReadInterval) readIfIdle();
+}
+onMounted(() => {
+  cacheTimer = setInterval(readIfIdle, cacheReadInterval);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+});
 watch(() => [props.account.id, props.refreshKey], load, { immediate: true });
 watch(selected, () => {
   limit.value = 30;
@@ -179,6 +205,8 @@ const settlement = (e: StockEntry) =>
         ? "待补汇率"
         : "已到派息日";
 onBeforeUnmount(() => {
+  clearInterval(cacheTimer);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   clearTimeout(refreshTimer);
   clearTimeout(secondTimer);
 });
@@ -237,12 +265,6 @@ defineExpose({ load });
         <small v-if="read.data && !read.data.complete" class="stock-total-note"
           >部分估值暂缺，总资金及仓位暂不可算</small
         >
-        <small
-          v-else-if="hasPriorPrices"
-          class="stock-total-note"
-          title="部分持仓当天没有报价，按最近一个交易日的参考价估算；不是实时成交价。"
-          >含历史参考价估值</small
-        >
       </span>
       <span
         v-if="read.loading"
@@ -256,14 +278,6 @@ defineExpose({ load });
       <div class="stock-actions">
         <button
           type="button"
-          :disabled="locked || read.loading"
-          aria-label="刷新持仓和最新行情"
-          title="重新读取持仓、现金和最新行情，不保存或修改账本"
-          @click="load"
-        >
-          {{ read.loading ? "刷新中…" : "刷新行情" }}</button
-        ><button
-          type="button"
           class="lp-primary"
           :disabled="locked || read.loading || !!read.error || !read.data"
           @click="open('buy')"
@@ -273,9 +287,6 @@ defineExpose({ load });
       </div>
     </header>
     <div v-show="expanded" id="stock-book-body" class="stock-book-body">
-      <p v-if="hasPriorPrices" class="stock-valuation-note">
-        含历史参考价估值：部分持仓当天没有新报价，按最近一个交易日的价格估算，不是实时成交价。
-      </p>
       <p v-if="read.error && !selected" class="lp-error" role="alert">
         {{ errorText(read.error) }}
       </p>
@@ -372,10 +383,7 @@ defineExpose({ load });
                 ><template v-else
                   >{{ accountCurrencyName }}估值暂缺</template
                 ></small
-              ><small>{{ holdingNumber(row.quantity) }} 股</small
-              ><small v-if="usesPriorPrice(row)" class="stock-price-reference"
-                >参考价日期 {{ row.quote!.date }}</small
-              ></span
+              ><small>{{ holdingNumber(row.quantity) }} 股</small></span
             >
             <span
               ><strong>{{
@@ -422,22 +430,12 @@ defineExpose({ load });
       >
         <template #title-extra>
           <template v-if="detail">
-            <span
-              class="stock-quote"
-              role="group"
-              :aria-label="usesPriorPrice(detail) ? '参考价' : '最新价'"
-            >
-              <span class="stock-quote-label">{{
-                usesPriorPrice(detail) ? "参考价" : "最新价"
-              }}</span>
+            <span class="stock-quote" role="group" aria-label="最新价">
+              <span class="stock-quote-label">最新价</span>
               <strong>{{ holdingNumber(detail.price) }}</strong>
               <span>{{ detail.instrument.currency }}</span>
             </span>
-            <small v-if="detail.quote" class="stock-quote-date"
-              >{{ usesPriorPrice(detail) ? "参考价日期" : "截至" }}
-              {{ detail.quote.date }}</small
-            >
-            <small v-else class="stock-quote-date">{{
+            <small v-if="!detail.quote" class="stock-quote-status">{{
               detail.quantity === "0.000000" ? "已清仓" : "行情暂不可用"
             }}</small>
           </template>

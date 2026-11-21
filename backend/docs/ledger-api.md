@@ -34,6 +34,7 @@
 | `GET /instruments` | 不可变证券身份目录，按 ID 分页 |
 | `POST /instruments` | 底层不可变目录插入，201；当前 UI 不使用独立登记流程 |
 | `GET/PUT /accounts/{id}/current-holdings` | 当前现金/数量快照；整份 CAS 替换，200 |
+| `GET/POST /accounts/{id}/stock-book` | 当前单股账本及持仓估值 / 提交买卖、现金等指令 |
 | `GET /accounts/{id}/holdings` | 当前持仓与只读参考价格、市值 |
 | `GET /accounts/{id}/valuation` | 只读当前参考总估值，不保存 |
 | `GET /accounts/{id}/valuations` | 已保存原始估值摘要，按 ID 倒序分页 |
@@ -71,6 +72,8 @@
 账户重试与其他写入一样使用原 POST 和 key，不通过 GET 猜测提交成功。创建/导入成功后即使列表读取失败，前端保留目标账户 ID，重新读取不会选回旧账户或再次提交。
 
 ## 5. 只读参考行情
+
+“我的持仓”使用 `/stock-book`。GET/HEAD 按当前数量和余额、最近保存在 `ledger.db` 的有效报价与汇率计算。服务端在沪、深、港各自的交易时段按 20 分钟定时更新，无需打开页面；休市或来源异常保留已有价格。全新证券尚无报价时 `price=null`，总资金与仓位比例暂缺。报价日期仍在 API 的 `quote` 中，界面只显示最新可用价。此任务不新增固定资产、资金流水或周记录。
 
 `/holdings` 和 `/valuation` 都不接受查询参数，读取同一事务内的当前现金、数量及证券身份，释放事务后再访问行情。读请求不增加资产、审计或回执；参考估值不是账本总资产。
 

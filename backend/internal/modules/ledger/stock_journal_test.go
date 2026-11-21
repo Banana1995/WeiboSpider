@@ -120,16 +120,10 @@ func TestStockBookExposesTotalAssetsPositionsValueAndWeight(t *testing.T) {
 	stockWrite(t, s, "b", buy)
 	cash := Money(10000)
 	stockWrite(t, s, "cash", StockCommand{Action: "cash", ExpectedVersion: "1", Cash: &cash})
-	h := Handler{Store: s, Quotes: valuationQuotes(func(_ context.Context, instruments []Instrument) map[string]QuoteResult {
-		rows := map[string]QuoteResult{}
-		for _, i := range instruments {
-			symbol, _ := quoteSymbol(i)
-			rows[i.ID] = QuoteResult{Quote: &Quote{Symbol: symbol, Price: 12000000, Currency: i.Currency, Source: "Tencent", Date: "2026-09-06", QuotedAt: "2026-09-06T15:00:00+08:00", FetchedAt: "2026-09-06T07:00:00Z"}}
-		}
-		return rows
-	})}
-	book, err := h.stockBookView(t.Context(), "a")
-	require.NoError(t, err)
+	require.NoError(t, s.saveStockPrices(t.Context(), savedStockQuotes{"sh600036": {
+		Symbol: "sh600036", Price: 12000000, Currency: CNY, Source: "Tencent", Date: "2026-09-04", QuotedAt: "2026-09-04T15:00:00+08:00", FetchedAt: "2026-09-04T07:00:01Z",
+	}}, nil))
+	book := readBook(t, s)
 	require.True(t, book.Complete)
 	require.Equal(t, Money(120000), *book.PositionsValue)
 	require.Equal(t, Money(130000), *book.TotalAssets)

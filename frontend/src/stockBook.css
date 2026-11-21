@@ -90,11 +90,6 @@
 .stock-total-note {
   align-self: center;
 }
-.stock-total-note[title] {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-  cursor: help;
-}
 .ledger-page .stock-totals .stock-total > strong {
   color: var(--lp-text);
 }
@@ -120,11 +115,6 @@
 }
 .stock-cash > strong {
   color: var(--lp-text);
-}
-.stock-valuation-note {
-  margin: 0 0 12px;
-  color: var(--lp-muted);
-  font-size: 12px;
 }
 .stock-list-toolbar {
   margin: 16px 0 8px;
@@ -351,7 +341,7 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.stock-quote-date {
+.stock-quote-status {
   white-space: nowrap;
 }
 .stock-metrics {

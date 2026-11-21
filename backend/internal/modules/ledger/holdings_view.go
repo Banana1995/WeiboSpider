@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
 )
@@ -83,7 +84,7 @@ func (s *Store) holdingsInputs(ctx context.Context, id string) (HoldingsView, []
 	return out, instruments, err
 }
 
-func (h Handler) valueHoldings(ctx context.Context, out *HoldingsView, instruments []Instrument) error {
+func valueHoldings(ctx context.Context, out *HoldingsView, instruments []Instrument, quotes QuotesProvider, fx FXProvider, now func() time.Time) error {
 	if !out.Configured {
 		return nil
 	}
@@ -91,7 +92,7 @@ func (h Handler) valueHoldings(ctx context.Context, out *HoldingsView, instrumen
 	for n, item := range out.Items {
 		v.Items[n] = ValuationItem{InstrumentID: item.Instrument.ID, Quantity: item.Quantity, Status: "unavailable"}
 	}
-	if err := h.valuePositions(ctx, &v, instruments); err != nil {
+	if err := valuePositions(ctx, &v, instruments, quotes, fx, now); err != nil {
 		return err
 	}
 	out.Complete, out.TotalAssets = v.Complete, v.TotalAssets
@@ -130,7 +131,7 @@ func (h Handler) holdings(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	out, instruments, err := h.Store.holdingsInputs(ctx, r.PathValue("id"))
 	if err == nil {
-		err = h.valueHoldings(ctx, &out, instruments)
+		err = valueHoldings(ctx, &out, instruments, h.Quotes, h.FX, h.Now)
 	}
 	if r.Context().Err() != nil {
 		err = r.Context().Err()

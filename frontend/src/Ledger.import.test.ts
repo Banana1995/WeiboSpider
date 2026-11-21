@@ -554,11 +554,6 @@ it("sets stock cash on an imported account, locks navigation on uncertainty and 
   expect(new Headers(writes[0]![1].headers).get("Idempotency-Key")).toBe(
     new Headers(writes[1]![1].headers).get("Idempotency-Key"),
   );
-  await panel
-    .findAll("button")
-    .find((b) => b.text() === "刷新行情")!
-    .trigger("click");
-  await flushPromises();
   expect(panel.get(".stock-cash").text()).toContain("100.00");
   expect(
     fetcher.mock.calls.some(([url]) =>

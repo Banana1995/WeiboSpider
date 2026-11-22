@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strconv"
 )
@@ -42,108 +43,131 @@ type importHistory struct {
 	matchAdded []ImportedRow // added at the matching batch, before later imports
 }
 
-func readImportBatches(ctx context.Context, tx *sql.Tx, id string) ([]storedImport, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id,entity_id,recorded_at,correlation_id,action,after_json,metadata_json
-		FROM audit_log WHERE entity_type='import' AND account_id=? AND EXISTS(SELECT 1 FROM accounts WHERE id=?) ORDER BY id`, id, id)
+// Read just the batch needed for compatibility (by digest), or the latest
+// contributing batch for the summary. Old record_ids are not row identities.
+func readImportBatch(ctx context.Context, tx *sql.Tx, id, digest string) (*storedImport, error) {
+	query := `SELECT id,entity_id,recorded_at,correlation_id,action,after_json,metadata_json FROM audit_log
+	 WHERE entity_type='import' AND account_id=? AND EXISTS(SELECT 1 FROM accounts WHERE id=?)`
+	args := []any{id, id}
+	if digest != "" {
+		query += ` AND json_extract(metadata_json,'$.digest')=?`
+		args = append(args, digest)
+	} else {
+		query += ` AND coalesce(json_extract(metadata_json,'$.skipped_count'),0)<json_extract(after_json,'$.summary.row_count')`
+	}
+	b := &storedImport{AccountID: id}
+	var action, manifest, metadata string
+	err := tx.QueryRowContext(ctx, query+` ORDER BY id DESC LIMIT 1`, args...).Scan(&b.AuditID, &b.BatchID, &b.ImportedAt, &b.Correlation, &action, &manifest, &metadata)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var batches []storedImport
-	for rows.Next() {
-		b := storedImport{AccountID: id}
-		var action, manifest, metadata string
-		if err := rows.Scan(&b.AuditID, &b.BatchID, &b.ImportedAt, &b.Correlation, &action, &manifest, &metadata); err != nil {
-			return nil, err
-		}
-		if _, err := positiveInteger(b.BatchID); err != nil || b.Correlation == "" ||
-			decodeReceipt(manifest, &b.Manifest) != nil || decodeReceipt(metadata, &b.Metadata) != nil || len(b.Metadata.Digest) != 64 ||
-			b.Manifest.Summary.RowCount < 1 || b.Manifest.Summary.RowCount > maxImportRows ||
-			b.Metadata.SkippedCount < 0 || b.Metadata.SkippedCount != b.Manifest.Summary.RowCount-len(b.Metadata.RecordIDs) ||
-			len(batches) == 0 && (action != "initialize" || b.Metadata.SkippedCount != 0) || len(batches) > 0 && (action != "append" || b.Metadata.CreateAccount) {
-			return nil, ErrCorrupt
-		}
-		batches = append(batches, b)
+	if _, err := positiveInteger(b.BatchID); err != nil || b.Correlation == "" || decodeReceipt(manifest, &b.Manifest) != nil || decodeReceipt(metadata, &b.Metadata) != nil || len(b.Metadata.Digest) != 64 ||
+		b.Manifest.Summary.RowCount < 1 || b.Manifest.Summary.RowCount > maxImportRows || b.Metadata.SkippedCount < 0 || b.Metadata.SkippedCount > b.Manifest.Summary.RowCount ||
+		b.Metadata.RecordIDs != nil && len(*b.Metadata.RecordIDs) != b.addedCount() || action != "initialize" && action != "append" ||
+		action == "initialize" && b.Metadata.SkippedCount != 0 || action == "append" && b.Metadata.CreateAccount {
+		return nil, ErrCorrupt
 	}
-	return batches, rows.Err()
+	return b, nil
 }
 
-// Stream only this account's original Excel evidence, including rows whose
-// effective record has since been edited or voided. The manifest stores just
-// the IDs introduced by that batch (all rows for pre-incremental manifests).
+// The import_row is the source. Its effective record may have changed or been
+// deliberately removed; only an authenticated removal can explain its absence.
+const importSourceSelect = `SELECT a.entity_id,a.after_json,a.metadata_json,
+ CASE WHEN r.id IS NULL THEN json_extract(d.before_json,'$.original')
+ WHEN r.origin='import' AND r.sequence=CAST(a.entity_id AS INTEGER) AND EXISTS(SELECT 1 FROM audit_log c WHERE c.entity_type='account_record' AND c.entity_id=r.id AND c.account_id=r.account_id AND c.version=r.version AND c.after_json=r.payload) THEN json_extract(r.payload,'$.original') END,
+ (a.action='import' AND a.version=1 AND a.source='human')
+ FROM audit_log a LEFT JOIN account_records r ON r.account_id=a.account_id AND r.id='import-'||a.entity_id
+ LEFT JOIN audit_log d ON d.entity_type='account_record' AND d.action='remove_duplicate' AND d.account_id=a.account_id AND d.entity_id='import-'||a.entity_id`
+
+func scanImportSource(rows *sql.Rows) (r ImportedRecord, batch string, err error) {
+	var raw, meta string
+	var original sql.NullString
+	var verified bool
+	if err = rows.Scan(&r.ID, &raw, &meta, &original, &verified); err != nil {
+		return
+	}
+	var detail struct {
+		BatchID         int64  `json:"batch_id"`
+		SourceRow       int    `json:"source_row"`
+		AccountRecordID string `json:"account_record_id"`
+	}
+	if _, e := positiveInteger(r.ID); e != nil || !verified || !original.Valid || decodeReceipt(raw, &r.ImportedRow) != nil || decodeReceipt(meta, &detail) != nil || detail.AccountRecordID != "import-"+r.ID || detail.SourceRow != r.SourceRow || r.SourceRow < 5 || r.SourceRow > maxImportRows+4 || detail.BatchID < 1 {
+		return r, "", ErrCorrupt
+	}
+	if original.String != raw {
+		var other ImportedRow
+		if decodeReceipt(original.String, &other) != nil || !reflect.DeepEqual(other, r.ImportedRow) {
+			return r, "", ErrCorrupt
+		}
+	}
+	return r, strconv.FormatInt(detail.BatchID, 10), nil
+}
+
 func readImportHistory(ctx context.Context, tx *sql.Tx, id string, p *ImportPreview) (importHistory, error) {
 	h := importHistory{counts: make(importCounts)}
-	batches, err := readImportBatches(ctx, tx, id)
-	if err != nil || len(batches) == 0 {
+	var err error
+	h.latest, err = readImportBatch(ctx, tx, id, "")
+	if err != nil || h.latest == nil {
 		return h, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT a.entity_id,a.after_json,a.metadata_json,a.correlation_id,a.recorded_at,json_extract(r.payload,'$.original')
-		FROM audit_log a JOIN account_records r ON r.account_id=a.account_id AND r.id='import-'||a.entity_id AND r.sequence=CAST(a.entity_id AS INTEGER)
-		WHERE a.account_id=? AND a.entity_type='import_row' AND a.action='import' AND a.version=1 AND a.source='human' AND r.origin='import'
-		AND EXISTS(SELECT 1 FROM audit_log c WHERE c.account_id=r.account_id AND c.entity_type='account_record' AND c.entity_id=r.id AND c.version=r.version AND c.after_json=r.payload)
-		ORDER BY a.id`, id)
+	var coords map[int]ImportedRow
+	if p != nil {
+		h.match, err = readImportBatch(ctx, tx, id, p.Digest)
+		if err != nil {
+			return h, err
+		}
+		if b := h.match; b != nil {
+			if p.Metadata != b.Manifest.Metadata || !reflect.DeepEqual(p.Summary, b.Manifest.Summary) {
+				return h, ErrCorrupt
+			}
+			coords = make(map[int]ImportedRow, len(p.Rows))
+			for _, r := range p.Rows {
+				coords[r.SourceRow] = r
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, importSourceSelect+` WHERE a.account_id=? AND a.entity_type='import_row' ORDER BY a.id`, id)
 	if err != nil {
 		return h, err
 	}
 	defer rows.Close()
-	for i := range batches {
-		b := &batches[i]
-		var expected []ImportedRow
-		if p != nil && p.Digest == b.Metadata.Digest {
-			h.match = b
-			expected = h.counts.missing(p.Rows)
-			if p.Metadata != b.Manifest.Metadata || !reflect.DeepEqual(p.Summary, b.Manifest.Summary) || len(expected) != len(b.Metadata.RecordIDs) {
-				return h, ErrCorrupt
-			}
-			h.matchAdded = expected
+	for rows.Next() {
+		r, b, err := scanImportSource(rows)
+		if err != nil {
+			return h, err
 		}
-		for j, rowID := range b.Metadata.RecordIDs {
-			if !rows.Next() {
-				if err := rows.Err(); err != nil {
-					return h, err
-				}
+		if err := h.summary.add(r.ImportedRow); err != nil {
+			return h, ErrCorrupt
+		}
+		if p != nil {
+			h.counts[importRowKey(r.ImportedRow)]++
+		}
+		if h.match != nil && b == h.match.BatchID {
+			if !reflect.DeepEqual(r.ImportedRow, coords[r.SourceRow]) {
 				return h, ErrCorrupt
 			}
-			var gotID, raw, meta, key, stamp, original string
-			if err := rows.Scan(&gotID, &raw, &meta, &key, &stamp, &original); err != nil {
-				return h, err
-			}
-			var row ImportedRow
-			var detail struct {
-				BatchID         int64  `json:"batch_id"`
-				SourceRow       int    `json:"source_row"`
-				AccountRecordID string `json:"account_record_id"`
-			}
-			if gotID != rowID || key != b.Correlation || stamp != b.ImportedAt || decodeReceipt(raw, &row) != nil || decodeReceipt(meta, &detail) != nil ||
-				strconv.FormatInt(detail.BatchID, 10) != b.BatchID || detail.AccountRecordID != "import-"+rowID || detail.SourceRow != row.SourceRow ||
-				h.match == b && !reflect.DeepEqual(row, expected[j]) {
-				return h, ErrCorrupt
-			}
-			if original != raw { // equivalent JSON writers may use different escaping
-				var r ImportedRow
-				if decodeReceipt(original, &r) != nil || !reflect.DeepEqual(r, row) {
-					return h, ErrCorrupt
-				}
-			}
-			if err := h.summary.add(row); err != nil {
-				return h, ErrCorrupt
-			}
-			if p != nil {
-				h.counts[importRowKey(row)]++
-			}
-			h.latest = b
+			delete(coords, r.SourceRow)
+			h.matchAdded = append(h.matchAdded, r.ImportedRow)
 		}
 	}
-	if rows.Next() {
+	if err := rows.Err(); err != nil {
+		return h, err
+	}
+	if h.match != nil && (len(h.matchAdded) != h.match.addedCount() || len(h.counts.missing(p.Rows)) != 0) {
 		return h, ErrCorrupt
 	}
-	return h, rows.Err()
+	return h, nil
 }
+
+func (b storedImport) addedCount() int { return b.Manifest.Summary.RowCount - b.Metadata.SkippedCount }
 
 func (b storedImport) result(key string) importReceipt {
 	added := 0
 	if key == b.Correlation {
-		added = len(b.Metadata.RecordIDs)
+		added = b.addedCount()
 	}
 	return importReceipt{AccountID: b.AccountID, BatchID: b.BatchID, ImportedCount: added, SkippedCount: b.Manifest.Summary.RowCount - added, Duplicate: added == 0}
 }

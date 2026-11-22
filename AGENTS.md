@@ -25,7 +25,8 @@
 
 ## 投资账本 MCP（2026-11-06）
 
-- Go platform 内置十一个账本工具（服务版本 1.4.0），入口 `/api/platform/ledger/mcp`，官方 Go MCP SDK v1.8.0，无状态 Streamable HTTP/JSON。`LEDGER_MCP_ENABLED` 本地默认 false，开启要求 `LEDGER_ENABLED=true`；Compose 配置为 true，发布状态以实际部署为准。
+- Go platform 内置十四个账本工具（服务版本 1.5.0），入口 `/api/platform/ledger/mcp`，官方 Go MCP SDK v1.8.0，无状态 Streamable HTTP/JSON。`LEDGER_MCP_ENABLED` 本地默认 false，开启要求 `LEDGER_ENABLED=true`；Compose 配置为 true，发布状态以实际部署为准。
+- 账户转入/转出使用 `ledger_list_account_cash_flows`、`ledger_record_account_cash_flow`、`ledger_edit_account_cash_flow`。账户流水按单条记录版本更正，复用网页的账户记录事务，不影响持仓。Excel 断线后可在原账户普通重导，按原始来源行及出现次数比较。详见[导入设计及维护](docs/specs/ledger-excel-import-design.md)。
 - 写入必须校验完整金融事实，缺失、null、空串、错误精度及业务冲突拒绝整笔。费用未知不补零，日期未知不补今天。字段 Schema、`ledger_get_write_contract` 和错误提示共享定义；拒绝返回 `missing_fields`、`invalid_fields`、`requirements`、`questions`。`question_tool=question` 要求 AI 用客户端 question 工具向用户补问具体数据，明确后才重提；内部 ID/版本先通过读取工具获取。
 - REST 与 MCP 共用 `applyStockCommandTx`。MCP 业务键按账户/request_id 稳定派生，回执先于外部证券解析和版本检查；金额字符串、现金基准、分红及历史回放沿用单股账本规则。余额设置不是入金。
 - 2026-11-08 新增 `ledger_set_opening_positions`：空账户只知道股数时先写期初持仓（不含成本），后续 `complete_opening` 补真实成交。服务版本 1.2.0。

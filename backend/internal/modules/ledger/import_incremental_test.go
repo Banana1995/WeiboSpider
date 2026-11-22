@@ -46,6 +46,12 @@ func TestIncrementalImportFromLegacyAccount(t *testing.T) {
 	flow := [7]string{"转入转出", "2020-01-03", "1.25", "", "", "", ""}
 	old := workbook(t, asset, flow, flow)
 	first := confirmWorkbook(t, s, "a", "initial", true, old)
+	// Restore the actual v8 manifest shape. Modern writers no longer duplicate
+	// source identities in the batch; the upgraded reader must support both.
+	_, err = db.ExecContext(ctx, `DROP TRIGGER audit_log_no_update;
+	 UPDATE audit_log SET metadata_json=json_set(metadata_json,'$.record_ids',json_array('1','2','3')) WHERE entity_type='import';
+	 CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT,'immutable audit'); END;`)
+	require.NoError(t, err)
 	// The v8 writer used imported_count=file size on duplicate receipts.
 	_, err = db.ExecContext(ctx, `INSERT INTO idempotency_receipts SELECT 'legacy-repeat',kind,request_hash,request_json,json_set(response_json,'$.duplicate',json('true')),audit_id,created_at FROM idempotency_receipts WHERE key='initial'`)
 	require.NoError(t, err)

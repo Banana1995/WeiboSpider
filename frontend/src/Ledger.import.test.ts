@@ -84,6 +84,12 @@ let summary404: boolean;
 let committed: boolean;
 let commits: { path: string; body: FormData; key: string | null }[];
 beforeEach(() => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => stored.get(k) ?? null,
+    setItem: (k: string, v: string) => stored.set(k, v),
+    removeItem: (k: string) => stored.delete(k),
+  });
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -309,40 +315,44 @@ it("imports into existing holdings without rewriting its name or creating an acc
   expect(accounts[0]).toEqual(holdings);
 });
 
-it("locks parent navigation and all writes after uncertainty, retries the same File/digest/key/ID and accepts a duplicate receipt", async () => {
+it("unlocks after disconnect and reopens an ordinary import with a fresh key but the same new-account ID", async () => {
   await start(Ledger);
   await wrapper.get('[data-test="import-target"]').setValue("");
   const file = await upload();
   uncertain = true;
   await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
-  expect(wrapper.emitted("locked")?.at(-1)).toEqual([true]);
+  expect(wrapper.getComponent(ImportAccount).emitted("locked")?.at(-1)).toEqual(
+    [false],
+  );
   expect(wrapper.find('[data-test="import-diff"]').exists()).toBe(false);
   const event = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(true);
+  expect(event.defaultPrevented).toBe(false);
   expect(
     wrapper.get('[data-test="import-account"] fieldset').attributes(),
-  ).toHaveProperty("disabled");
-  expect(
-    wrapper
-      .findAll('[role="tab"]')
-      .every((b) => b.attributes("disabled") !== undefined),
-  ).toBe(true);
-  expect(
-    wrapper
-      .findAll("nav a")
-      .every((a) => a.attributes("aria-disabled") === "true"),
-  ).toBe(true);
+  ).not.toHaveProperty("disabled");
+  await wrapper
+    .findAll("dialog[open]")
+    .at(-1)!
+    .get('[aria-label="关闭弹窗"]')
+    .trigger("click");
+  expect(wrapper.find('[data-test="import-submit"]').exists()).toBe(false);
+  wrapper.unmount();
+  await start(Ledger);
+  await upload(file);
   expect(
     wrapper.get('[data-test="import-submit"]').attributes("disabled"),
   ).toBeUndefined();
   await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
+  expect(wrapper.text()).toContain("已选回对应目标");
+  expect(commits).toHaveLength(1);
+  await click("导入");
   expect(commits).toHaveLength(2);
-  expect(commits[1]!.key).toBe(commits[0]!.key);
+  expect(commits[1]!.key).not.toBe(commits[0]!.key);
   expect(commits[1]!.path).toBe(commits[0]!.path);
-  expect(formEntries(commits[1]!.body)).toEqual(formEntries(commits[0]!.body));
+  expect(commits[1]!.body.get("preview_digest")).toBe(preview.digest);
   expect(commits[1]!.body.get("file")).toBe(file);
   expect(wrapper.text()).toContain("本次新增 0 笔，跳过重复 65 笔");
   const diff = wrapper.get('dialog[data-test="import-diff"]');
@@ -690,14 +700,14 @@ it.each([
     expect(wrapper.text()).toContain(errorText(new LedgerError(code).message));
     expect(wrapper.text()).not.toContain("导入已确认成功");
     const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
-    await click("重试导入");
-    expect(commits[0]!.key).toBe(
+    await click("导入");
+    expect(commits[0]!.key).not.toBe(
       new Headers(first.headers).get("Idempotency-Key"),
     );
   },
 );
 
-it("storage_busy freezes payload and retry stays available even if account reads become unavailable", async () => {
+it("storage_busy permits reselecting the file but cannot bypass disabled account reads", async () => {
   await start();
   const file = await upload();
   fetcher.mockResolvedValueOnce(response(preview));
@@ -706,9 +716,14 @@ it("storage_busy freezes payload and retry stays available even if account reads
   await flushPromises();
   const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
   await wrapper.setProps({ disabled: true });
+  expect(
+    wrapper.get('[data-test="import-submit"]').attributes("disabled"),
+  ).toBeDefined();
+  expect(commits).toHaveLength(0);
+  await wrapper.setProps({ disabled: false });
   await wrapper.get('[data-test="import-submit"]').trigger("click");
   await flushPromises();
-  expect(commits[0]!.key).toBe(
+  expect(commits[0]!.key).not.toBe(
     new Headers(first.headers).get("Idempotency-Key"),
   );
   expect(commits[0]!.body.get("file")).toBe(file);
@@ -785,7 +800,7 @@ it.each([
   },
 );
 
-it("retains the original write after an invalid receipt and safely retries it", async () => {
+it("runs a new comparison after an invalid receipt instead of replaying the old result", async () => {
   await start();
   await upload();
   fetcher.mockResolvedValueOnce(response(preview));
@@ -800,8 +815,8 @@ it("retains the original write after an invalid receipt and safely retries it", 
   await click("导入");
   const first = fetcher.mock.calls.at(-1)![1] as RequestInit;
   expect(wrapper.text()).toContain("导入结果暂未确认");
-  await click("重试导入");
-  expect(commits[0]!.key).toBe(
+  await click("导入");
+  expect(commits[0]!.key).not.toBe(
     new Headers(first.headers).get("Idempotency-Key"),
   );
   expect(commits[0]!.body.get("file")).toBe(

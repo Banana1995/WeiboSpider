@@ -4,7 +4,7 @@
 
 ## 启用和连接
 
-传输：**remote Streamable HTTP**，服务名 `investment-ledger`，版本 1.1.0，共九个工具。
+传输：**remote Streamable HTTP**，服务名 `investment-ledger`，版本 1.5.0，共十四个工具。
 
 - 本地入口：`http://127.0.0.1:5051/api/platform/ledger/mcp`。
 - 公网入口：`http://43.130.247.183:5052/api/platform/ledger/mcp`（2026-11-06 已部署验证）。
@@ -24,6 +24,15 @@ go run ./cmd/server
 
 客户端选择其“远程 MCP / Streamable HTTP”接入方式，填入对应 URL。具体客户端的私有配置格式应按该客户端文档使用。
 
+## 账户资金流水
+
+- `ledger_list_account_cash_flows`：按账户、起止日期和 `status`（`active`、`voided`、`all`）分页，或用 `record_id` 精确查一笔。金额 `flow` 以账户币种表示，正数为转入，负数为转出。分页中账户记录被更改时需从头读取。
+- `ledger_record_account_cash_flow`：提供 `account_id`、稳定 `request_id`、实际 `date`、`direction`（`in`/`out`）、正数金额 `amount` 及账户 `currency`。例如从账户向银行卡转出 80 元，传 `direction: "out", amount: "80.00", currency: "CNY"`。创建新流水不需要持仓版本。
+- `ledger_edit_account_cash_flow`：提供 `account_id`、新的 `request_id`、目标 `record_id`、**该条记录**的 `expected_version`、`currency`、`reason`，以及要改的字段。改金额时同时给方向；只改备注时只给 `note`。原始导入行、总资产及没有修改的渠道继续保留。版本冲突应重新读取并核对。
+- 两个写工具均接受可选 `source_ref`、`note`、`channel`。`ledger_get_write_result` 查询原请求，账户转账的冻结结果在 `data.account_flow`，证券写入仍在 `data.result`。同一账户的同一 `request_id` 不能用于第二个业务事件。
+
+按 `record_id` 读取时同时返回这笔流水的最近变更原因。传 `include_summary: true` 可读回同一区间全账户的有效净流入、收益金额、资金加权收益率和 XIRR；它们不是单笔或分页小计。卖出证券和券商向银行卡转款是两件事。账户资金流水影响收益分析；它不改股数，也不重设现金基准。
+
 ## 推荐记账顺序
 
 1. `ledger_list_accounts` 确定准确 account_id。重名账户先询问，不自动选第一项。
@@ -37,7 +46,7 @@ go run ./cmd/server
 
 ## 严格字段与 question 补问
 
-六个写工具都必须提供 `request_id`、`account_id`、`expected_version`。其他必填业务字段如下；精确 JSON Schema 可通过 `tools/list` 或字段契约查询获取。
+六个**持仓**写工具都必须提供 `request_id`、`account_id`、`expected_version`（持仓版本）。它们的其他必填业务字段如下；账户资金流水见下节。精确 JSON Schema 可通过 `tools/list` 或字段契约查询获取。
 
 | 工具 | 必填业务字段 |
 | --- | --- |

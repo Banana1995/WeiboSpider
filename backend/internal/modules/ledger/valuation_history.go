@@ -193,7 +193,7 @@ func (s *Store) recordValuation(ctx context.Context, tx *sql.Tx, v Valuation, in
 		return 0, 0, err
 	}
 	var id int64
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sequence),0)+1 FROM account_records`).Scan(&id); err != nil {
+	if err := tx.QueryRowContext(ctx, nextAccountSequence).Scan(&id); err != nil {
 		return 0, 0, err
 	}
 	metadata := map[string]any{"currency": v.Currency, "as_of": v.AsOf, "ledger_at": v.LedgerAt, "calculated_at": v.CalculatedAt, "ledger_revision": v.LedgerRevision, "cash_minor": strconv.FormatInt(int64(v.Cash), 10), "positions_value_minor": strconv.FormatInt(int64(*v.PositionsValue), 10), "total_assets_minor": strconv.FormatInt(int64(*v.TotalAssets), 10), "schema_version": 1, "change_revision": v.changeRevision}

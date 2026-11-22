@@ -10,7 +10,7 @@ import {
   type Account,
 } from "./ledger";
 import {
-  PendingImport,
+  submitImport,
   importResultText,
   type ImportPreview,
   type ImportReport,
@@ -29,7 +29,8 @@ const emit = defineEmits<{
 }>();
 const file = shallowRef<File>();
 const preview = shallowRef<ImportPreview>();
-const pending = shallowRef<PendingImport>();
+const uncertain = ref(false);
+const targetChosen = ref(false);
 const target = ref(props.initialTarget ?? "");
 const loading = ref(false);
 const busy = ref(false);
@@ -39,17 +40,11 @@ const dragging = ref(false);
 const input = ref<HTMLInputElement>();
 let controller: AbortController | undefined;
 let generation = 0;
-const locked = computed(() => loading.value || busy.value || !!pending.value);
+const locked = computed(() => loading.value || busy.value);
 const droppable = computed(() => !locked.value && !props.disabled);
 watch(locked, (value) => emit("locked", value), { flush: "sync" });
 const targetAccount = computed(() =>
   props.accounts.find((a) => a.id === target.value),
-);
-const mismatch = computed(
-  () =>
-    !!preview.value &&
-    !!targetAccount.value &&
-    targetAccount.value.currency !== preview.value.metadata.currency,
 );
 function selectFile(chosen: File | undefined) {
   if (locked.value || props.disabled) return;
@@ -60,6 +55,7 @@ function selectFile(chosen: File | undefined) {
   file.value = undefined;
   error.value = "";
   message.value = "";
+  uncertain.value = false;
   if (input.value) input.value.value = "";
   if (!chosen) return;
   if (!/\.xlsx$/i.test(chosen.name)) error.value = "仅支持 .xlsx 文件";
@@ -160,41 +156,78 @@ async function loadPreview() {
   }
 }
 async function confirm() {
-  if (busy.value || loading.value || (props.disabled && !pending.value)) return;
-  if (!pending.value) {
-    if (!file.value) return;
-    await loadPreview();
-    if (mismatch.value) {
-      error.value = "文件币种与目标账户不一致，不能导入。";
+  if (locked.value || props.disabled || !file.value) return;
+  message.value = "";
+  uncertain.value = false;
+  await loadPreview();
+  if (!preview.value || !file.value || props.disabled) return;
+  const marker = `ledger:new-import:${preview.value.digest}`;
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(marker);
+    if (saved && !/^[A-Za-z0-9_-]{1,128}$/.test(saved)) saved = null;
+  } catch {
+    /* existing accounts work without storage */
+  }
+  // After a reload the parent's default selection may have changed. Prefer
+  // the exact pending ID unless the user explicitly picked another account.
+  if (saved && !targetChosen.value && target.value && target.value !== saved) {
+    target.value = props.accounts.some((a) => a.id === saved) ? saved : "";
+    error.value =
+      "这份文件上次用于新建账户，已选回对应目标。请核对目标后再点导入。";
+    return;
+  }
+  const recovering = !!saved && (!target.value || target.value === saved);
+  const account = recovering
+    ? props.accounts.find((a) => a.id === saved)
+    : targetAccount.value;
+  if (account && account.currency !== preview.value.metadata.currency) {
+    error.value = "文件币种与目标账户不一致，不能导入。";
+    return;
+  }
+  if (!recovering && target.value && !account) return;
+  if (
+    !account &&
+    !saved &&
+    !targetChosen.value &&
+    props.accounts.some((a) => a.name === preview.value!.metadata.name)
+  ) {
+    error.value = "已有同名账户，请明确选择原账户，或明确选择新建账户。";
+    target.value = "?";
+    return;
+  }
+  const id = account?.id ?? (recovering ? saved! : newID());
+  if (!account) {
+    try {
+      localStorage.setItem(marker, id);
+    } catch {
+      error.value = "无法保存新账户标识，请先创建并选择账户后导入。";
       return;
     }
-    if (
-      !preview.value ||
-      !file.value ||
-      mismatch.value ||
-      (target.value && !targetAccount.value)
-    )
-      return;
-    pending.value = new PendingImport(
-      file.value,
-      preview.value,
-      target.value || newID(),
-      !target.value,
-      targetAccount.value?.name ?? preview.value.metadata.name,
-    );
   }
   busy.value = true;
   error.value = "";
   let result: ImportReport;
   try {
-    result = await pending.value.run();
+    result = await submitImport(
+      file.value,
+      preview.value,
+      id,
+      !account || recovering,
+      account?.name ?? preview.value.metadata.name,
+    );
   } catch (e) {
     error.value = failure(e);
+    uncertain.value = !(e instanceof LedgerError) || e.uncertain;
     return;
   } finally {
     busy.value = false;
   }
-  pending.value = undefined;
+  try {
+    if (localStorage.getItem(marker) === id) localStorage.removeItem(marker);
+  } catch {
+    /* retaining the ID is safe */
+  }
   preview.value = undefined;
   file.value = undefined;
   if (input.value) input.value.value = "";
@@ -215,7 +248,14 @@ onBeforeUnmount(() => {
     </p>
     <fieldset :disabled="locked || disabled">
       <label
-        >导入到<select v-model="target" data-test="import-target">
+        >导入到<select
+          v-model="target"
+          data-test="import-target"
+          @change="targetChosen = true"
+        >
+          <option v-if="target === '?'" value="?" disabled>
+            请选择目标账户
+          </option>
           <option value="">新建账户（使用文件中的名称）</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">
             {{ a.name }} · {{ a.currency }}
@@ -257,32 +297,20 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="error" role="alert" class="ledger-error">{{ errorText(error) }}</p>
     <p v-if="message" role="status" class="ledger-success">{{ message }}</p>
-    <p v-if="pending?.uncertain" class="ledger-pending" role="status">
-      导入结果暂未确认，请保留此页。重试会使用同一文件和账户，不会重复添加。
+    <p v-if="uncertain" class="ledger-pending" role="status">
+      导入结果暂未确认。在原账户重新导入同一文件即可，已经写入的行会跳过。
     </p>
     <div class="lp-dialog-footer">
-      <button
-        v-if="pending && !pending.uncertain && !busy"
-        type="button"
-        @click="
-          pending = undefined;
-          error = '';
-        "
-      >
-        更换文件或账户
-      </button>
       <button
         type="button"
         class="lp-primary"
         data-test="import-submit"
         :disabled="
-          loading ||
-          busy ||
-          (!pending && (disabled || !file || (!!target && !targetAccount)))
+          loading || busy || disabled || !file || (!!target && !targetAccount)
         "
         @click="confirm"
       >
-        {{ loading || busy ? "正在导入…" : pending ? "重试导入" : "导入" }}
+        {{ loading || busy ? "正在导入…" : "导入" }}
       </button>
     </div>
   </section>

@@ -41,7 +41,23 @@ func appendAudit(ctx context.Context, tx *sql.Tx, correlation, action, entity, i
 	return r.LastInsertId()
 }
 
+// Explicit IDs must honor the AUTOINCREMENT high-water mark even after removal.
+const nextAccountSequence = `SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name='account_records'),0)+1`
+
 func putAccountRecord(ctx context.Context, tx *sql.Tx, next *AccountRecord, previous *AccountRecord, correlation, reason, source string) (int64, error) {
+	return putAccountRecordVia(ctx, tx, next, previous, correlation, reason, source, nil)
+}
+
+type recordAuditMetadata struct {
+	Reason    string `json:"reason"`
+	FromDate  string `json:"from_date"`
+	Transport string `json:"transport,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	SourceRef string `json:"source_ref,omitempty"`
+}
+
+func putAccountRecordVia(ctx context.Context, tx *sql.Tx, next *AccountRecord, previous *AccountRecord, correlation, reason, source string, via *mcpAuditMetadata) (int64, error) {
 	version, err := positiveInteger(next.Version)
 	if err != nil || !next.AccountEntry.valid() || !next.validProvenance() {
 		return 0, ErrCorrupt
@@ -50,7 +66,7 @@ func putAccountRecord(ctx context.Context, tx *sql.Tx, next *AccountRecord, prev
 	if previous == nil {
 		if next.Sequence == "" {
 			var sequence int64
-			if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sequence),0)+1 FROM account_records`).Scan(&sequence); err != nil {
+			if err := tx.QueryRowContext(ctx, nextAccountSequence).Scan(&sequence); err != nil {
 				return 0, err
 			}
 			next.Sequence = strconv.FormatInt(sequence, 10)
@@ -85,5 +101,9 @@ func putAccountRecord(ctx context.Context, tx *sql.Tx, next *AccountRecord, prev
 	if next.Voided {
 		action = "void"
 	}
-	return appendAudit(ctx, tx, correlation, action, "account_record", next.ID, next.AccountID, version, next.UpdatedAt, source, before, next, map[string]string{"reason": reason, "from_date": from})
+	meta := recordAuditMetadata{Reason: reason, FromDate: from}
+	if via != nil {
+		meta.Transport, meta.Tool, meta.RequestID, meta.SourceRef = via.Transport, via.Tool, via.RequestID, via.SourceRef
+	}
+	return appendAudit(ctx, tx, correlation, action, "account_record", next.ID, next.AccountID, version, next.UpdatedAt, source, before, next, meta)
 }

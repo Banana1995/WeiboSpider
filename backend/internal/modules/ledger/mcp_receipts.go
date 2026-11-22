@@ -177,10 +177,11 @@ type MCPReceiptQuery struct {
 }
 
 type MCPReceiptResult struct {
-	Status     string               `json:"status"`
-	Definitive bool                 `json:"definitive"`
-	Result     *MCPStockWriteResult `json:"result"`
-	NextAction string               `json:"next_action"`
+	Status      string               `json:"status"`
+	Definitive  bool                 `json:"definitive"`
+	Result      *MCPStockWriteResult `json:"result"`
+	NextAction  string               `json:"next_action"`
+	AccountFlow *MCPFlowWriteResult  `json:"account_flow,omitempty"`
 }
 
 func (s MCPService) WriteResult(ctx context.Context, q MCPReceiptQuery) (MCPReceiptResult, error) {
@@ -192,12 +193,40 @@ func (s MCPService) WriteResult(ctx context.Context, q MCPReceiptQuery) (MCPRece
 		if _, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, q.AccountID)); err != nil {
 			return err
 		}
+		key := mcpWriteKey(q.AccountID, q.RequestID)
+		var kind, raw string
+		err := tx.QueryRowContext(ctx, `SELECT kind,request_json FROM idempotency_receipts WHERE key=?`, key).Scan(&kind, &raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if kind == "account_record" {
+			var i mcpFlowIntent
+			if decodeReceipt(raw, &i) != nil || i.Input.AccountID != q.AccountID || i.Input.RequestID != q.RequestID {
+				return ErrCorrupt
+			}
+			saved, _, err := loadReceipt(ctx, tx, key, kind, raw)
+			if err != nil {
+				return err
+			}
+			if err := validateMCPFlowReceipt(ctx, tx, i, saved.Response, key, saved.AuditID); err != nil {
+				return err
+			}
+			r, err := i.result(key, saved.Response)
+			if err != nil {
+				return err
+			}
+			out = MCPReceiptResult{Status: "committed", Definitive: true, AccountFlow: &r, NextAction: "read_account_cash_flows_for_current_state"}
+			return nil
+		}
 		result, found, err := readMCPReceipt(ctx, tx, q.AccountID, q.RequestID, "")
 		if err != nil {
 			return err
 		}
 		if found {
-			out = MCPReceiptResult{"committed", true, &result, "read_stock_book_for_current_state"}
+			out = MCPReceiptResult{Status: "committed", Definitive: true, Result: &result, NextAction: "read_stock_book_for_current_state"}
 		}
 		return nil
 	})

@@ -86,7 +86,7 @@ func TestMCPTradeSchemaAcceptsChannel(t *testing.T) {
 	out := mcpCall[MCPStockWriteResult](t, c, "ledger_record_trade", map[string]any{
 		"request_id": "sdk-channel", "account_id": "a", "expected_version": "0",
 		"instrument": map[string]any{"market": "SH", "code": "600036"},
-		"side": "buy", "date": "2026-09-06", "quantity": "10", "price": "10",
+		"side":       "buy", "date": "2026-09-06", "quantity": "10", "price": "10",
 		"fee": "0", "currency": "CNY", "channel": "华泰满意",
 	})
 	require.Equal(t, "华泰满意", out.Entry.Channel)

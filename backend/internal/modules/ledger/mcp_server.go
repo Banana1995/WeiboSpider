@@ -21,7 +21,7 @@ import (
 const MCPPath = ledgerPrefix + "/mcp"
 
 const ledgerMCPInstructions = `这是已存在投资账户的记账服务，记录已发生的交易，不执行券商订单。
-先用 ledger_list_accounts 确定账户，再用 ledger_get_stock_book 取得持仓 version（不要使用 profile_version）。
+先用 ledger_list_accounts 确定账户。证券交易用 ledger_get_stock_book 取得持仓 version；账户外部转入/转出用 ledger_record_account_cash_flow，不改变持仓或现金基准。更正转账先用 ledger_list_account_cash_flows 确认 record_id 和该笔 version，再用 ledger_edit_account_cash_flow；不按证券成交额推算出入金。
 金融数值使用十进制字符串，日期为北京时间 YYYY-MM-DD。任何实际日期、股数、成交价、费用、分红或余额缺失、含糊、只有估计时，必须先调用客户端的 question 工具向用户补问具体数据，取得明确答案后才提交。
 收到 isError=true 时读取 error.missing_fields、invalid_fields、requirements 和 questions；question_tool=question 表示必须使用 question 工具按给出的字段和问句补问，不得盲目重试或猜填。客户端若没有 question 工具，停在向用户提问环节，不能继续写入。
 未知费用不能填0、未给日期不能默认今天、不能以当前行情代替成交价或实际汇率。账户ID、证券身份和版本先通过查询工具取得；需要了解字段时调用 ledger_get_write_contract。
@@ -35,7 +35,7 @@ const ledgerMCPInstructions = `这是已存在投资账户的记账服务，记�
 当前支持 SH/SZ/HK 股票白名单，账户支持 USD 不代表支持美股。`
 
 func NewMCPHandler(service MCPService, logger *slog.Logger) http.Handler {
-	server := mcp.NewServer(&mcp.Implementation{Name: "investment-ledger", Version: "1.4.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "investment-ledger", Version: "1.5.0"}, &mcp.ServerOptions{
 		Instructions: ledgerMCPInstructions, Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
 	registerLedgerTools(server, service, logger)
@@ -147,7 +147,7 @@ func addLedgerTool[I, O any](server *mcp.Server, logger *slog.Logger, name, desc
 				out.Data = &value
 				if !readOnly {
 					out.WriteEffect = "committed"
-					summary = "记账已提交；返回提交时的冻结结果，当前持仓请重新查询。"
+					summary = "记账已提交；返回提交时的结果，当前状态请重新查询。"
 				}
 			}
 			if logger != nil {

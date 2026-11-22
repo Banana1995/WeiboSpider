@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 )
 
 type ImportResult struct {
@@ -49,10 +48,10 @@ type importManifest struct {
 }
 
 type importManifestMetadata struct {
-	Digest        string   `json:"digest"`
-	CreateAccount bool     `json:"create_account"`
-	RecordIDs     []string `json:"record_ids"`
-	SkippedCount  int      `json:"skipped_count,omitempty"`
+	Digest        string    `json:"digest"`
+	CreateAccount bool      `json:"create_account"`
+	RecordIDs     *[]string `json:"record_ids,omitempty"` // legacy manifests, including explicit []
+	SkippedCount  int       `json:"skipped_count,omitempty"`
 }
 
 type storedImport struct {
@@ -171,25 +170,23 @@ func (s *Store) ConfirmAccountImport(ctx context.Context, id, key, digest string
 			FROM audit_log WHERE entity_type='import'`).Scan(&batch); err != nil {
 			return err
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sequence),0)+1 FROM account_records`).Scan(&nextSequence); err != nil {
+		if err := tx.QueryRowContext(ctx, nextAccountSequence).Scan(&nextSequence); err != nil {
 			return err
 		}
 		added = history.counts.missing(p.Rows)
-		recordIDs := make([]string, len(added))
-		for i, row := range added {
+		for _, row := range added {
 			if err := history.summary.add(row); err != nil {
 				return err
 			}
-			recordIDs[i] = strconv.FormatInt(nextSequence+int64(i), 10)
 		}
 		manifest := importManifest{Metadata: p.Metadata, Summary: p.Summary}
-		manifestMetadata := importManifestMetadata{Digest: p.Digest, CreateAccount: create, RecordIDs: recordIDs, SkippedCount: len(p.Rows) - len(added)}
+		manifestMetadata := importManifestMetadata{Digest: p.Digest, CreateAccount: create, SkippedCount: len(p.Rows) - len(added)}
 		manifestAuditID, err := appendAudit(ctx, tx, key, action, "import", strconv.FormatInt(batch, 10), id, 1, stamp, "human", nil, manifest, manifestMetadata)
 		if err != nil {
 			return err
 		}
 		for i, row := range added {
-			recordID := recordIDs[i]
+			recordID := strconv.FormatInt(nextSequence+int64(i), 10)
 			if _, err := appendAudit(ctx, tx, key, "import", "import_row", recordID, id, 1, stamp, "human", nil, row,
 				map[string]any{"batch_id": batch, "source_row": row.SourceRow, "account_record_id": "import-" + recordID}); err != nil {
 				return err
@@ -251,9 +248,10 @@ func (s *Store) ImportedRecords(ctx context.Context, id string, q OperationQuery
 		if !exists {
 			return ErrNotFound
 		}
-		where := ` WHERE account_id=? AND origin='import'`
-		const day = `json_extract(payload,'$.original.date')`
-		const sourceRow = `CAST(json_extract(payload,'$.original.source_row') AS INTEGER)`
+		where := ` WHERE a.account_id=? AND a.entity_type='import_row'`
+		const day = `json_extract(a.after_json,'$.date')`
+		const sourceRow = `CAST(json_extract(a.after_json,'$.source_row') AS INTEGER)`
+		const sequence = `CAST(a.entity_id AS INTEGER)`
 		args := []any{id}
 		if q.From != "" {
 			where += ` AND ` + day + `>=?`
@@ -264,21 +262,21 @@ func (s *Store) ImportedRecords(ctx context.Context, id string, q OperationQuery
 			args = append(args, q.To)
 		}
 		if q.BeforeDate != "" {
-			where += ` AND (` + day + `,` + sourceRow + `,sequence) < (?,?,?)`
+			where += ` AND (` + day + `,` + sourceRow + `,` + sequence + `) < (?,?,?)`
 			args = append(args, q.BeforeDate, q.BeforeSourceRow, q.BeforeSequence)
 		}
 		args = append(args, q.Limit)
-		rows, err := tx.QueryContext(ctx, accountRecordSelect+where+` ORDER BY `+day+` DESC,`+sourceRow+` DESC,sequence DESC LIMIT ?`, args...)
+		rows, err := tx.QueryContext(ctx, importSourceSelect+where+` ORDER BY `+day+` DESC,`+sourceRow+` DESC,`+sequence+` DESC LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			r, err := scanAccountRecord(rows)
-			if err != nil || r.Original == nil || !strings.HasPrefix(r.ID, "import-") || strings.TrimPrefix(r.ID, "import-") != r.Sequence {
-				return ErrCorrupt
+			r, _, err := scanImportSource(rows)
+			if err != nil {
+				return err
 			}
-			result = append(result, ImportedRecord{ID: r.Sequence, ImportedRow: *r.Original})
+			result = append(result, r)
 		}
 		return rows.Err()
 	})

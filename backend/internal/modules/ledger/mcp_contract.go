@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const mcpContractVersion = "2026-11-08"
+const mcpContractVersion = "2026-11-22"
 
 // These annotations travel with the actual input schema: help text, diagnostics
 // and field discovery cannot maintain a different list of required fields.
@@ -31,6 +31,22 @@ func mcpWriteSchema(tool string) mcpSchema {
 	p := mcpWriteProperties()
 	required := []string{"request_id", "account_id", "expected_version"}
 	switch tool {
+	case flowCreateTool, flowEditTool:
+		p["currency"] = mcpField(mcpEnum("CNY", "HKD", "USD"), "账户币种", "ISO 4217", "ledger", "通过ledger_list_accounts确认账户币种。")
+		p["amount"] = mcpFinancial("2", true, "账户币种的实际转账金额，正数；方向单独填写", "实际转账金额", "账户币种", "折合该账户币种的实际转入或转出金额是多少？")
+		p["direction"] = mcpField(mcpEnum("in", "out"), "转账方向", "", "user", "钱是从账户外转入，还是转出到外部？")
+		p["date"] = mcpValueProperties(false)["date"]
+		p["note"], p["channel"] = mcpValueProperties(false)["note"], mcpValueProperties(false)["channel"]
+		if tool == flowCreateTool {
+			delete(p, "expected_version")
+			return mcpObject(p, "request_id", "account_id", "currency", "date", "direction", "amount")
+		}
+		p["record_id"] = mcpField(mcpID("目标账户资金流水ID"), "账户流水ID", "", "ledger", "用ledger_list_account_cash_flows定位准确记录。")
+		p["expected_version"] = mcpField(mcpSchema{"type": "string", "pattern": "^[1-9][0-9]{0,18}$"}, "流水版本", "", "ledger", "读取该笔账户流水的version。不要使用持仓版本。")
+		p["reason"] = mcpField(mcpSchema{"type": "string", "minLength": 1, "maxLength": 512, "x-ledger-nonblank": true}, "更正原因", "", "user", "为什么需要更正这笔转账？")
+		schema := mcpObject(p, "request_id", "account_id", "currency", "record_id", "expected_version", "reason")
+		schema["dependentRequired"] = map[string][]string{"amount": {"direction"}, "direction": {"amount"}}
+		return schema
 	case "ledger_record_trade":
 		mcpMerge(p, mcpValueProperties(false))
 		p["instrument"] = mcpInstrumentSchema()
@@ -91,6 +107,7 @@ type MCPContractQuery struct {
 	AccountID       string                 `json:"account_id,omitempty"`
 	Instrument      *MCPInstrumentSelector `json:"instrument,omitempty"`
 	EntryID         string                 `json:"entry_id,omitempty"`
+	RecordID        string                 `json:"record_id,omitempty"`
 	Date            string                 `json:"date,omitempty"`
 	Mode            string                 `json:"mode,omitempty"`
 	Action          string                 `json:"action,omitempty"`
@@ -99,7 +116,8 @@ type MCPContractQuery struct {
 
 func mcpContractQuerySchema() mcpSchema {
 	return mcpObject(mcpSchema{
-		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions", "ledger_record_dividend_tax"),
+		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions", "ledger_record_dividend_tax", flowCreateTool, flowEditTool),
+		"record_id":  mcpID("要更正的账户资金流水ID"),
 		"account_id": mcpID("可选准确账户ID，用于解释当前上下文；不提供则显示尚未确定的规则"),
 		"instrument": mcpInstrumentSchema(), "entry_id": mcpID("更正或作废的原流水ID"),
 		"date": mcpDate("拟记账日期，用于解释现金基准覆盖"), "mode": mcpEnum("trade", "complete_opening"),
@@ -192,10 +210,15 @@ func mcpContractFields(schema mcpSchema, prefix, when string) []MCPContractField
 }
 
 func (q MCPContractQuery) valid() bool {
+	if q.RecordID != "" && (q.ToolName != flowEditTool || !validID(q.RecordID) || q.AccountID == "") {
+		return false
+	}
 	if mcpWriteSchema(q.ToolName) == nil || q.AccountID != "" && !validID(q.AccountID) || q.Date != "" && !validDate(q.Date) || q.Instrument != nil && !q.Instrument.valid() {
 		return false
 	}
 	switch q.ToolName {
+	case flowCreateTool, flowEditTool:
+		return q.Instrument == nil && q.EntryID == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_record_trade":
 		return q.EntryID == "" && q.Action == "" && q.ReplacementKind == "" && (q.Mode == "" || q.Mode == "trade" || q.Mode == "complete_opening")
 	case "ledger_record_dividend", "ledger_record_dividend_tax":
@@ -225,6 +248,43 @@ func (s MCPService) WriteContract(ctx context.Context, q MCPContractQuery) (MCPW
 		return out, err
 	}
 	var st stockState
+	if q.ToolName == flowCreateTool || q.ToolName == flowEditTool {
+		if q.AccountID == "" {
+			out.UnresolvedContext = append(out.UnresolvedContext, "account_id")
+		} else {
+			err = s.Store.db.WithTx(ctx, func(tx *sql.Tx) error {
+				a, e := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, q.AccountID))
+				if e != nil {
+					return e
+				}
+				out.KnownContext["account"] = mcpAccount(a)
+				if q.RecordID != "" {
+					r, e := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND id=? AND kind='cash_flow'`, q.AccountID, q.RecordID))
+					if errors.Is(e, ErrNotFound) {
+						return mcpIssue("record_not_found", "账户中不存在该资金流水", "select_existing", "record_id")
+					}
+					if e != nil {
+						return e
+					}
+					if r.Voided {
+						return ErrVoided
+					}
+					out.KnownContext["record"], out.KnownContext["expected_version"] = r, r.Version
+				}
+				return nil
+			})
+			if err != nil {
+				return out, err
+			}
+		}
+		if q.ToolName == flowEditTool {
+			if q.RecordID == "" {
+				out.UnresolvedContext = append(out.UnresolvedContext, "record_id")
+			}
+			out.ConditionalRequirements = append(out.ConditionalRequirements, MCPConditionalRequirement{"amount", "conditional", "修改金额或方向时两者都必须提供；其余字段省略时保持原值"})
+		}
+		return out, nil
+	}
 	var identity *Instrument
 	var previous *StockEntry
 	if q.AccountID == "" {
@@ -364,6 +424,11 @@ func mcpContractExample(q MCPContractQuery) map[string]any {
 	in := map[string]any{"request_id": "message-demo-001", "account_id": "account-demo", "expected_version": "0"}
 	trade := map[string]any{"kind": "buy", "date": "2026-09-06", "quantity": "100", "price": "10", "fee": "0", "currency": "CNY"}
 	switch q.ToolName {
+	case flowCreateTool:
+		delete(in, "expected_version")
+		in["direction"], in["date"], in["amount"], in["currency"] = "out", "2026-09-06", "80.00", "CNY"
+	case flowEditTool:
+		in["expected_version"], in["record_id"], in["currency"], in["note"], in["reason"] = "1", "manual-example", "CNY", "已核对", "补充转账说明"
 	case "ledger_record_trade":
 		for k, v := range trade {
 			in[k] = v

@@ -60,7 +60,6 @@ const detailAccount = computed(
     (props.account?.id === detailId.value ? props.account : undefined),
 );
 const importOpen = ref(props.initialTab === "import");
-const importDirty = ref(false);
 const editId = ref("");
 const nameDraft = ref("");
 const nameError = ref("");
@@ -141,7 +140,6 @@ async function saveName(account: Account) {
 }
 function openImport() {
   if (locked.value) return;
-  importDirty.value = false;
   error.value = "";
   importOpen.value = true;
 }
@@ -404,14 +402,9 @@ watch(
     <LedgerDialog
       v-if="importOpen"
       title="导入 Excel 账本"
-      :dirty="importDirty"
       @close="importOpen = false"
     >
-      <div
-        class="lp-dialog-body"
-        @input="importDirty = true"
-        @change="importDirty = true"
-      >
+      <div class="lp-dialog-body">
         <ImportAccount
           :accounts="accounts"
           :initial-target="detailAccount?.id ?? defaultImportTarget"

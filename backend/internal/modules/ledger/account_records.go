@@ -229,65 +229,71 @@ func (s *Store) WriteAccountRecord(ctx context.Context, key string, c AccountRec
 		return nil, ErrOperation
 	}
 	return s.accountReceipt(ctx, key, "account_record", c, func(tx *sql.Tx) (any, int64, error) {
-		if _, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, c.AccountID)); err != nil {
+		return s.applyAccountRecordTx(ctx, tx, key, c, nil)
+	})
+}
+
+// Shared by the REST editor and MCP account cash flows. The caller owns the
+// transaction containing the mutation, revision audit and idempotency receipt.
+func (s *Store) applyAccountRecordTx(ctx context.Context, tx *sql.Tx, key string, c AccountRecordCommand, transport *mcpAuditMetadata) (any, int64, error) {
+	if _, err := scanAccountInfo(ctx, tx.QueryRowContext(ctx, accountInfoSelect+` WHERE id=?`, c.AccountID)); err != nil {
+		return nil, 0, err
+	}
+	current, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND id=?`, c.AccountID, c.ID))
+	if c.Action == CreateOperation {
+		if err == nil {
+			return nil, 0, ErrConflict
+		}
+		if !errors.Is(err, ErrNotFound) {
 			return nil, 0, err
 		}
-		current, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND id=?`, c.AccountID, c.ID))
-		if c.Action == CreateOperation {
-			if err == nil {
-				return nil, 0, ErrConflict
-			}
-			if !errors.Is(err, ErrNotFound) {
-				return nil, 0, err
-			}
-		} else {
-			if err != nil {
-				return nil, 0, err
-			}
-			if current.QuoteAuditID != "" && c.Entry != nil && c.Entry.Kind != "asset" {
-				return nil, 0, ErrUnsupported
-			}
-			if current.Version != c.ExpectedVersion {
-				return nil, 0, ErrVersion
-			}
-			if current.Voided {
-				return nil, 0, ErrVoided
-			}
-		}
-		_, stamp, err := s.cutoff()
+	} else {
 		if err != nil {
 			return nil, 0, err
 		}
-		next := current
-		version := int64(1)
-		if c.Action == CreateOperation {
-			next = AccountRecord{ID: c.ID, AccountID: c.AccountID, Origin: "manual", CreatedAt: stamp}
-		} else {
-			version, err = positiveInteger(current.Version)
-			if err != nil || version == 9223372036854775807 {
-				return nil, 0, ErrCorrupt
-			}
-			version++
+		if current.QuoteAuditID != "" && c.Entry != nil && c.Entry.Kind != "asset" {
+			return nil, 0, ErrUnsupported
 		}
-		if c.Entry != nil {
-			next.AccountEntry = *c.Entry
-			if next.QuoteAuditID != "" {
-				next.ManualAssertion = true
-			}
+		if current.Version != c.ExpectedVersion {
+			return nil, 0, ErrVersion
 		}
-		if !next.validProvenance() {
-			return nil, 0, ErrOperation
+		if current.Voided {
+			return nil, 0, ErrVoided
 		}
-		next.Voided = c.Action == VoidOperation
-		next.Version = strconv.FormatInt(version, 10)
-		next.UpdatedAt = stamp
-		var previous *AccountRecord
-		if c.Action != CreateOperation {
-			previous = &current
+	}
+	_, stamp, err := s.cutoff()
+	if err != nil {
+		return nil, 0, err
+	}
+	next := current
+	version := int64(1)
+	if c.Action == CreateOperation {
+		next = AccountRecord{ID: c.ID, AccountID: c.AccountID, Origin: "manual", CreatedAt: stamp}
+	} else {
+		version, err = positiveInteger(current.Version)
+		if err != nil || version == 9223372036854775807 {
+			return nil, 0, ErrCorrupt
 		}
-		auditID, err := putAccountRecord(ctx, tx, &next, previous, key, c.Reason, "human")
-		return next, auditID, err
-	})
+		version++
+	}
+	if c.Entry != nil {
+		next.AccountEntry = *c.Entry
+		if next.QuoteAuditID != "" {
+			next.ManualAssertion = true
+		}
+	}
+	if !next.validProvenance() {
+		return nil, 0, ErrOperation
+	}
+	next.Voided = c.Action == VoidOperation
+	next.Version = strconv.FormatInt(version, 10)
+	next.UpdatedAt = stamp
+	var previous *AccountRecord
+	if c.Action != CreateOperation {
+		previous = &current
+	}
+	auditID, err := putAccountRecordVia(ctx, tx, &next, previous, key, c.Reason, "human", transport)
+	return next, auditID, err
 }
 
 type EffectiveSummary struct {

@@ -74,6 +74,15 @@ func mcpInstrumentSchema() mcpSchema {
 }
 
 func registerLedgerTools(server *mcp.Server, s MCPService, logger *slog.Logger) {
+	addLedgerTool(server, logger, flowListTool, "查询账户转入/转出，flow为带符号的账户币种金额，正为转入。可按日期、状态分页或按record_id精确读取，version是该条记录版本。", mcpObject(mcpSchema{
+		"account_id": mcpID("准确账户ID"), "record_id": mcpID("精确查找的账户流水，返回最近变更原因"), "from": mcpDate("起日"), "to": mcpDate("止日"), "status": mcpEnum("active", "voided", "all"), "limit": mcpLimit(), "cursor": mcpString("上一页next_cursor", 1024), "include_summary": mcpSchema{"type": "boolean", "description": "同时读取全账户在该日期区间的有效净流入和收益，不是当页合计"},
+	}, "account_id"), true, false, s.AccountFlows)
+	addLedgerTool(server, logger, flowCreateTool, "记录一笔实际发生的账户外部转入或转出。使用账户币种与真实金额，不从股票成交推算转账。", mcpWriteSchema(flowCreateTool), false, false, func(ctx context.Context, in MCPFlowInput) (MCPFlowWriteResult, error) {
+		return s.writeFlow(ctx, flowCreateTool, in)
+	})
+	addLedgerTool(server, logger, flowEditTool, "按准确账户资金流水ID和该条记录版本更正。只改明确提供的字段；金额和方向一起填写，股票持仓不受影响。", mcpWriteSchema(flowEditTool), false, false, func(ctx context.Context, in MCPFlowInput) (MCPFlowWriteResult, error) {
+		return s.writeFlow(ctx, flowEditTool, in)
+	})
 	addLedgerTool(server, logger, "ledger_list_accounts", "查询已有账户；名称匹配不唯一时先向用户澄清。profile_version不是持仓版本。",
 		mcpObject(mcpSchema{"query": mcpString("账户名称包含匹配", 512), "limit": mcpLimit(), "cursor": mcpID("上一页next_cursor；省略表示第一页")}), true, false, s.Accounts)
 	addLedgerTool(server, logger, "ledger_search_instruments", "查询受支持股票的准确市场、代码和币种；查询不会创建证券。",

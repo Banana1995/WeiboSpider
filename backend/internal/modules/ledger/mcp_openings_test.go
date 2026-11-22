@@ -21,7 +21,7 @@ func TestMCPOpeningPositionsThroughSDK(t *testing.T) {
 	require.Len(t, out.PositionsChanged, 1)
 	require.True(t, out.PositionsChanged[0].OpeningAfter)
 	contract := mcpCall[MCPWriteContract](t, c, "ledger_get_write_contract", MCPContractQuery{ToolName: "ledger_set_opening_positions", AccountID: "a"})
-	require.Equal(t, "2026-11-08", contract.ContractVersion)
+	require.Equal(t, mcpContractVersion, contract.ContractVersion)
 	require.NotEmpty(t, contract.Fields)
 }
 

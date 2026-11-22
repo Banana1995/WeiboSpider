@@ -107,6 +107,8 @@ func saveReceipt(ctx context.Context, tx *sql.Tx, key, kind, request, response s
 
 func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload, key string, auditID int64) error {
 	switch c := intent.(type) {
+	case mcpFlowIntent:
+		return validateMCPFlowReceipt(ctx, tx, c, payload, key, auditID)
 	case accountProfileIntent:
 		expected, err := positiveInteger(c.ExpectedVersion)
 		if err != nil || expected == 9223372036854775807 {
@@ -181,14 +183,20 @@ func validateAccountReceipt(ctx context.Context, tx *sql.Tx, intent any, payload
 			auditID, r.ID, r.AccountID, version, string(c.Action), r.UpdatedAt, key).Scan(&committed, &metadata); err != nil || committed != payload {
 			return ErrCorrupt
 		}
-		var reason struct {
-			Reason   string `json:"reason"`
-			FromDate string `json:"from_date"`
-		}
+		var reason recordAuditMetadata
 		if decodeReceipt(metadata, &reason) != nil || reason.Reason != c.Reason || !validDate(reason.FromDate) {
 			return ErrCorrupt
 		}
 		current, err := scanAccountRecord(tx.QueryRowContext(ctx, accountRecordSelect+` WHERE account_id=? AND id=?`, r.AccountID, r.ID))
+		if errors.Is(err, ErrNotFound) {
+			var retired bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_log WHERE entity_type='account_record' AND action='remove_duplicate' AND account_id=? AND entity_id=? AND version>?)`, r.AccountID, r.ID, version).Scan(&retired); err != nil {
+				return err
+			}
+			if retired {
+				return nil
+			}
+		}
 		currentVersion, versionErr := positiveInteger(current.Version)
 		if err != nil || versionErr != nil || currentVersion < version {
 			return ErrCorrupt

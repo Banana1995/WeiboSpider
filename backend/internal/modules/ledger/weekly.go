@@ -333,7 +333,7 @@ func (w *WeeklyWorker) completeCarry(ctx context.Context, job WeeklyJob) error {
 			return errWeeklyExpired
 		}
 		var id int64
-		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sequence),0)+1 FROM account_records`).Scan(&id); err != nil {
+		if err := tx.QueryRowContext(ctx, nextAccountSequence).Scan(&id); err != nil {
 			return err
 		}
 		reference := AccountRecordSource{ID: source.ID, AccountID: source.AccountID, Sequence: source.Sequence, Version: source.Version, Date: source.Date, Origin: source.Origin, TotalAssets: *source.TotalAssets, ManualAssertion: source.ManualAssertion}

@@ -173,7 +173,6 @@ onBeforeUnmount(() => {
       <div>
         <div class="eyebrow">MARKET OBSERVATORY / 01</div>
         <h1>白酒行情<span>看见价格的变化。</span></h1>
-        <p>从每日行情到长期趋势，记录每一份真实报价。</p>
       </div>
       <button class="refresh" :disabled="loading" @click="refresh">
         {{ loading ? "正在刷新…" : "刷新数据 ↻" }}
@@ -344,10 +343,6 @@ onBeforeUnmount(() => {
       </section>
     </div>
     <footer>
-      <strong>关于数据</strong>
-      <p>
-        来源声明的终端零售成交加权均价，不是批发价，亦非本平台独立核验的成交价格。来源涨跌额沿用原始数据；区间变化按可用报价的首尾值计算。刷新仅重新读取已入库行情。
-      </p>
       <span>GUANJIA / MARKET OBSERVATORY</span>
     </footer>
   </main>

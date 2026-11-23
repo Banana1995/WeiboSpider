@@ -146,6 +146,38 @@ class Adapter:
         return {"code": code, "name": name, "english_name": str(row.get("name_en", "")),
                 "aliases": "", "kind": kind, "currency": "USD"}
 
+    @staticmethod
+    def match(values, query):
+        out = []
+        for value in values:
+            text = " ".join(value.values()).lower()
+            if all(word in text for word in query.split()):
+                out.append(value)
+        out.sort(key=lambda value: (value["code"].lower() != "us." + query, value["code"]))
+        return out
+
+    def cached_search(self, query):
+        """Search the loaded static directory without waiting for quote traffic.
+
+        Quote refreshes hold the SDK lock while fetching large snapshot batches.
+        Once the catalog is loaded, name searches need no upstream request, so
+        they must not queue behind quotes. Returns None when the locked `search`
+        path is still required (cold/stale catalog or an unknown code).
+        """
+        query = query.strip().lower().removeprefix("us.")
+        catalog_at = self.catalog_at
+        if not query or not catalog_at or self.clock() - catalog_at > 86400:
+            return None
+        values = dict(self.instruments)
+        if SYMBOL.fullmatch("US." + query.upper()):
+            value = values.get("US." + query.upper())
+            return {"items": [value]} if value else None
+        out = self.match(values.values(), query)
+        # English-name enrichment can still need the Nasdaq directory.
+        if not out and query.isascii():
+            return None
+        return {"items": out[:40]}
+
     def search(self, query):
         query = query.strip().lower().removeprefix("us.")
         if SYMBOL.fullmatch("US." + query.upper()):
@@ -166,18 +198,12 @@ class Adapter:
             self.catalog_at = self.clock()
         # OpenD's name follows its UI language. Supplement *names only* from
         # Nasdaq's public symbol directory when an English-name search needs it.
-        if query.isascii() and not any(all(word in " ".join(v.values()).lower() for word in query.split()) for v in self.instruments.values()):
+        if query.isascii() and not self.match(self.instruments.values(), query):
             self.load_english_names()
             for code, value in self.instruments.items():
                 if code in self.english_names:
                     value["english_name"] = self.english_names[code]
-        out = []
-        for value in self.instruments.values():
-            text = " ".join(value.values()).lower()
-            if all(word in text for word in query.split()):
-                out.append(value)
-        out.sort(key=lambda value: (value["code"].lower() != "us." + query, value["code"]))
-        return {"items": out[:40]}
+        return {"items": self.match(self.instruments.values(), query)[:40]}
 
     def load_english_names(self):
         if self.english_at and self.clock() - self.english_at < 86400:
@@ -299,7 +325,16 @@ def create_app(adapter=None):
             if (not isinstance(values, list) or not 1 <= len(values) <= 399 or
                     any(not isinstance(value, dict) or not CODE.fullmatch(str(value.get("code", ""))) or value.get("symbol") != data["symbol"] or value.get("type") not in ("PUT", "CALL") for value in values)):
                 return jsonify(code="invalid_input", message="行情批次不正确", retryable=False), 400
-        if not bridge.lock.acquire(timeout=2):
+        # Cached catalog searches need no SDK request, so they must not queue
+        # behind an in-flight quote refresh that holds the adapter lock.
+        if action == "instruments":
+            cached = bridge.cached_search(data["query"])
+            if cached is not None:
+                return jsonify(cached)
+        # Interactive name searches are allowed to wait longer for a quote batch
+        # to finish; other actions keep the short, predictable timeout.
+        wait = 8 if action == "instruments" else 2
+        if not bridge.lock.acquire(timeout=wait):
             return jsonify(code="busy", message="行情请求队列繁忙", retryable=True), 503
         try:
             if action == "state":

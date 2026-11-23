@@ -67,6 +67,23 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(["US.COST"], [row["code"] for row in results])
         self.assertEqual("开市客", results[0]["name"])
 
+    def test_cached_name_search_skips_a_busy_quote_lock(self):
+        def forbidden():
+            raise AssertionError("unexpected SDK connection")
+        bridge = Adapter(factory=forbidden, clock=lambda: 10)
+        bridge.instruments = {
+            "US.TME": {"code": "US.TME", "name": "腾讯音乐", "english_name": "", "aliases": "", "kind": "STOCK", "currency": "USD"},
+            "US.TCEHY": {"code": "US.TCEHY", "name": "腾讯控股(ADR)", "english_name": "", "aliases": "", "kind": "STOCK", "currency": "USD"},
+        }
+        bridge.catalog_at = 10
+        bridge.lock.acquire()
+        try:
+            response = create_app(bridge).test_client().post("/v1/instruments", json={"query": "腾讯"})
+        finally:
+            bridge.lock.release()
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(["US.TCEHY", "US.TME"], [row["code"] for row in response.get_json()["items"]])
+
     def test_call_chain_and_quotes_keep_direction_and_bid(self):
         import pandas as pd
         seen = []

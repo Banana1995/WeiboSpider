@@ -103,7 +103,8 @@ const comparison = ref<Candidate[]>([]),
 const watchDraft = ref<Watch>();
 const searchQuery = ref(""),
   searchResults = ref<Instrument[]>([]),
-  searchLoading = ref(false);
+  searchLoading = ref(false),
+  searchFailed = ref(false);
 const history = ref<Candidate["snapshot"][]>([]);
 const favoriteCount = ref(0);
 const stock = computed(() =>
@@ -384,6 +385,7 @@ async function search() {
   const controller = new AbortController();
   searchController = controller;
   searchLoading.value = true;
+  searchFailed.value = false;
   try {
     const data = await api<{ items: Instrument[] }>(
       `/instruments/search?q=${encodeURIComponent(searchQuery.value)}`,
@@ -393,6 +395,7 @@ async function search() {
   } catch (e) {
     if (!controller.signal.aborted) {
       searchResults.value = [];
+      searchFailed.value = true;
       fail(e);
     }
   } finally {
@@ -1241,7 +1244,13 @@ onBeforeUnmount(() => {
           @keydown="searchKey"
       /></label>
       <p class="opt-help" aria-live="polite">
-        {{ searchLoading ? "搜索证券名称…" : `${searchResults.length} 个结果` }}
+        {{
+          searchLoading
+            ? "搜索证券名称…"
+            : searchFailed
+              ? "搜索暂不可用，请稍后重试"
+              : `${searchResults.length} 个结果`
+        }}
       </p>
       <div class="opt-search-results">
         <button
@@ -1261,7 +1270,10 @@ onBeforeUnmount(() => {
               : "添加并查看"
           }}</span>
         </button>
-        <p v-if="!searchResults.length && !searchLoading" class="opt-help">
+        <p
+          v-if="!searchResults.length && !searchLoading && !searchFailed"
+          class="opt-help"
+        >
           没有找到匹配股票，试试完整代码或名称。
         </p>
       </div>

@@ -942,7 +942,7 @@ function drainImageLinkQueue() {
 }
 
 function linkifyWeiboImages(card) {
-  card.querySelectorAll('.card-content, .retweet-content').forEach(el => {
+  card.querySelectorAll('.card-content, .retweet-content, .comment-content').forEach(el => {
     // Work backwards over the original text so search <mark> tags do not split
     // URLs, and replacing a link never shifts the next link or note's offsets.
     const matches = [...el.textContent.matchAll(/https?:\/\/t\.cn\/[A-Za-z0-9]+/g)];
@@ -980,14 +980,35 @@ function linkifyWeiboImages(card) {
         if (!imageUrl || !card.isConnected) return;
         // Annotation highlighting may have moved/cloned a link in the meantime.
         card.querySelectorAll('.weibo-short-link').forEach(a => {
-          if (a.dataset.shortUrl !== match[0]) return;
+          if (a.dataset.shortUrl !== match[0] || a.dataset.imageUrl) return;
           a.dataset.imageUrl = imageUrl;
           a.href = proxyImg(toFullSize(imageUrl));
           a.setAttribute('aria-label', '查看图片');
+          appendCommentShortLinkImage(a, imageUrl);
         });
       });
     });
   });
+}
+
+function appendCommentShortLinkImage(link, imageUrl) {
+  const content = link.closest('.comment-content');
+  const owner = content && content.parentElement;
+  if (!owner) return;
+  let box = owner.querySelector(':scope > .comment-images');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'comment-images';
+    content.after(box);
+  }
+  const img = document.createElement('img');
+  img.className = 'comment-pic';
+  img.loading = 'lazy';
+  img.referrerPolicy = 'no-referrer';
+  img.src = proxyImg(imageUrl);
+  img.alt = '评论图片';
+  img.onclick = () => openLightboxFromComment(img);
+  box.appendChild(img);
 }
 
 function renderCard(t, container) {
@@ -1154,6 +1175,7 @@ async function toggleComments(el, id) {
       inner.innerHTML = comments.length === 0
         ? '<div class="comment" style="color:#aaa">暂无评论</div>'
         : comments.map(c => renderComment(c)).join('');
+      linkifyWeiboImages(inner);
       const toggle = document.querySelector(`.card[data-id="${id}"] .comments-toggle`);
       if (toggle) toggle.textContent = commentCountLabel(data.comment_counts);
     } catch(e) {
@@ -1180,6 +1202,7 @@ async function crawlComments(tweetId, btn) {
         inner.innerHTML = comments.length === 0
           ? '<div class="comment" style="color:#aaa">暂无评论</div>'
           : comments.map(c => renderComment(c)).join('');
+        linkifyWeiboImages(inner);
       }
       const toggle = document.querySelector(`.card[data-id="${tweetId}"] .comments-toggle`);
       if (toggle) toggle.textContent = commentCountLabel(data.comment_counts);
@@ -1219,7 +1242,7 @@ function renderComment(c) {
   }
   const pics = (c.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
   return `<div class="comment" data-cid="${c.id}">
-    ${replyLine}<span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(c.created_at||'')}</span>: ${esc(c.content)}
+    ${replyLine}<span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(c.created_at||'')}</span>: <span class="comment-content">${esc(c.content)}</span>
     ${pics ? `<div class="comment-images">${pics}</div>` : ''}
     ${subHtml}
   </div>`;
@@ -1234,7 +1257,7 @@ function renderSubCommentInner(s) {
   const replyTo = s.reply_comment ? esc((s.reply_comment.user||{}).nick_name||'用户') : '';
   const replyLine = replyTo ? `回复 @${replyTo} ` : '';
   const pics = (s.pic_urls || []).map(p => `<img src="${esc(proxyImg(p))}" class="comment-pic" loading="lazy" referrerpolicy="no-referrer" onclick="openLightboxFromComment(this)">`).join('');
-  return `<div class="comment-reply" data-cid="${s.id}"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}${esc(s.content)}${pics ? `<div class="comment-images">${pics}</div>` : ''}</div>`;
+  return `<div class="comment-reply" data-cid="${s.id}"><span class="comment-user">${esc(user)}</span><span class="comment-time">${esc(s.created_at||'')}</span>: ${replyLine}<span class="comment-content">${esc(s.content)}</span>${pics ? `<div class="comment-images">${pics}</div>` : ''}</div>`;
 }
 
 function openLightboxFromComment(img) {
@@ -2479,6 +2502,7 @@ async function locateComment(tweetId, docId) {
       inner.innerHTML = comments.length === 0
         ? '<div class="comment" style="color:#aaa">暂无评论</div>'
         : comments.map(c => renderComment(c)).join('');
+      linkifyWeiboImages(inner);
     } catch (e) {
       delete inner.dataset.loaded;
       inner.innerHTML = '<div class="comment" style="color:#aaa">加载失败</div>';

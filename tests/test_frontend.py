@@ -65,6 +65,15 @@ def test_comment_images_rendered():
     assert 'openLightboxFromComment' in INDEX_HTML
 
 
+def test_comment_short_links_resolve_to_image_preview():
+    assert '<span class="comment-content">' in INDEX_HTML
+    start = INDEX_HTML.index('function linkifyWeiboImages(')
+    end = INDEX_HTML.index('function renderCard(', start)
+    assert '.comment-content' in INDEX_HTML[start:end]
+    # Every path that renders comments (open, crawl, search locate) resolves links.
+    assert INDEX_HTML.count('linkifyWeiboImages(inner);') >= 3
+
+
 def test_xqimg_fullsize_uses_raw():
     assert r"!thumb\.jpg" in INDEX_HTML
     assert "!raw.jpg" in INDEX_HTML

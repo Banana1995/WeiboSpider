@@ -256,7 +256,7 @@ it("keeps the detail dialog beneath trades, isolates pending feedback and restor
   expect(workspace.dialogs.value).toBe(0);
   expect(document.activeElement).toBe(row.element);
 });
-it("shows total funds and position weight, and sorts by weight on header click", async () => {
+it("shows total funds and defaults to positions sorted by weight, descending", async () => {
   const base = stockItem();
   const low = {
     ...base,
@@ -296,15 +296,18 @@ it("shows total funds and position weight, and sorts by weight on header click",
   expect(wrapper.text()).toContain("总资金");
   expect(wrapper.text()).toContain("100,000.00");
   expect(wrapper.text()).toContain("90.00%");
-  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成低仓");
+  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成高仓");
   const header = wrapper
     .findAll(".stock-list-labels button")
     .find((b) => b.text().includes("持仓比例"))!;
   expect(header).toBeTruthy();
+  expect(header.attributes("aria-pressed")).toBe("true");
+  expect(header.text()).toContain("↓");
+  await header.trigger("click");
+  expect(header.text()).toContain("↑");
+  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成低仓");
   await header.trigger("click");
   expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成高仓");
-  await header.trigger("click");
-  expect(wrapper.findAll(".stock-row")[0]!.text()).toContain("合成低仓");
 });
 it("offers account creation when no account exists", () => {
   wrapper = mount(Panel, {

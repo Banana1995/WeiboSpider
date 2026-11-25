@@ -300,10 +300,11 @@ it("shows recovered weights and the last available price without historical pric
   expect(wrapper.get(".stock-totals").text()).toContain("2,220.00");
   expect(wrapper.text()).not.toContain("含历史参考价估值");
   const rows = wrapper.findAll(".stock-row");
-  expect(rows[0]!.text()).toContain("45.95%");
-  expect(rows[1]!.text()).toContain("49.55%");
+  // Positions list the largest share of the account first by default.
+  expect(rows[0]!.text()).toContain("49.55%");
+  expect(rows[1]!.text()).toContain("45.95%");
   expect(wrapper.text()).not.toContain("参考价日期");
-  await rows[0]!.trigger("click");
+  await rows.find((row) => row.text().includes("合成港币股"))!.trigger("click");
   const detail = wrapper.get(".stock-detail-dialog");
   expect(detail.get(".stock-quote").attributes("aria-label")).toBe("最新价");
   expect(detail.text()).not.toContain("2026-03-19");

@@ -44,7 +44,8 @@ const sortOptions: { key: SortKey; label: string }[] = [
   { key: "weight", label: "持仓比例" },
   { key: "profit", label: "持仓盈亏" },
 ];
-const sortKey = ref<SortKey | "">("");
+// Positions open sorted by their share of the account, largest first.
+const sortKey = ref<SortKey | "">("weight");
 const sortDir = ref<1 | -1>(-1);
 const accountCurrencyName = computed(
   () => ({ CNY: "人民币", HKD: "港币", USD: "美元" })[props.account.currency],

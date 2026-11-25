@@ -17,6 +17,26 @@ func (s *Store) lockMarketUpdates(ctx context.Context) bool {
 }
 func (s *Store) unlockMarketUpdates() { <-s.marketUpdates }
 
+// An explicit request samples every open position even outside trading hours.
+func (h Handler) refreshHeldQuotes(ctx context.Context, held []Instrument, currency Currency) (int, error) {
+	targets := missingMarketTargets(held, currency, nil, nil, true, false)
+	if len(targets) == 0 || h.Quotes == nil {
+		return len(held), nil
+	}
+	remote, cancel := context.WithTimeout(ctx, valuationTimeout-2*time.Second)
+	defer cancel()
+	if !h.Store.lockMarketUpdates(remote) {
+		return len(held), ctx.Err()
+	}
+	defer h.Store.unlockMarketUpdates()
+	active := map[string]bool{}
+	for _, t := range targets {
+		active[t.instrument.Market] = true
+	}
+	misses, err := h.Store.fetchMarketMarks(ctx, remote, targets, active, h.Quotes, nil)
+	return len(held) - len(targets) + misses, err
+}
+
 func missingMarketTargets(held []Instrument, currency Currency, quotes savedStockQuotes, rates savedStockFX, wantQuotes, wantFX bool) []stockMarketTarget {
 	var missing []stockMarketTarget
 	for _, i := range held {

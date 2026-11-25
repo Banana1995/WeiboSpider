@@ -71,6 +71,7 @@ export interface StockItem {
   channels: { channel: string; quantity: string }[];
 }
 export interface StockBook {
+  refresh_misses?: number;
   account_id: string;
   currency: Currency;
   version: string;

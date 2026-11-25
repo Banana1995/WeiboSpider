@@ -140,16 +140,40 @@ let secondTimer: ReturnType<typeof setTimeout> | undefined;
 const cacheReadInterval = 20 * 60_000;
 let cacheTimer: ReturnType<typeof setInterval> | undefined;
 let lastRead = 0;
+const manual = ref(false);
+const priceNotice = ref("");
 function load() {
+  return loadBook(false);
+}
+async function loadBook(refresh: boolean) {
+  manual.value = refresh;
+  priceNotice.value = "";
   lastRead = Date.now();
-  void read.load(async (signal) =>
+  await read.load(async (signal) =>
     validateStockBook(
-      await request<StockBook>(`/accounts/${props.account.id}/stock-book`, {
-        signal,
-      }),
+      await request<StockBook>(
+        `/accounts/${props.account.id}/stock-book${refresh ? "/refresh-prices" : ""}`,
+        {
+          ...(refresh
+            ? {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+              }
+            : {}),
+          signal,
+        },
+      ),
       props.account,
     ),
   );
+  if (refresh && manual.value && !read.loading) {
+    manual.value = false;
+    if (!read.error)
+      priceNotice.value = read.data?.refresh_misses
+        ? `${read.data.refresh_misses} 只持仓未取得报价，保留已有价格`
+        : "已按行情源最新报价刷新";
+  }
 }
 // Open pages reread the stock book. The server handles scheduled price
 // updates and fetches any missing marks on first use.
@@ -286,6 +310,18 @@ defineExpose({ load });
         read.data ? "刷新失败，显示上次数据" : "持仓读取失败"
       }}</span>
       <div class="stock-actions">
+        <small v-if="priceNotice" role="status">{{ priceNotice }}</small>
+        <button
+          type="button"
+          :disabled="
+            locked ||
+            read.loading ||
+            !read.data?.items.some((row) => /[1-9]/.test(row.quantity))
+          "
+          @click="loadBook(true)"
+        >
+          {{ manual ? "正在刷新…" : "刷新价格" }}
+        </button>
         <button
           type="button"
           class="lp-primary"

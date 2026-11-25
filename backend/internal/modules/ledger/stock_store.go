@@ -645,6 +645,7 @@ type StockItem struct {
 	Channels []ChannelQuantity `json:"channels"`
 }
 type StockBook struct {
+	RefreshMisses  int          `json:"refresh_misses,omitempty"`
 	AccountID      string       `json:"account_id"`
 	Currency       Currency     `json:"currency"`
 	Version        string       `json:"version"`
@@ -661,6 +662,10 @@ type StockBook struct {
 }
 
 func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error) {
+	return h.pricedStockBook(ctx, id, false)
+}
+
+func (h Handler) pricedStockBook(ctx context.Context, id string, refresh bool) (StockBook, error) {
 	out := StockBook{AccountID: id, Items: []StockItem{}, Entries: []StockEntry{}}
 	var st stockState
 	var err error
@@ -712,7 +717,17 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 			held = append(held, i)
 		}
 	}
-	quotes, rates, err := h.stockBookPrices(ctx, held, out.Currency)
+	var quotes savedStockQuotes
+	var rates savedStockFX
+	if refresh {
+		out.RefreshMisses, err = h.refreshHeldQuotes(ctx, held, out.Currency)
+		if err != nil {
+			return out, err
+		}
+		quotes, rates, err = h.Store.readStockPrices(ctx, held, out.Currency)
+	} else {
+		quotes, rates, err = h.stockBookPrices(ctx, held, out.Currency)
+	}
 	if err != nil {
 		return out, err
 	}

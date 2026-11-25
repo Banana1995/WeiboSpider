@@ -63,6 +63,7 @@ func (h Handler) Register(mux *http.ServeMux) {
 		"/accounts/{id}/current-holdings":             h.currentHoldings,
 		"/accounts/{id}/holdings":                     h.holdings,
 		"/accounts/{id}/stock-book":                   h.stockBook,
+		"/accounts/{id}/stock-book/refresh-prices":    h.refreshStockPrices,
 		"/accounts/{id}/valuation":                    h.valuation,
 		"/accounts/{id}/valuations":                   h.valuations,
 		"/accounts/{id}/valuations/{historyID}":       h.valuationHistory,

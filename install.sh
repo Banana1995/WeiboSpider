@@ -52,6 +52,12 @@ if [ ! -s .env.platform ]; then
     printf 'BACKEND_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.platform
 fi
 
+# 税务导入/删除管理密钥；读取公开，写入校验此值。密钥只保存在服务器。
+if ! grep -q '^TAX_ADMIN_KEY=' .env.platform; then
+    umask 077
+    printf 'TAX_ADMIN_KEY=%s\n' "$(openssl rand -hex 32)" >> .env.platform
+fi
+
 # 6. 构建并启动
 echo "→ 构建镜像并启动容器（首次可能需 2-3 分钟）..."
 source scripts/compose-command.sh

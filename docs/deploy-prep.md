@@ -14,8 +14,8 @@
 
 - 微博入口：<http://43.130.247.183:5050/>；白酒入口：<http://43.130.247.183:5052/liquor>。
 - 原微博代码、Python 依赖和数据库保留；共同发布过程中仍可能重建其容器，不能把代码不改等同于部署不受影响。
-- Go 与 Nginx 通过服务端 `.env.platform` 共享服务令牌；Nginx 只为白酒上游请求注入令牌，账本上游清除 Authorization，浏览器不持有令牌。
-- 白酒 `/api/platform/liquor/*` 代理只允许 GET/HEAD，公开 POST 同步会返回 403；账本精确 `/api/platform/ledger` 及子路径开放全部读写方法，其他 platform 路径 JSON 404。不代理微博写接口。
+- Go 与 Nginx 通过服务端 `.env.platform` 共享服务令牌；Nginx 只为白酒上游请求注入令牌，账本上游清除 Authorization，浏览器不持有令牌。税务代理注入平台令牌并转发 `X-Tax-Admin`；税务读取公开，导入和删除校验 `.env.platform` 中的 `TAX_ADMIN_KEY`（缺失时写入返回 503）。
+- 白酒 `/api/platform/liquor/*` 代理只允许 GET/HEAD，公开 POST 同步会返回 403；账本精确 `/api/platform/ledger` 及子路径开放全部读写方法，其他 platform 路径 JSON 404。不代理微博写接口。税务 `/tax` 读取公开，写入需管理密钥。
 - 账本入口：<http://43.130.247.183:5052/ledger>。Compose 显式 `LEDGER_ENABLED=true`、`LEDGER_WEEKLY_ENABLED=false`，不因公开访问开启自动任务。保留同源写保护、上传限制和超时；不删除卷、不重置数据库。
 - 生产 Compose 设置 `LIQUOR_AUTO_SYNC=true`；Go 本地启动默认关闭。采集规则见 [后端指南](../backend/README.md#同步规则)。页面刷新不触发采集。
 

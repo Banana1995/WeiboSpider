@@ -62,7 +62,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	if err != nil {
 		return nil, errors.Join(err, application.Close())
 	}
-	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient()}.Register(mux)
+	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient(), AdminKey: cfg.TaxAdminKey}.Register(mux)
 	if cfg.OptionsEnabled {
 		application.optionsStore, err = options.Open(ctx, cfg.DataDir, cfg.OptionsLimits)
 		if err != nil {

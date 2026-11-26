@@ -13,6 +13,8 @@ import {
   securityIdentity,
   pivotRates,
   summaryColumns,
+  taxAdminKey,
+  setTaxAdminKey,
   type TaxState,
   type TaxReport,
   type TaxPreview,
@@ -46,6 +48,25 @@ const kind = ref(""),
   detailYear = ref<number>();
 const importsOpen = ref(false),
   fileInput = ref<HTMLInputElement>();
+const adminOpen = ref(false),
+  adminDraft = ref("");
+function openAdmin() {
+  adminDraft.value = taxAdminKey();
+  adminOpen.value = true;
+}
+function saveAdmin() {
+  setTaxAdminKey(adminDraft.value);
+  adminOpen.value = false;
+  error.value = "";
+  notice.value = taxAdminKey() ? "管理密钥已保存。" : "已清除管理密钥。";
+}
+function adminReady() {
+  if (taxAdminKey()) return true;
+  adminDraft.value = "";
+  adminOpen.value = true;
+  notice.value = "导入和删除需要管理密钥。";
+  return false;
+}
 const names = ref<Record<string, string>>({});
 const namesLoading = ref(false);
 const rateRows = computed(() => pivotRates(state.value.rates));
@@ -256,6 +277,10 @@ onBeforeUnmount(() => {
 async function previewFiles(event: Event) {
   const input = event.target as HTMLInputElement;
   if (!input.files?.length) return;
+  if (!adminReady()) {
+    input.value = "";
+    return;
+  }
   pending.value = Array.from(input.files).map((file) => ({
     file,
     error: "",
@@ -268,10 +293,14 @@ async function previewFiles(event: Event) {
     try {
       const form = new FormData();
       form.append("file", item.file);
-      item.preview = await taxRequest<TaxPreview>("preview", {
-        method: "POST",
-        body: form,
-      });
+      item.preview = await taxRequest<TaxPreview>(
+        "preview",
+        {
+          method: "POST",
+          body: form,
+        },
+        { admin: true },
+      );
     } catch (e) {
       item.error = fail(e);
     }
@@ -279,6 +308,7 @@ async function previewFiles(event: Event) {
   busy.value = false;
 }
 async function confirmImports() {
+  if (!adminReady()) return;
   busy.value = true;
   notice.value = "";
   error.value = "";
@@ -289,10 +319,14 @@ async function confirmImports() {
       const form = new FormData();
       form.append("file", item.file);
       form.append("digest", item.preview!.digest);
-      const result = await taxRequest<{ added: number }>("imports", {
-        method: "POST",
-        body: form,
-      });
+      const result = await taxRequest<{ added: number }>(
+        "imports",
+        {
+          method: "POST",
+          body: form,
+        },
+        { admin: true },
+      );
       item.imported = true;
       added += result.added;
     } catch (e) {
@@ -307,10 +341,11 @@ async function confirmImports() {
   if (pending.value.every((p) => p.imported)) pending.value = [];
 }
 async function removeBatch(id: number) {
+  if (!adminReady()) return;
   busy.value = true;
   error.value = "";
   try {
-    await taxRequest(`imports/${id}`, { method: "DELETE" });
+    await taxRequest(`imports/${id}`, { method: "DELETE" }, { admin: true });
     await reload();
     page.value = 1;
     notice.value = "已移除导入批次，其他来源的重叠记录仍保留。";
@@ -339,6 +374,7 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
         </div>
         <div class="tax-actions">
           <button :disabled="busy || loading" @click="reload">刷新</button
+          ><button :disabled="busy" @click="openAdmin">管理密钥</button
           ><button :disabled="busy" @click="importsOpen = !importsOpen">
             导入记录 <span>{{ state.imports.length }}</span></button
           ><button
@@ -360,6 +396,22 @@ const textAmount = (r: TaxRecord, key: keyof TaxRecord) => {
       </div>
       <p v-if="error" role="alert" class="tax-message tax-error">{{ error }}</p>
       <p v-if="notice" role="status" class="tax-message">{{ notice }}</p>
+      <section v-if="adminOpen" class="tax-panel" aria-label="管理密钥">
+        <h2>管理密钥</h2>
+        <p class="tax-muted">
+          查看账单不需要密钥；导入和删除需要服务器上配置的管理密钥。密钥只保存在本浏览器。
+        </p>
+        <div class="tax-actions">
+          <input
+            v-model="adminDraft"
+            type="password"
+            autocomplete="current-password"
+            placeholder="管理密钥"
+            aria-label="管理密钥"
+          /><button class="tax-primary" @click="saveAdmin">保存</button
+          ><button @click="adminOpen = false">关闭</button>
+        </div>
+      </section>
       <section v-if="pending.length" class="tax-panel" aria-label="导入预览">
         <h2>导入预览</h2>
         <ul class="tax-import-list">

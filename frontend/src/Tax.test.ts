@@ -5,7 +5,8 @@ import Tax from "./Tax.vue";
 import TaxDetailDialog from "./TaxDetailDialog.vue";
 import {
   taxExact,
-  taxKey,
+  taxAdminKey,
+  setTaxAdminKey,
   taxNumber,
   taxMoney,
   taxPrice,
@@ -66,7 +67,9 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
   });
+  localStorage.setItem("tax-admin-key", "test-admin");
   imports = 0;
   report = {
     rows: [],
@@ -90,9 +93,10 @@ beforeEach(() => {
     ],
   };
   fetcher = vi.fn(async (url: string, init: RequestInit = {}) => {
-    expect(new Headers(init.headers).get("X-Tax-Key")).toMatch(
-      /^[a-f0-9]{64}$/,
-    );
+    const headers = new Headers(init.headers);
+    if (init.method === "POST" || init.method === "DELETE")
+      expect(headers.get("X-Tax-Admin")).toBe("test-admin");
+    else expect(headers.get("X-Tax-Admin")).toBeNull();
     const u = new URL(url, "http://localhost");
     if (u.pathname.endsWith("/state")) return response(state);
     if (u.pathname.endsWith("/report")) return response(report);
@@ -164,6 +168,27 @@ it("previews a real File, preserves import errors and retries without a second c
   expect(wrapper.get(".tax-records tbody").text()).toContain("合成凭据");
   expect(state.records).toHaveLength(1);
   expect(imports).toBe(2);
+});
+
+it("asks for the admin key before previewing imports", async () => {
+  localStorage.removeItem("tax-admin-key");
+  wrapper = mount(Tax);
+  await flushPromises();
+  const input = wrapper.get('input[type="file"]');
+  Object.defineProperty(input.element, "files", {
+    configurable: true,
+    value: [new File(["csv"], "example.csv", { type: "text/csv" })],
+  });
+  await input.trigger("change");
+  await flushPromises();
+  expect(wrapper.find('section[aria-label="管理密钥"]').exists()).toBe(true);
+  expect(wrapper.text()).toContain("导入和删除需要管理密钥");
+  expect(
+    fetcher.mock.calls.some((c) => String(c[0]).endsWith("/preview")),
+  ).toBe(false);
+  await wrapper.get('input[aria-label="管理密钥"]').setValue("test-admin");
+  await buttons("保存").trigger("click");
+  expect(taxAdminKey()).toBe("test-admin");
 });
 
 it("filters dates through the report API and removes an imported batch", async () => {
@@ -264,9 +289,11 @@ it("formats money with explicit units without floating point rounding", () => {
     securityIdentity({ ...row, kind: "基金", market: "FD", code: "880002" })
       .key,
   ).toBe("");
-  const key = taxKey();
-  expect(taxKey()).toBe(key);
-  expect(key).toHaveLength(64);
+  expect(taxAdminKey()).toBe("test-admin");
+  setTaxAdminKey(" changed ");
+  expect(taxAdminKey()).toBe("changed");
+  setTaxAdminKey("");
+  expect(taxAdminKey()).toBe("");
 });
 
 it("numbers statement rows continuously, resolves names, and hides source metadata and exports", async () => {

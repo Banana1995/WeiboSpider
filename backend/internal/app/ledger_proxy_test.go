@@ -34,7 +34,7 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 		case "^~ /api/platform/tax/":
 			taxProxy = true
 			require.Contains(t, body, "proxy_pass http://platform:5051;")
-			require.Contains(t, body, "proxy_set_header X-Tax-Key $http_x_tax_key;")
+			require.Contains(t, body, "proxy_set_header X-Tax-Admin $http_x_tax_admin;")
 			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
 			require.Contains(t, body, "proxy_set_header Host $http_host;")
 		case "/api/platform/liquor/":

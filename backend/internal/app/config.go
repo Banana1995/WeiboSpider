@@ -18,6 +18,7 @@ type Config struct {
 	Address             string
 	DataDir             string
 	APIToken            string
+	TaxAdminKey         string
 	SourceURL           string
 	RequestInterval     time.Duration
 	SyncTimeout         time.Duration
@@ -48,7 +49,8 @@ func LoadConfig() (Config, error) {
 	cfg := DefaultConfig()
 	for name, field := range map[string]*string{
 		"BACKEND_ADDR": &cfg.Address, "BACKEND_DATA_DIR": &cfg.DataDir,
-		"BACKEND_API_TOKEN": &cfg.APIToken, "LIQUOR_SOURCE_URL": &cfg.SourceURL,
+		"BACKEND_API_TOKEN": &cfg.APIToken, "TAX_ADMIN_KEY": &cfg.TaxAdminKey,
+		"LIQUOR_SOURCE_URL":  &cfg.SourceURL,
 		"LEDGER_WEEKLY_TIME": &cfg.LedgerWeeklyTime,
 		"OPTIONS_QUOTES_URL": &cfg.OptionsQuotesURL,
 	} {
@@ -136,6 +138,9 @@ func (c Config) Validate() error {
 	}
 	if !loopbackHost(host) && c.APIToken == "" {
 		return errors.New("BACKEND_API_TOKEN is required for non-loopback listeners")
+	}
+	if c.TaxAdminKey != "" && (len(c.TaxAdminKey) < 32 || len(c.TaxAdminKey) > 512 || strings.IndexFunc(c.TaxAdminKey, func(r rune) bool { return r < 33 || r > 126 }) >= 0) {
+		return errors.New("TAX_ADMIN_KEY must be 32..512 printable characters")
 	}
 	if c.APIToken != "" {
 		if len(c.APIToken) < 32 || len(c.APIToken) > 512 || strings.IndexFunc(c.APIToken, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {

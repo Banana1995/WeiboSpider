@@ -20,6 +20,12 @@ if [ ! -s .env.platform ]; then
     printf 'BACKEND_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.platform
 fi
 
+# 税务导入/删除管理密钥；读取公开，写入校验此值。密钥只保存在服务器。
+if ! grep -q '^TAX_ADMIN_KEY=' .env.platform; then
+    umask 077
+    printf 'TAX_ADMIN_KEY=%s\n' "$(openssl rand -hex 32)" >> .env.platform
+fi
+
 # 1. 重建并重启容器（--build 失败不影响已运行容器）
 source scripts/compose-command.sh
 echo "→ 重建镜像并重启容器..."

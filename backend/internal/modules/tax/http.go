@@ -1,11 +1,11 @@
 package tax
 
 import (
+	"crypto/subtle"
 	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,11 +13,14 @@ import (
 	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
 )
 
-var keyPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+// All tax reads and writes share one workspace until real accounts exist.
+// Reads are public; imports and deletions require AdminKey.
+const sharedWorkspaceKey = "shared-tax-v1"
 
 type Handler struct {
-	Store *Store
-	Names *NamesClient
+	Store    *Store
+	Names    *NamesClient
+	AdminKey string
 }
 
 func (h Handler) Register(mux *http.ServeMux) {
@@ -28,17 +31,15 @@ func fail(w http.ResponseWriter, code int, message string) {
 }
 func (h Handler) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	keys := r.Header.Values("X-Tax-Key")
-	if len(keys) != 1 || !keyPattern.MatchString(keys[0]) {
-		fail(w, 401, "税务空间密钥无效，请重新打开页面")
-		return
-	}
-	workspace := digest([]byte(keys[0]))
 	path := strings.TrimPrefix(r.URL.Path, "/api/platform/tax/")
 	if r.Method != "GET" && r.URL.RawQuery != "" {
 		fail(w, 400, "写入请求不接受查询参数")
 		return
 	}
+	if r.Method != "GET" && !h.admin(w, r) {
+		return
+	}
+	workspace := digest([]byte(sharedWorkspaceKey))
 	switch {
 	case path == "names" && r.Method == "GET":
 		if r.URL.RawQuery != "" {
@@ -89,6 +90,22 @@ func (h Handler) serve(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "税务接口不存在或请求方法不支持")
 	}
 }
+
+// admin gates imports and deletions. Reads stay public until account-level
+// permissions replace this single shared key.
+func (h Handler) admin(w http.ResponseWriter, r *http.Request) bool {
+	if h.AdminKey == "" {
+		fail(w, 503, "税务写入未启用")
+		return false
+	}
+	keys := r.Header.Values("X-Tax-Admin")
+	if len(keys) != 1 || subtle.ConstantTimeCompare([]byte(keys[0]), []byte(h.AdminKey)) != 1 {
+		fail(w, 401, "管理密钥无效，无法导入或删除")
+		return false
+	}
+	return true
+}
+
 func parseFilter(r *http.Request) (Filter, error) {
 	q := r.URL.Query()
 	f := Filter{q.Get("from"), q.Get("to"), q.Get("account")}

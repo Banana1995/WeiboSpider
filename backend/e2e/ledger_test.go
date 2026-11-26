@@ -61,11 +61,11 @@ func TestProcessLedgerReceiptsSurviveRestart(t *testing.T) {
 			}
 			if token != "" {
 				code, _ := request(t, p, "GET", "/api/platform/ledger/accounts", "", nil)
-				require.Equal(t, 200, code, "canonical ledger routes are anonymously shared")
+				require.Equal(t, 401, code, "direct ledger access also requires the proxy credential")
 				code, _ = request(t, p, "GET", "/api/platform/liquor/latest", "", nil)
 				require.Equal(t, 401, code, "ledger sharing does not exempt sibling APIs")
 			}
-			code, body := request(t, p, "POST", "/api/platform/ledger/accounts", `{}`, map[string]string{"Content-Type": "application/json", "Origin": "http://untrusted.invalid", "Idempotency-Key": "cross-origin"})
+			code, body := request(t, p, "POST", "/api/platform/ledger/accounts", `{}`, map[string]string{"Content-Type": "application/json", "Origin": "http://untrusted.invalid", "Idempotency-Key": "cross-origin", "Authorization": "Bearer " + token})
 			require.Equal(t, 403, code, string(body))
 			ledgerRequest("GET", "/accounts", "", "", 200)
 			const instrument = `{"id":"synthetic-instrument","market":"TEST","code":"SYNTH","name":"Synthetic instrument","currency":"CNY"}`

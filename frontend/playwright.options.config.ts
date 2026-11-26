@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "**/*.e2e.ts",
+  testMatch: "**/options.e2e.ts",
   workers: 1,
   fullyParallel: false,
   timeout: 60000,

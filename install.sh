@@ -69,8 +69,7 @@ for i in $(seq 1 30); do
     if curl -sf http://localhost:5050/ >/dev/null 2>&1; then
         echo ""
         echo "✓ 服务已启动"
-        SERVER_IP=$(hostname -I | awk '{print $1}')
-        echo "访问: http://$SERVER_IP:5050"
+        echo "访问: https://gaomanyi.site/login"
         echo "日志: docker compose logs -f"
         exit 0
     fi

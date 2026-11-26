@@ -392,8 +392,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="ledger-page">
     <div class="lp-banner">
-      <strong>公开共享账本</strong
-      ><span>任何人均可查看与修改，请勿上传私人财务信息</span>
+      <strong>个人投资账本</strong><span>当前登录账户的投资记录</span>
     </div>
     <ModuleHeader current="ledger" :locked="navigationLocked" />
     <main class="workspace-frame lp-main">

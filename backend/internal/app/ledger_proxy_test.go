@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
+func TestSiteProxyProtectsPrivateUpstreams(t *testing.T) {
 	_, filename, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	path := filepath.Join(filepath.Dir(filename), "../../..", "frontend", "nginx.conf.template")
@@ -24,17 +24,18 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	for _, location := range locations {
 		pattern, body := strings.TrimSpace(location[1]), location[2]
 		if strings.Contains(body, "${BACKEND_API_TOKEN}") {
-			require.Contains(t, []string{"/api/platform/liquor/", "^~ /api/platform/tax/", "^~ /api/platform/options/"}, pattern, "internal token must only reach reviewed routes")
+			require.Contains(t, []string{"/api/platform/liquor/", "^~ /api/platform/tax/", "^~ /api/platform/options/", "^~ /api/platform/auth/", "= /_site_owner", "~ ^/api/platform/ledger(?:/|$)"}, pattern, "internal token must only reach reviewed routes")
 		}
 		switch pattern {
 		case "= /mcp":
+			require.Contains(t, body, "auth_request /_site_owner;")
 			archiveProxy = true
 			require.Contains(t, body, "set $archive_upstream value-explore:5053;")
 			require.Contains(t, body, "proxy_set_header Authorization $http_authorization;")
 		case "^~ /api/platform/tax/":
 			taxProxy = true
 			require.Contains(t, body, "proxy_pass http://platform:5051;")
-			require.Contains(t, body, "proxy_set_header X-Tax-Admin $http_x_tax_admin;")
+			require.Contains(t, body, `proxy_set_header X-Tax-Admin "";`)
 			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
 			require.Contains(t, body, "proxy_set_header Host $http_host;")
 		case "/api/platform/liquor/":
@@ -45,7 +46,7 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 		case "~ ^/api/platform/ledger(?:/|$)":
 			ledgerProxy = true
 			require.Contains(t, body, "proxy_pass http://platform:5051;")
-			require.Contains(t, body, `proxy_set_header Authorization "";`)
+			require.Contains(t, body, `proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";`)
 			require.Contains(t, body, "proxy_set_header Host $http_host;")
 			require.Contains(t, body, "client_max_body_size 8256k;")
 			require.Contains(t, body, "client_body_timeout 15s;")
@@ -68,6 +69,14 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 			require.Contains(t, body, "proxy_set_header Host $http_host;")
 			require.Contains(t, body, "client_max_body_size 64k;")
 			require.NotContains(t, body, "auth_basic")
+		case "= /weibo/", "/api/", "/static/":
+			require.Contains(t, body, "auth_request /_site_owner;")
+			require.Contains(t, body, `proxy_set_header Cookie "";`)
+		case "= /_site_owner":
+			require.Contains(t, body, "internal;")
+			require.Contains(t, body, "/api/platform/auth/owner;")
+		case "^~ /api/platform/auth/":
+			require.Contains(t, body, "access_log off;")
 		default:
 			require.Contains(t, []string{"= /healthz", "/"}, pattern, "review new locations for private API bypasses")
 		}
@@ -76,12 +85,12 @@ func TestLedgerPublicProxyPreservesLiquorBoundary(t *testing.T) {
 	require.True(t, ledgerProxy)
 	require.True(t, taxProxy)
 	require.True(t, platformDenied)
-	proxies := 4
+	proxies := 9
 	if archiveProxy {
 		proxies++
 	}
-	require.Equal(t, proxies, strings.Count(config, "proxy_pass"))
-	require.Equal(t, 3, strings.Count(config, "${BACKEND_API_TOKEN}"))
+	require.Equal(t, proxies, strings.Count(config, "proxy_pass http"))
+	require.Equal(t, 6, strings.Count(config, "${BACKEND_API_TOKEN}"))
 }
 
 func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {
@@ -90,8 +99,8 @@ func TestLedgerViteProxyRequiresLocalOptIn(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "vite.config.ts"))
 	require.NoError(t, err)
 	paths := regexp.MustCompile(`"(/api/platform[^"]*)":`).FindAllStringSubmatch(string(data), -1)
-	require.Len(t, paths, 3)
-	require.ElementsMatch(t, []string{"/api/platform/liquor/", "/api/platform/tax/", "/api/platform/options/"}, []string{paths[0][1], paths[1][1], paths[2][1]})
+	require.Len(t, paths, 4)
+	require.ElementsMatch(t, []string{"/api/platform/liquor/", "/api/platform/tax/", "/api/platform/options/", "/api/platform/auth/"}, []string{paths[0][1], paths[1][1], paths[2][1], paths[3][1]})
 	require.Contains(t, string(data), "...ledger.proxy")
 	boundary, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "../../..", "frontend", "dev", "ledger-proxy.ts"))
 	require.NoError(t, err)

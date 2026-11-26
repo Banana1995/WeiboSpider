@@ -1,5 +1,6 @@
 // Reorder UI tabs locally. Only opaque account ids are stored, never names or
 // amounts, and a blocked/absent storage simply keeps the server order.
+import { accountKey } from "./siteAccount";
 const storageKey = "ledger.account-tab-order.v1";
 
 export function loadTabOrder(
@@ -7,7 +8,7 @@ export function loadTabOrder(
 ): string[] {
   if (!storage) return [];
   try {
-    const raw = storage.getItem(storageKey);
+    const raw = storage.getItem(accountKey(storageKey));
     if (!raw) return [];
     const value: unknown = JSON.parse(raw);
     return Array.isArray(value) && value.every((id) => typeof id === "string")
@@ -24,7 +25,7 @@ export function saveTabOrder(
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(storageKey, JSON.stringify(ids));
+    storage.setItem(accountKey(storageKey), JSON.stringify(ids));
   } catch {
     // Ignore quota or private-mode failures; ordering is a convenience only.
   }

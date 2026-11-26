@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { siteUser } from "./siteAccount";
 const modules = {
   liquor: "白酒行情",
   ledger: "投资账本",
@@ -24,6 +25,7 @@ defineProps<{ current: keyof typeof modules; locked?: boolean }>();
       </component>
       <nav aria-label="模块导航">
         <slot />
+        <a v-if="siteUser?.id === 'site-owner-v1'" href="/weibo/">微博管理</a>
         <a
           v-for="(label, key) in modules"
           :key="key"
@@ -31,6 +33,12 @@ defineProps<{ current: keyof typeof modules; locked?: boolean }>();
           :aria-current="current === key ? 'page' : undefined"
           :aria-disabled="locked || undefined"
           >{{ label }}</a
+        >
+        <a
+          v-if="siteUser"
+          href="/account"
+          :aria-disabled="locked || undefined"
+          >{{ siteUser.username }}</a
         >
       </nav>
     </div>

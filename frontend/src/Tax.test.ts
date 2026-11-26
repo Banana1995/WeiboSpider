@@ -5,8 +5,6 @@ import Tax from "./Tax.vue";
 import TaxDetailDialog from "./TaxDetailDialog.vue";
 import {
   taxExact,
-  taxAdminKey,
-  setTaxAdminKey,
   taxNumber,
   taxMoney,
   taxPrice,
@@ -94,9 +92,8 @@ beforeEach(() => {
   };
   fetcher = vi.fn(async (url: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
-    if (init.method === "POST" || init.method === "DELETE")
-      expect(headers.get("X-Tax-Admin")).toBe("test-admin");
-    else expect(headers.get("X-Tax-Admin")).toBeNull();
+    expect(headers.get("X-Tax-Admin")).toBeNull();
+    expect(init.credentials).toBe("same-origin");
     const u = new URL(url, "http://localhost");
     if (u.pathname.endsWith("/state")) return response(state);
     if (u.pathname.endsWith("/report")) return response(report);
@@ -170,7 +167,7 @@ it("previews a real File, preserves import errors and retries without a second c
   expect(imports).toBe(2);
 });
 
-it("asks for the admin key before previewing imports", async () => {
+it("previews imports in the signed-in workspace without a shared secret", async () => {
   localStorage.removeItem("tax-admin-key");
   wrapper = mount(Tax);
   await flushPromises();
@@ -181,14 +178,10 @@ it("asks for the admin key before previewing imports", async () => {
   });
   await input.trigger("change");
   await flushPromises();
-  expect(wrapper.find('section[aria-label="管理密钥"]').exists()).toBe(true);
-  expect(wrapper.text()).toContain("导入和删除需要管理密钥");
+  expect(wrapper.find('section[aria-label="管理密钥"]').exists()).toBe(false);
   expect(
     fetcher.mock.calls.some((c) => String(c[0]).endsWith("/preview")),
-  ).toBe(false);
-  await wrapper.get('input[aria-label="管理密钥"]').setValue("test-admin");
-  await buttons("保存").trigger("click");
-  expect(taxAdminKey()).toBe("test-admin");
+  ).toBe(true);
 });
 
 it("filters dates through the report API and removes an imported batch", async () => {
@@ -289,11 +282,6 @@ it("formats money with explicit units without floating point rounding", () => {
     securityIdentity({ ...row, kind: "基金", market: "FD", code: "880002" })
       .key,
   ).toBe("");
-  expect(taxAdminKey()).toBe("test-admin");
-  setTaxAdminKey(" changed ");
-  expect(taxAdminKey()).toBe("changed");
-  setTaxAdminKey("");
-  expect(taxAdminKey()).toBe("");
 });
 
 it("numbers statement rows continuously, resolves names, and hides source metadata and exports", async () => {

@@ -58,14 +58,15 @@ fi
 echo "→ 健康检查白酒行情服务..."
 for i in $(seq 1 30); do
     if curl -sf http://localhost:5052/healthz >/dev/null 2>&1 \
-        && curl -sf http://localhost:5052/api/platform/liquor/latest >/dev/null 2>&1 \
-        && { [ ! -s "$OPTIONS_ENV_FILE" ] || curl -sf http://localhost:5052/api/platform/options/status >/dev/null 2>&1; }; then
+        && [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5052/api/platform/auth/me)" = 401 ] \
+        && [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5052/api/platform/ledger/accounts)" = 401 ] \
+        && [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5052/api/stats)" = 401 ]; then
         "${COMPOSE[@]}" exec -T market-entry nginx -t
         echo ""
         echo "✓ 更新成功"
-        SERVER_IP=$(hostname -I | awk '{print $1}')
-        echo "微博: http://$SERVER_IP:5050"
-        echo "白酒行情: http://$SERVER_IP:5052/liquor"
+        "${COMPOSE[@]}" exec -T site-tls caddy reload --config /etc/caddy/Caddyfile
+        curl --retry 12 --retry-all-errors --retry-delay 5 --connect-timeout 5 -fsS https://gaomanyi.site/login -o /dev/null || exit 1
+        echo "全站登录: https://gaomanyi.site/login"
         exit 0
     fi
     printf "."

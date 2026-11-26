@@ -31,7 +31,11 @@ beforeEach(() => {
   fetchSpy.mockClear();
   appLoaded.mockClear();
   ledgerLoaded.mockClear();
-  vi.stubGlobal("fetch", fetchSpy);
+  vi.stubGlobal("fetch", (url: string) =>
+    url === "/api/platform/auth/me"
+      ? Promise.resolve(Response.json({ id: "fixture", username: "fixture" }))
+      : fetchSpy(),
+  );
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
     value() {

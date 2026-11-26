@@ -80,7 +80,11 @@ export function ledgerDevelopment(env: NodeJS.ProcessEnv): {
           "^/api/platform/ledger(?:/|\\?|$)": {
             target,
             changeOrigin: false,
-            headers: { Authorization: "" },
+            headers: {
+              Authorization: env.BACKEND_API_TOKEN
+                ? `Bearer ${env.BACKEND_API_TOKEN}`
+                : "",
+            },
           },
         }
       : {},

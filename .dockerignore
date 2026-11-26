@@ -22,3 +22,8 @@ cookie.txt
 venv
 **/__pycache__
 **/.pytest_cache
+value-explore
+**/cookie.txt
+**/*.db
+**/*.db-*
+**/data/

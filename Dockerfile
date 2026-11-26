@@ -14,7 +14,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY weibospider/ ./weibospider/
 
 RUN useradd -r -u 1000 app && \
     mkdir -p /app/weibospider/data && \

@@ -3,7 +3,7 @@ services:
     build: .
     container_name: weibospider
     ports:
-      - "5050:5050"
+      - "127.0.0.1:5050:5050"
     volumes:
       - ./data:/app/weibospider/data
     restart: unless-stopped
@@ -31,12 +31,28 @@ services:
     build:
       context: ./frontend
     ports:
-      - "5052:8080"
+      - "127.0.0.1:5052:8080"
     restart: unless-stopped
     env_file:
       - .env.platform
     depends_on:
       - platform
+      - weibospider
+
+  site-tls:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - site-certificates:/data
+      - site-caddy-config:/config
+    depends_on:
+      - market-entry
 
 volumes:
   platform-data:
+  site-certificates:
+  site-caddy-config:

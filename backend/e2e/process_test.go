@@ -5,9 +5,11 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,11 +61,12 @@ func (l *processLog) String() string {
 }
 
 type process struct {
-	cmd  *exec.Cmd
-	log  *processLog
-	done chan struct{}
-	err  error
-	url  string
+	cmd    *exec.Cmd
+	log    *processLog
+	done   chan struct{}
+	err    error
+	url    string
+	cookie *http.Cookie
 }
 
 func buildServer(t *testing.T) string {
@@ -118,6 +121,27 @@ func startProcess(t *testing.T, binary, directory string, override map[string]st
 		t.Fatalf("server did not become ready\n%s", p.log.String())
 	}
 	t.Logf("started actual binary pid=%d address=%s", p.cmd.Process.Pid, p.url)
+	// Exercise the real CLI + activation flow against this fixture's private data dir.
+	cmd := exec.CommandContext(t.Context(), binary, "recover", "gaomanyi")
+	cmd.Env = p.cmd.Env
+	raw, e := cmd.Output()
+	require.NoError(t, e)
+	link, e := url.Parse(strings.TrimSpace(string(raw)))
+	require.NoError(t, e)
+	fragment, e := url.ParseQuery(link.Fragment)
+	require.NoError(t, e)
+	data, _ := json.Marshal(map[string]string{"username": "gaomanyi", "password": rand.Text(), "code": fragment.Get("setup")})
+	req, e := http.NewRequestWithContext(t.Context(), "POST", p.url+"/api/platform/auth/activate", bytes.NewReader(data))
+	require.NoError(t, e)
+	req.Header.Set("Content-Type", "application/json")
+	if token := override["BACKEND_API_TOKEN"]; token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, e := http.DefaultClient.Do(req)
+	require.NoError(t, e)
+	defer res.Body.Close()
+	require.Equal(t, 200, res.StatusCode)
+	p.cookie = res.Cookies()[0]
 	return p
 }
 
@@ -153,6 +177,7 @@ func request(t *testing.T, p *process, method, path, body string, headers map[st
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, p.url+path, strings.NewReader(body))
 	require.NoError(t, err)
+	req.AddCookie(p.cookie)
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")
 	}

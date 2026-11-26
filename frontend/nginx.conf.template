@@ -3,6 +3,57 @@ server {
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
+    absolute_redirect off;
+    add_header Referrer-Policy same-origin always;
+    add_header X-Content-Type-Options nosniff always;
+
+    location ^~ /api/platform/auth/ {
+        access_log off;
+        client_max_body_size 4k;
+        proxy_pass http://platform:5051;
+        proxy_set_header Host $http_host;
+        proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";
+        proxy_set_header X-Site-Method "";
+    }
+
+    location = /_site_owner {
+        internal;
+        proxy_pass http://platform:5051/api/platform/auth/owner;
+        proxy_method GET;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $http_host;
+        proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";
+        proxy_set_header X-Site-Method $request_method;
+    }
+
+    location = /weibo { return 302 /weibo/; }
+    location = /weibo/ {
+        auth_request /_site_owner;
+        error_page 401 = @weibo_login;
+        add_header Cache-Control "private, no-store" always;
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+        proxy_pass http://weibospider:5050/;
+    }
+    location @weibo_login { return 302 /login?next=/weibo/; }
+
+    location /api/ {
+        auth_request /_site_owner;
+        client_max_body_size 16m;
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store" always;
+        proxy_pass http://weibospider:5050;
+    }
+    location /static/ {
+        auth_request /_site_owner;
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+        add_header Cache-Control "private, no-store" always;
+        proxy_pass http://weibospider:5050;
+    }
 
     location = /healthz {
         access_log off;
@@ -11,6 +62,8 @@ server {
     }
 
     location = /mcp {
+        auth_request /_site_owner;
+        proxy_set_header Cookie "";
         resolver 127.0.0.11 valid=30s ipv6=off;
         set $archive_upstream value-explore:5053;
         proxy_pass http://$archive_upstream;
@@ -50,7 +103,7 @@ server {
         proxy_pass http://platform:5051;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
-        proxy_set_header Authorization "";
+        proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 5s;
@@ -69,8 +122,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header Authorization "Bearer ${BACKEND_API_TOKEN}";
-        proxy_set_header X-Tax-Key $http_x_tax_key;
-        proxy_set_header X-Tax-Admin $http_x_tax_admin;
+        proxy_set_header X-Tax-Key "";
+        proxy_set_header X-Tax-Admin "";
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 5s;
@@ -98,6 +151,7 @@ server {
     }
 
     location / {
+        add_header Cache-Control "no-store" always;
         try_files $uri $uri/ /index.html;
     }
 }

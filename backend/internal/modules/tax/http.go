@@ -18,6 +18,7 @@ import (
 const sharedWorkspaceKey = "shared-tax-v1"
 
 type Handler struct {
+	Personal bool // Only set for a private database selected by the authenticated site router.
 	Store    *Store
 	Names    *NamesClient
 	AdminKey string
@@ -36,7 +37,7 @@ func (h Handler) serve(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "写入请求不接受查询参数")
 		return
 	}
-	if r.Method != "GET" && !h.admin(w, r) {
+	if r.Method != "GET" && !h.Personal && !h.admin(w, r) {
 		return
 	}
 	workspace := digest([]byte(sharedWorkspaceKey))

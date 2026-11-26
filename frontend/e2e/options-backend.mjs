@@ -29,6 +29,16 @@ const start = () => spawn(binary, [], { env, stdio: "inherit" });
 let child = start();
 // Test-only process controller. Production binary has no reset/restart endpoint.
 const control = createServer((req, res) => {
+  if (req.url === "/setup" && req.method === "POST") {
+    // Loopback-only test controller, operating exclusively on its mkdtemp data dir.
+    const link = execFileSync(binary, ["recover", "gaomanyi"], {
+      env,
+      encoding: "utf8",
+    }).trim();
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ link }));
+    return;
+  }
   if (req.url !== "/restart" || req.method !== "POST") {
     res.writeHead(404);
     res.end();

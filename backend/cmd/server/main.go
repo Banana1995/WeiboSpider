@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Banana1995/WeiboSpider/backend/internal/accounts"
 	"github.com/Banana1995/WeiboSpider/backend/internal/app"
 )
 
@@ -29,7 +30,18 @@ func run(logger *slog.Logger) (err error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	application, err := app.New(ctx, cfg, logger)
+	if len(os.Args) > 1 {
+		if len(os.Args) != 3 || (os.Args[1] != "setup" && os.Args[1] != "recover") {
+			return errors.New("usage: server [setup|recover USERNAME]")
+		}
+		link, e := accounts.Issue(ctx, cfg.DataDir, os.Args[2], os.Args[1] == "recover")
+		if e != nil {
+			return e
+		}
+		fmt.Println(link)
+		return nil
+	}
+	application, err := app.NewSite(ctx, cfg, logger)
 	if err != nil {
 		return fmt.Errorf("initialize backend: %w", err)
 	}

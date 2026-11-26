@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { accountKey } from "./siteAccount";
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import {
   decimal,
@@ -161,7 +162,7 @@ async function confirm() {
   uncertain.value = false;
   await loadPreview();
   if (!preview.value || !file.value || props.disabled) return;
-  const marker = `ledger:new-import:${preview.value.digest}`;
+  const marker = accountKey(`ledger:new-import:${preview.value.digest}`);
   let saved: string | null = null;
   try {
     saved = localStorage.getItem(marker);

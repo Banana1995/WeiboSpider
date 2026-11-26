@@ -1,0 +1,13 @@
+{
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+www.gaomanyi.site {
+	redir https://gaomanyi.site{uri} permanent
+}
+
+gaomanyi.site {
+	header Strict-Transport-Security "max-age=2592000"
+	header X-Frame-Options "SAMEORIGIN"
+	reverse_proxy market-entry:8080
+}

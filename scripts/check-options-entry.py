@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the shared HTTP options entry without browser authentication."""
+"""Exercise site routing with synthetic authenticated/anonymous upstreams."""
 import http.server
 import os
 from pathlib import Path
@@ -25,7 +25,7 @@ def main():
     class Upstream(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             seen.append((self.path, self.headers.get("Authorization") == "Bearer " + token))
-            self.send_response(200)
+            self.send_response(200 if self.headers.get("Cookie") == "fixture=signed" else 401)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
@@ -47,6 +47,7 @@ def main():
         text = text.replace("listen 8080;", f"listen 127.0.0.1:{port};")
         text = text.replace("/usr/share/nginx/html", str(work))
         text = text.replace("http://platform:5051", f"http://127.0.0.1:{upstream.server_port}")
+        text = text.replace("http://weibospider:5050", f"http://127.0.0.1:{upstream.server_port}")
         text = text.replace("${BACKEND_API_TOKEN}", token)
         config = work / "nginx.conf"
         config.write_text(f"pid {work}/nginx.pid;\nerror_log {work}/error.log;\nevents {{}}\nhttp {{ access_log off;\n" + text + "\n}\n")
@@ -62,6 +63,7 @@ def main():
         def get(url, auth=False):
             headers = {}
             if auth:
+                headers["Cookie"] = "fixture=signed"
                 # A stale browser Basic header must not become upstream auth.
                 headers["Authorization"] = "Basic dGVzdDp0ZXN0"
             req = urllib.request.Request(url, headers=headers)
@@ -86,7 +88,7 @@ def main():
                 (public + "/options", False, 200),
                 (public + "/options/", False, 200),
                 (public + "/assets/probe.js", False, 200),
-                (public + "/api/platform/options/status", False, 200),
+                (public + "/api/platform/options/status", False, 401),
                 (public + "/options", True, 200),
                 (public + "/api/platform/options/status", True, 200),
                 (public + "/api/platform/unknown", False, 404),
@@ -95,13 +97,15 @@ def main():
                 (public + "/ledger", False, 200),
                 (public + "/tax", False, 200),
                 (public + "/liquor", False, 200),
+                (public + "/weibo/", False, 302),
+                (public + "/api/stats", False, 401),
             ]
             for url, auth, expected in checks:
                 actual, body = get(url, auth)
                 assert actual == expected, (url, expected, actual)
                 assert token.encode() not in body, "internal token leaked in response"
-            assert seen == [("/api/platform/options/status", True)] * 2, seen
-            print(f"PASS: {len(checks)} shared HTTP route checks; no browser login; internal bearer injection verified")
+            assert seen == [("/api/platform/options/status", True)] * 2 + [("/api/platform/auth/owner", True)] * 2, seen
+            print(f"PASS: {len(checks)} site route checks; protected APIs and owner subrequests verified")
         finally:
             process.terminate()
             process.wait(timeout=10)

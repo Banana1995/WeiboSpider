@@ -8,16 +8,41 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Banana1995/WeiboSpider/backend/internal/httpapi"
 	"github.com/Banana1995/WeiboSpider/backend/internal/modules/liquor"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
+
+// Isolated module contract fixture; site login and ownership are exercised separately.
+func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
+	a, e := openWorkspace(ctx, cfg, logger, false)
+	if e == nil {
+		business := a.Handler
+		guarded := protect(cfg, business)
+		a.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := r.URL.Path
+			// Historical contract fixtures exercise the business module without the site gateway.
+			if cfg.LedgerEnabled && (p == "/api/platform/ledger" || strings.HasPrefix(p, "/api/platform/ledger/")) && path.Clean(p) == strings.TrimSuffix(p, "/") {
+				if http.NewCrossOriginProtection().Check(r) != nil {
+					httpapi.Fail(w, 403, "cross_origin", "cross-origin writes are not allowed")
+					return
+				}
+				business.ServeHTTP(w, r)
+				return
+			}
+			guarded.ServeHTTP(w, r)
+		})
+	}
+	return a, e
+}
 
 func newTestApplication(t *testing.T, source string) *Application {
 	t.Helper()

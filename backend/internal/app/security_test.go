@@ -47,7 +47,7 @@ func TestSecurity_TokenAuthorizesReadsBehindProxy(t *testing.T) {
 	}
 }
 
-func TestSecurity_PublicLedgerExemptionIsNarrow(t *testing.T) {
+func TestSecurity_NoAnonymousLedgerExemption(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		cfg := DefaultConfig()
 		cfg.LedgerEnabled, cfg.APIToken = enabled, strings.Repeat("r", 32)
@@ -64,11 +64,7 @@ func TestSecurity_PublicLedgerExemptionIsNarrow(t *testing.T) {
 				request.Header.Set("Forwarded", "for=127.0.0.1;host=localhost")
 				response := httptest.NewRecorder()
 				protect(cfg, mux).ServeHTTP(response, request)
-				want := 401
-				if enabled && (path == "/api/platform/ledger" || path == "/api/platform/ledger/" || path == "/api/platform/ledger/accounts") {
-					want = 204
-				}
-				require.Equal(t, want, response.Code, "%s %s enabled=%v", method, path, enabled)
+				require.Equal(t, 401, response.Code, "%s %s enabled=%v", method, path, enabled)
 			}
 		}
 	}

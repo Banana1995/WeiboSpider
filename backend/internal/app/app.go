@@ -18,6 +18,7 @@ import (
 )
 
 type Application struct {
+	site              *siteRouter
 	Handler           http.Handler
 	db                *database.DB
 	ledgerDB          *database.DB
@@ -32,7 +33,7 @@ type Application struct {
 	stockMarketWorker *ledger.StockMarketWorker
 }
 
-func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, error) {
+func openWorkspace(ctx context.Context, cfg Config, logger *slog.Logger, personal bool) (*Application, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -62,7 +63,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	if err != nil {
 		return nil, errors.Join(err, application.Close())
 	}
-	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient(), AdminKey: cfg.TaxAdminKey}.Register(mux)
+	tax.Handler{Store: application.taxStore, Names: tax.NewNamesClient(), AdminKey: cfg.TaxAdminKey, Personal: personal}.Register(mux)
 	if cfg.OptionsEnabled {
 		application.optionsStore, err = options.Open(ctx, cfg.DataDir, cfg.OptionsLimits)
 		if err != nil {
@@ -110,7 +111,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Application, er
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpapi.Fail(w, http.StatusNotFound, "not_found", "route not found")
 	})
-	application.Handler = protect(cfg, mux)
+	application.Handler = mux
 	return application, nil
 }
 
@@ -207,6 +208,9 @@ func (a *Application) Serve(ctx context.Context, listener net.Listener) error {
 func (a *Application) Close() error {
 	a.source.Close()
 	var err error
+	if a.site != nil {
+		err = a.site.close()
+	}
 	if a.optionsScanner != nil {
 		a.optionsScanner.Close()
 	}

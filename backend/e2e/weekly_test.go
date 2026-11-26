@@ -27,6 +27,9 @@ func TestProcessWeeklyFreshSchemaReadOnlyAndInterruptedExpiry(t *testing.T) {
 	require.NoError(t, err)
 	var checksum string
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT group_concat(name||checksum) FROM (SELECT * FROM schema_migrations ORDER BY name)`).Scan(&checksum))
+	var beforeCount int
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM schema_migrations`).Scan(&beforeCount))
+	require.Positive(t, beforeCount)
 	require.NoError(t, db.Close())
 	override := map[string]string{"LEDGER_ENABLED": "true", "LIQUOR_SOURCE_URL": "http://127.0.0.1:1"}
 	p := startProcess(t, binary, root, override)
@@ -60,7 +63,7 @@ func TestProcessWeeklyFreshSchemaReadOnlyAndInterruptedExpiry(t *testing.T) {
 	require.Equal(t, checksum, current)
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM schema_migrations`).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Equal(t, beforeCount, count, "attaching a site owner must not remigrate or duplicate legacy data")
 	result, err := db.ExecContext(t.Context(), `INSERT INTO weekly_jobs(account_id,scheduled_business_date,source,status,attempts,created_at,started_at,lease_until) VALUES('cash','2020-01-11','holdings_current','running',1,'2020-01-11T00:00:00.000000000Z','2020-01-11T00:00:00.000000000Z','2020-01-11T00:01:00.000000000Z')`)
 	require.NoError(t, err)
 	jobID, err := result.LastInsertId()

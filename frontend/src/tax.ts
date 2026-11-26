@@ -213,34 +213,13 @@ export interface TaxPreview {
   rows: TaxRecord[];
 }
 
-const adminStorage = "tax-admin-key";
-
-export function taxAdminKey(): string {
-  return localStorage.getItem(adminStorage) ?? "";
-}
-
-export function setTaxAdminKey(value: string) {
-  const key = value.trim();
-  if (key) localStorage.setItem(adminStorage, key);
-  else localStorage.removeItem(adminStorage);
-}
-
-export const adminKeyRequired = "导入和删除需要管理密钥";
-
 export async function taxRequest<T>(
   path: string,
   init: RequestInit = {},
-  options: { admin?: boolean } = {},
 ): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (options.admin) {
-    const key = taxAdminKey();
-    if (!key) throw new Error(adminKeyRequired);
-    headers.set("X-Tax-Admin", key);
-  }
   const response = await fetch(`/api/platform/tax/${path}`, {
     ...init,
-    headers,
+    credentials: "same-origin",
     cache: "no-store",
   });
   const body = await response.json().catch(() => null);

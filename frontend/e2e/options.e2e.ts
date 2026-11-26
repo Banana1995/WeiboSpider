@@ -5,6 +5,17 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 test.describe.configure({ mode: "serial" });
+test.beforeEach(async ({ request, page }) => {
+  const { link } = await (
+    await request.post("http://127.0.0.1:17052/setup")
+  ).json();
+  const key = new URLSearchParams(link.split("#")[1]).get("setup");
+  const r = await request.post("/api/platform/auth/activate", {
+    data: { username: "gaomanyi", password: crypto.randomUUID(), code: key },
+  });
+  expect(r.status()).toBe(200);
+  await page.context().addCookies((await request.storageState()).cookies);
+});
 const endpoint = "/api/platform/options";
 const fixture = "http://127.0.0.1:17053";
 const calls = async (request: APIRequestContext) =>

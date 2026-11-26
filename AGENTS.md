@@ -16,7 +16,12 @@
 - **仓库**：https://github.com/Banana1995/WeiboSpider（公有仓库，master 分支）
 - **前端**：原微博 `weibospider/static/index.html` 由 Flask 提供；新增 `frontend/` 由 Nginx 提供构建产物。暂未统一导航或迁移微博到 Vue。
 
-## 账本公开访问（2026-09-08 用户授权）
+## 全站账户（当前规则，取代下文历史匿名授权）
+
+- 用户指定所有旧数据归初始账号 `gaomanyi`；不可自动认领或设默认密码。站主用可信终端签发的一次性链接自行初始化。
+- 全站 HTTPS、应用会话和独立用户库。微博／雪球及其配置仅站主可访问。业务 REST、MCP 与旧 IP 端口不得成为匿名入口。旧共享税务读写密钥不能代替登录。见[站点账户指南](docs/guides/site-accounts.md)。
+
+## 账本公开访问（历史规则，已由全站账户取代）
 
 - 用户明确授权账本公网匿名共享全部读写，不设登录或用户权限；入口 <http://43.130.247.183:5052/ledger>。任何人均可读取、导入、修改全部账本数据，不应上传私人财务信息。
 - Compose 设置 `LEDGER_ENABLED=true`、`LEDGER_WEEKLY_ENABLED=false`；Go 5051 仍仅内部开放，`platform-data` 中 `ledger.db` 与 `liquor.db` 独立。不得删除数据卷或重置数据库。

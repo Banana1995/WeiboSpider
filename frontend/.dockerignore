@@ -2,6 +2,9 @@
 !package.json
 !package-lock.json
 !index.html
+!public/
+!public/guanjia.svg
+!public/site-identity.css
 !tsconfig.json
 !vite.config.ts
 !dev/

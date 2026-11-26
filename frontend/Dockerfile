@@ -3,6 +3,7 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
+COPY public ./public
 COPY src ./src
 COPY dev/ledger-proxy.ts ./dev/ledger-proxy.ts
 RUN npm run build

@@ -1,0 +1,26 @@
+.site-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.site-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--avatar-size, 28px);
+  height: var(--avatar-size, 28px);
+  border-radius: 12%;
+  background: #1766b6;
+  color: #fff;
+  font:
+    700 calc(var(--avatar-size, 28px) * 0.65) / 1 Georgia,
+    "Songti SC",
+    serif;
+}
+.site-identity-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

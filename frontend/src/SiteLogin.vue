@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import UserIdentity from "./UserIdentity.vue";
 import {
   accountRequest,
   afterLogin,
@@ -64,7 +65,9 @@ async function submit() {
       class="passport-panel"
       :aria-label="account ? '我的账户' : '账户登录'"
     >
-      <div class="passport-brand"><span aria-hidden="true">观</span>观价</div>
+      <div class="passport-brand">
+        <img src="/guanjia.svg" width="32" height="32" alt="" />观价
+      </div>
       <h1>
         {{ account ? "我的账户" : setupCode ? "设置账户密码" : "登录观价" }}
       </h1>
@@ -81,7 +84,9 @@ async function submit() {
         <template v-if="account"
           ><dl>
             <dt>当前账户</dt>
-            <dd>{{ siteUser?.username }}</dd>
+            <dd v-if="siteUser">
+              <UserIdentity :username="siteUser.username" />
+            </dd>
           </dl>
           <a class="passport-back" href="/">返回工作空间</a></template
         >
@@ -169,13 +174,6 @@ async function submit() {
   font-size: 18px;
   font-weight: 650;
 }
-.passport-brand span {
-  font-family: serif;
-  background: #305974;
-  color: white;
-  padding: 2px 7px;
-  border-radius: 3px;
-}
 .passport h1 {
   margin: 30px 0 8px;
   font-size: 1.9rem;
@@ -250,7 +248,8 @@ async function submit() {
   font-size: 0.8rem;
 }
 .passport dd {
-  margin: 2px 0;
+  --avatar-size: 40px;
+  margin: 6px 0 2px;
   font-size: 1.2rem;
   font-weight: 600;
 }

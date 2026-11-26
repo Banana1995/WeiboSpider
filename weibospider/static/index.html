@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" sizes="any" href="/guanjia.svg">
+<link rel="stylesheet" href="/site-identity.css">
 <title>微博管理器</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -314,15 +316,27 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
   <div class="sticky-header">
     <div class="toolbar">
       <h1>微博管理器</h1>
-      <nav aria-label="模块导航" style="display:flex;gap:12px;font-size:13px;white-space:nowrap;">
+      <nav aria-label="模块导航" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;font-size:13px;">
         <a href="/weibo/" aria-current="page">微博管理</a>
         <a href="/liquor" data-platform-path="/liquor">白酒行情</a>
         <a href="/ledger" data-platform-path="/ledger">投资账本</a>
         <a href="/tax" data-platform-path="/tax">税务计算</a>
         <a href="/options">期权</a>
-        <a href="/account">我的账户</a>
+        <a href="/account" class="site-identity" title="我的账户" id="site-account"><span class="site-identity-name">我的账户</span></a>
       </nav>
       <script>
+        if (location.pathname.startsWith('/weibo/')) {
+          fetch('/api/platform/auth/me', {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(user => {
+            if (!user?.username) return;
+            const link = document.getElementById('site-account');
+            const avatar = document.createElement('span');
+            avatar.className = 'site-avatar';
+            avatar.setAttribute('aria-hidden', 'true');
+            avatar.textContent = user.username.charAt(0).toUpperCase();
+            link.querySelector('.site-identity-name').textContent = user.username;
+            link.prepend(avatar);
+          }).catch(() => { /* Keep the account link if the session cannot be read. */ });
+        }
         window.addEventListener('storage', e => { if (e.key === 'site.session.changed') location.reload(); });
         window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
       </script>

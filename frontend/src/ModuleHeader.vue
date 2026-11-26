@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { siteUser } from "./siteAccount";
+import UserIdentity from "./UserIdentity.vue";
 const modules = {
   liquor: "白酒行情",
   ledger: "投资账本",
@@ -19,7 +20,7 @@ defineProps<{ current: keyof typeof modules; locked?: boolean }>();
         "
         class="module-brand"
       >
-        <span class="module-mark">观</span>观价
+        <img src="/guanjia.svg" width="36" height="36" alt="" />观价
         <span class="module-divider" aria-hidden="true">/</span>
         <span class="module-name">{{ modules[current] }}</span>
       </component>
@@ -38,8 +39,10 @@ defineProps<{ current: keyof typeof modules; locked?: boolean }>();
           v-if="siteUser"
           href="/account"
           :aria-disabled="locked || undefined"
-          >{{ siteUser.username }}</a
+          title="我的账户"
         >
+          <UserIdentity :username="siteUser.username" />
+        </a>
       </nav>
     </div>
   </header>
@@ -69,13 +72,6 @@ nav {
   font-size: 20px;
   font-weight: 650;
   white-space: nowrap;
-}
-.module-mark {
-  background: var(--lp-primary);
-  color: white;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: serif;
 }
 .module-divider {
   font-weight: 400;

@@ -16,16 +16,17 @@ const maxStockEntries = 10000
 const maxStockOpenings = 200
 
 type StockInput struct {
-	InstrumentID string   `json:"instrument_id"`
-	Channel      string   `json:"channel,omitempty"`
-	Kind         string   `json:"kind"`
-	Date         string   `json:"date"`
-	Quantity     Quantity `json:"quantity"`
-	Price        Price    `json:"price"`
-	Fee          Money    `json:"fee"`
-	Amount       Money    `json:"amount"`
-	FX           Rate     `json:"fx"`
-	Note         string   `json:"note"`
+	InstrumentID string       `json:"instrument_id"`
+	Channel      string       `json:"channel,omitempty"`
+	Kind         string       `json:"kind"`
+	Date         string       `json:"date"`
+	Quantity     Quantity     `json:"quantity"`
+	Price        Price        `json:"price"`
+	Fee          Money        `json:"fee"`
+	Amount       Money        `json:"amount"`
+	FX           Rate         `json:"fx"`
+	Note         string       `json:"note"`
+	Closed       *StockClosed `json:"closed,omitempty"`
 }
 type StockOpening struct {
 	Instrument instrumentJSON `json:"instrument"`
@@ -162,6 +163,9 @@ func validStockEntry(e StockEntry) bool {
 	if e.Event != nil && (e.Kind != "dividend" || !e.Event.valid() || e.Date != e.Event.ExDate || !validID(e.Cycle)) {
 		return false
 	}
+	if e.Kind == "closed" {
+		return e.Closed != nil && e.Closed.valid() && e.Event == nil && e.Quantity == 0 && e.Price == 0 && e.Fee == 0 && e.Amount == 0
+	}
 	if e.Kind == "dividend" || e.Kind == "tax" {
 		return e.Quantity >= 0 && e.Price >= 0 && e.Fee == 0
 	}
@@ -178,6 +182,39 @@ func validStockEntry(e StockEntry) bool {
 		amount, err = SubMoney(amount, e.Fee)
 	}
 	return err == nil && amount >= 0 && amount == e.Amount
+}
+
+func (c StockClosed) valid() bool {
+	if !validDate(c.OpenedOn) || !validDate(c.ClosedOn) || c.OpenedOn > c.ClosedOn || c.Quantity < 0 || c.Income < 0 || c.Expense < 0 || c.Fees < 0 || c.HoldingDays < 0 {
+		return false
+	}
+	if c.ProfitRate == "" || len(c.ProfitRate) > 24 {
+		return false
+	}
+	if _, err := strconv.ParseFloat(c.ProfitRate, 64); err != nil {
+		return false
+	}
+	if len(c.Flows) > 1000 || c.Source != "" && len(c.Source) > 200 {
+		return false
+	}
+	for _, f := range c.Flows {
+		if !validDate(f.Date) || f.Date < c.OpenedOn || f.Date > c.ClosedOn || f.Price < 0 || f.Quantity < 0 || f.Fee < 0 || f.Amount < 0 || f.FX < 0 || len(f.Note) > 500 {
+			return false
+		}
+		switch f.Kind {
+		case "buy", "sell":
+			if f.Quantity <= 0 || f.Price <= 0 {
+				return false
+			}
+		case "dividend":
+			if f.Quantity != 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func putStockEntry(ctx context.Context, tx *sql.Tx, account, key, source, stamp string, next *StockEntry, previous *StockEntry) error {
@@ -524,14 +561,14 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				if !ok {
 					return ErrOperation
 				}
-				if !validDate(in.Date) || in.Date > today || in.Fee < 0 || len(in.Note) > 2000 || in.FX < 0 || i.Currency == st.account.Currency && in.FX != 100000000 {
+				if !validDate(in.Date) || in.Date > today || in.Fee < 0 || len(in.Note) > 2000 || in.FX < 0 || in.Kind != "closed" && i.Currency == st.account.Currency && in.FX != 100000000 {
 					return ErrOperation
 				}
 				covered := st.journal.Cash == nil || c.ReplaceOpening || next.Opening
 				if a := st.journal.Cash; a != nil {
 					covered = covered || in.Date < a.Date || in.Date == a.Date && previous != nil && previous.Sequence <= a.Sequence
 				}
-				if !covered && in.FX == 0 {
+				if !covered && in.FX == 0 && in.Kind != "closed" {
 					return ErrOperation
 				}
 				if previous != nil && in.InstrumentID != previous.InstrumentID {
@@ -555,6 +592,7 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				next.Fee = in.Fee
 				next.FX = in.FX
 				next.Note = strings.TrimSpace(in.Note)
+				next.Closed = in.Closed
 				if in.Kind == "dividend" {
 					if in.Amount <= 0 || in.Fee != 0 || in.Quantity != 0 || in.Price != 0 {
 						return ErrOperation
@@ -572,6 +610,11 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 						return ErrOperation
 					}
 					next.Amount = in.Amount
+				} else if in.Kind == "closed" {
+					if in.Closed == nil || in.Quantity != 0 || in.Price != 0 || in.Fee != 0 || in.Amount != 0 {
+						return ErrOperation
+					}
+					next.Amount = 0
 				} else {
 					if in.Kind != "buy" && in.Kind != "sell" || in.Quantity <= 0 || in.Price <= 0 || in.Amount != 0 {
 						return ErrOperation
@@ -644,6 +687,14 @@ type StockItem struct {
 	Opening  bool              `json:"opening"`
 	Channels []ChannelQuantity `json:"channels"`
 }
+
+// ClosedItem is a historical closed round that does not participate in the
+// current position, cost, cycle or cash calculations.
+type ClosedItem struct {
+	Instrument Instrument `json:"instrument"`
+	StockEntry
+}
+
 type StockBook struct {
 	RefreshMisses  int          `json:"refresh_misses,omitempty"`
 	AccountID      string       `json:"account_id"`
@@ -657,6 +708,7 @@ type StockBook struct {
 	Complete       bool         `json:"complete"`
 	Items          []StockItem  `json:"items"`
 	Entries        []StockEntry `json:"entries"`
+	Closed         []ClosedItem `json:"closed"`
 	SyncCheckedAt  string       `json:"sync_checked_at"`
 	SyncMessage    string       `json:"sync_message"`
 }
@@ -666,7 +718,7 @@ func (h Handler) stockBookView(ctx context.Context, id string) (StockBook, error
 }
 
 func (h Handler) pricedStockBook(ctx context.Context, id string, refresh bool) (StockBook, error) {
-	out := StockBook{AccountID: id, Items: []StockItem{}, Entries: []StockEntry{}}
+	out := StockBook{AccountID: id, Items: []StockItem{}, Entries: []StockEntry{}, Closed: []ClosedItem{}}
 	var st stockState
 	var err error
 	err = h.Store.db.WithTx(ctx, func(tx *sql.Tx) error {
@@ -695,6 +747,22 @@ func (h Handler) pricedStockBook(ctx context.Context, id string, refresh bool) (
 	out.Version = st.version()
 	out.AsOf = today
 	out.Entries = st.entries
+	for _, e := range st.entries {
+		if e.Voided || e.Kind != "closed" || e.Closed == nil {
+			continue
+		}
+		i, ok := st.instruments[e.InstrumentID]
+		if !ok {
+			continue
+		}
+		out.Closed = append(out.Closed, ClosedItem{Instrument: i, StockEntry: e})
+	}
+	slices.SortFunc(out.Closed, func(a, b ClosedItem) int {
+		if a.Closed.ClosedOn != b.Closed.ClosedOn {
+			return strings.Compare(b.Closed.ClosedOn, a.Closed.ClosedOn)
+		}
+		return int(b.Sequence - a.Sequence)
+	})
 	if st.current.Snapshot != nil {
 		out.Cash = st.current.Snapshot.Cash
 	}

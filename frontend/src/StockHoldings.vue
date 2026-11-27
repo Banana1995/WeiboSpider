@@ -12,12 +12,15 @@ import LedgerDisclosure from "./LedgerDisclosure.vue";
 import StockTradeDialog from "./StockTradeDialog.vue";
 import StockSyncStatus from "./StockSyncStatus.vue";
 import StockFxReference from "./StockFxReference.vue";
+import StockClosedDetail from "./StockClosedDetail.vue";
 import { errorText, request, type Account } from "./ledger";
 import { holdingMoney, holdingNumber } from "./holdings";
 import {
   stockLabels,
   stockTone,
   validateStockBook,
+  type ClosedItem,
+  type ClosedRecord,
   type StockBook,
   type StockEntry,
   type StockItem,
@@ -32,7 +35,14 @@ const { locked } = useLedgerWorkspace();
 const read = reactive(useLedgerRead<StockBook>());
 const expanded = ref(false);
 const selected = ref("");
-const filter = ref("open");
+const selectedClosed = ref("");
+type StockFilter = "open" | "all" | "closed";
+const filter = ref<StockFilter>("open");
+const filterOptions: { key: StockFilter; label: string }[] = [
+  { key: "open", label: "当前持仓" },
+  { key: "all", label: "全部" },
+  { key: "closed", label: "已清仓" },
+];
 const limit = ref(30);
 const showVoided = ref(false);
 const detail = computed(() =>
@@ -53,7 +63,9 @@ const accountCurrencyName = computed(
 const rows = computed(() => {
   const list =
     read.data?.items.filter(
-      (row) => filter.value === "all" || /[1-9]/.test(row.quantity),
+      (row) =>
+        filter.value === "all" ||
+        (filter.value === "open" && /[1-9]/.test(row.quantity)),
     ) ?? [];
   const key = sortKey.value;
   if (!key) return list;
@@ -75,6 +87,17 @@ const rows = computed(() => {
     return (left < right ? -1 : 1) * sortDir.value;
   });
 });
+type ClosedWithRecord = ClosedItem & { closed: ClosedRecord };
+const closedRows = computed<ClosedWithRecord[]>(() =>
+  (read.data?.closed ?? []).filter(
+    (row): row is ClosedWithRecord => !!row.closed,
+  ),
+);
+const closedDetail = computed(() =>
+  closedRows.value.find((row) => row.id === selectedClosed.value),
+);
+const showPositions = computed(() => filter.value !== "closed");
+const showClosed = computed(() => filter.value !== "open");
 const referenceRates = computed(() => {
   const seen = new Set<string>();
   return rows.value.flatMap((row) => {
@@ -109,11 +132,16 @@ function sort(key: SortKey) {
 }
 const sortMark = (key: SortKey) =>
   sortKey.value === key ? (sortDir.value === -1 ? " ↓" : " ↑") : "";
-const entries = computed(() =>
+type TradeEntry = StockEntry & {
+  kind: "buy" | "sell" | "dividend" | "tax";
+};
+const entries = computed<TradeEntry[]>(() =>
   [...(read.data?.entries ?? [])]
     .filter(
-      (e) =>
-        e.instrument_id === selected.value && (showVoided.value || !e.voided),
+      (e): e is TradeEntry =>
+        e.instrument_id === selected.value &&
+        e.kind !== "closed" &&
+        (showVoided.value || !e.voided),
     )
     .sort(
       (a, b) =>
@@ -339,13 +367,21 @@ defineExpose({ load });
       </p>
       <p v-if="!read.data && read.loading" role="status">正在读取持仓…</p>
       <div v-if="read.data" class="stock-list-content">
-        <div v-if="read.data.items.length" class="stock-list-toolbar">
-          <label
-            >显示<select v-model="filter">
-              <option value="open">当前持仓</option>
-              <option value="all">全部（含已清仓）</option>
-            </select></label
-          >
+        <div
+          v-if="read.data.items.length || closedRows.length"
+          class="stock-list-toolbar"
+        >
+          <div class="stock-filter" role="group" aria-label="持仓筛选">
+            <button
+              v-for="option in filterOptions"
+              :key="option.key"
+              type="button"
+              :aria-pressed="filter === option.key"
+              @click="filter = option.key"
+            >
+              {{ option.label }}
+            </button>
+          </div>
           <div class="stock-sort-mobile" role="group" aria-label="持仓排序">
             <span>排序</span>
             <button
@@ -366,7 +402,7 @@ defineExpose({ load });
             />
           </div>
         </div>
-        <div v-if="rows.length" class="stock-list">
+        <div v-if="showPositions && rows.length" class="stock-list">
           <div class="stock-list-labels">
             <span>股票</span>
             <button
@@ -450,15 +486,59 @@ defineExpose({ load });
             ><span class="stock-chevron" aria-hidden="true">›</span>
           </button>
         </div>
-        <div v-else class="lp-empty">
-          <p>
-            {{
-              read.data.items.length
-                ? "当前没有未清仓的股票，可切换查看全部。"
-                : "添加第一只股票，记录买入日期、数量和价格。"
-            }}
+        <p v-if="showPositions && !rows.length" class="lp-empty">
+          {{
+            read.data.items.length
+              ? filter === "open"
+                ? "当前没有未清仓的股票，可切换查看全部或已清仓。"
+                : "还没有持仓记录。"
+              : "添加第一只股票，记录买入日期、数量和价格。"
+          }}
+        </p>
+        <section
+          v-if="showClosed"
+          class="stock-closed-list"
+          aria-label="已清仓记录"
+        >
+          <h3>已清仓</h3>
+          <p v-if="!closedRows.length" class="lp-empty">
+            还没有录入历史已清仓记录。
           </p>
-        </div>
+          <button
+            v-for="row in closedRows"
+            :key="row.id"
+            type="button"
+            class="stock-closed-row"
+            :aria-label="`查看${row.instrument.name}已清仓记录`"
+            @click="selectedClosed = row.id"
+          >
+            <span class="stock-identity"
+              ><strong>{{ row.instrument.name }}</strong
+              ><small
+                ><span class="stock-market">{{ row.instrument.market }}</span>
+                {{ row.instrument.code }}
+                <span class="stock-closed-badge">已清仓</span></small
+              ></span
+            >
+            <span
+              ><strong>{{ holdingNumber(row.closed.quantity) }} 股</strong
+              ><small
+                >{{ row.closed.opened_on }} ~ {{ row.closed.closed_on }}</small
+              ></span
+            >
+            <span
+              ><strong>{{ row.channel || "未分渠道" }}</strong
+              ><small>渠道</small></span
+            >
+            <span :class="stockTone(row.closed.profit)"
+              ><strong>{{ signed(row.closed.profit) }}</strong
+              ><small :class="stockTone(row.closed.profit)"
+                >{{ row.closed.profit_rate }}%</small
+              ></span
+            >
+            <span class="stock-chevron" aria-hidden="true">›</span>
+          </button>
+        </section>
       </div>
       <StockSyncStatus v-if="read.data" :book="read.data" />
     </div>
@@ -771,6 +851,12 @@ defineExpose({ load });
           <StockSyncStatus :book="read.data" />
         </div>
       </LedgerDialog>
+      <StockClosedDetail
+        v-if="closedDetail"
+        :item="closedDetail"
+        :account-currency="account.currency"
+        @close="selectedClosed = ''"
+      />
     </template>
     <StockTradeDialog
       v-if="editor"

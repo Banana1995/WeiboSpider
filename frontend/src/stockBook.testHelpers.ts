@@ -11,6 +11,7 @@ export const emptyStockBook = (id = "a"): StockBook => ({
   complete: true,
   items: [],
   entries: [],
+  closed: [],
   sync_checked_at: "",
   sync_message: "",
 });

@@ -285,7 +285,7 @@ func reconcileStockDividends(ctx context.Context, tx *sql.Tx, st *stockState, to
 			trades := []StockEntry{}
 			first := ""
 			for _, e := range st.entries {
-				if e.InstrumentID == id && e.Kind != "dividend" && !e.Voided && (e.Date < cutoff || event.Market != "HK" && e.Date == cutoff) {
+				if e.InstrumentID == id && e.Kind != "dividend" && e.Kind != "closed" && !e.Voided && (e.Date < cutoff || event.Market != "HK" && e.Date == cutoff) {
 					trades = append(trades, e)
 					if first == "" || e.Date < first {
 						first = e.Date

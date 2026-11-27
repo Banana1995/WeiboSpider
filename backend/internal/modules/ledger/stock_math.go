@@ -29,12 +29,42 @@ type StockEntry struct {
 	Note         string         `json:"note"`
 	Voided       bool           `json:"voided"`
 	Event        *DividendEvent `json:"event,omitempty"`
+	Closed       *StockClosed   `json:"closed,omitempty"`
 	Override     bool           `json:"override,omitempty"`
 	Opening      bool           `json:"opening,omitempty"`
 	SettlementFX *FXQuote       `json:"settlement_fx,omitempty"`
 	Cycle        string         `json:"cycle,omitempty"`
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
+}
+
+// A closed round is an immutable historical snapshot recorded from a broker
+// statement. It is stored in stock_entries with kind="closed" but is not a
+// trade: replay and cash calculations skip it, so it can coexist with a live
+// position in the same instrument (for example another broker channel).
+type StockClosedFlow struct {
+	Kind     string   `json:"kind"`
+	Date     string   `json:"date"`
+	Price    Price    `json:"price"`
+	Quantity Quantity `json:"quantity"`
+	Fee      Money    `json:"fee"`
+	Amount   Money    `json:"amount"`
+	FX       Rate     `json:"fx"`
+	Note     string   `json:"note,omitempty"`
+}
+
+type StockClosed struct {
+	OpenedOn    string            `json:"opened_on"`
+	ClosedOn    string            `json:"closed_on"`
+	Quantity    Quantity          `json:"quantity"`
+	Income      Money             `json:"income"`
+	Expense     Money             `json:"expense"`
+	Fees        Money             `json:"fees"`
+	Profit      Money             `json:"profit"`
+	ProfitRate  string            `json:"profit_rate"`
+	HoldingDays int               `json:"holding_days,omitempty"`
+	Flows       []StockClosedFlow `json:"flows"`
+	Source      string            `json:"source,omitempty"`
 }
 
 type CashAnchor struct {
@@ -165,6 +195,9 @@ func replayStocks(j StockJournal, entries []StockEntry, today string) (map[strin
 	ordered := slices.Clone(entries)
 	slices.SortFunc(ordered, entryLess)
 	for _, e := range ordered {
+		if e.Kind == "closed" {
+			continue
+		}
 		p := positions[e.InstrumentID]
 		if p == nil {
 			p = &stockPosition{id: e.InstrumentID, known: true, allKnown: true}
@@ -265,7 +298,7 @@ func stockCash(j StockJournal, entries []StockEntry, today string) (Money, error
 	}
 	flows := []flow{}
 	for _, e := range entries {
-		if e.Voided || e.Opening {
+		if e.Voided || e.Opening || e.Kind == "closed" {
 			continue
 		}
 		date := e.Date

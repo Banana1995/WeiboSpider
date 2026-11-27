@@ -27,7 +27,7 @@ export interface StockEntry {
   sequence: string;
   instrument_id: string;
   channel?: string;
-  kind: "buy" | "sell" | "dividend" | "tax";
+  kind: "buy" | "sell" | "dividend" | "tax" | "closed";
   date: string;
   quantity: string;
   price: string;
@@ -41,8 +41,35 @@ export interface StockEntry {
   event?: DividendEvent;
   cycle?: string;
   settlement_fx?: FXQuote;
+  closed?: ClosedRecord;
   created_at: string;
   updated_at: string;
+}
+export interface ClosedFlow {
+  kind: "buy" | "sell" | "dividend";
+  date: string;
+  price: string;
+  quantity: string;
+  fee: string;
+  amount: string;
+  fx: string;
+  note?: string;
+}
+export interface ClosedRecord {
+  opened_on: string;
+  closed_on: string;
+  quantity: string;
+  income: string;
+  expense: string;
+  fees: string;
+  profit: string;
+  profit_rate: string;
+  holding_days?: number;
+  flows: ClosedFlow[];
+  source?: string;
+}
+export interface ClosedItem extends StockEntry {
+  instrument: Instrument;
 }
 export interface StockMetrics {
   cost: string | null;
@@ -83,6 +110,7 @@ export interface StockBook {
   complete: boolean;
   items: StockItem[];
   entries: StockEntry[];
+  closed: ClosedItem[];
   sync_checked_at: string;
   sync_message: string;
 }
@@ -97,6 +125,7 @@ export const stockLabels = {
   sell: "卖出",
   dividend: "分红",
   tax: "红利税",
+  closed: "已清仓",
 };
 export const positiveDecimal = (v: string, scale: number) =>
   decimal(v, scale) && !v.startsWith("-") && /[1-9]/.test(v);
@@ -117,6 +146,35 @@ const channelRows = (
   );
 const ratio = (v: unknown) =>
   v === null || (typeof v === "string" && /^-?\d{1,40}\.\d{2}$/.test(v));
+function validClosed(c: unknown): c is ClosedRecord {
+  if (!c || typeof c !== "object") return false;
+  const r = c as ClosedRecord;
+  return (
+    validDay(r.opened_on) &&
+    validDay(r.closed_on) &&
+    r.opened_on <= r.closed_on &&
+    number(r.quantity, 6) &&
+    number(r.income, 2) &&
+    number(r.expense, 2) &&
+    number(r.fees, 2) &&
+    number(r.profit, 2, true) &&
+    typeof r.profit_rate === "string" &&
+    /^-?\d{1,20}(\.\d{1,2})?$/.test(r.profit_rate) &&
+    Array.isArray(r.flows) &&
+    r.flows.length <= 1000 &&
+    r.flows.every(
+      (f) =>
+        f &&
+        ["buy", "sell", "dividend"].includes(f.kind) &&
+        validDay(f.date) &&
+        number(f.price, 6) &&
+        number(f.quantity, 6) &&
+        number(f.fee, 2) &&
+        number(f.amount, 2) &&
+        number(f.fx, 8),
+    )
+  );
+}
 export function validateStockBook(
   b: StockBook,
   account: Pick<Account, "id" | "currency">,
@@ -190,6 +248,9 @@ export function validateStockBook(
     identities.add(`${i.market}/${i.code}`);
   }
   const entryIDs = new Set<string>();
+  for (const c of b.closed ?? []) {
+    if (c?.instrument && opaqueID(c.instrument.id)) ids.add(c.instrument.id);
+  }
   for (const e of b.entries) {
     if (
       !e ||
@@ -198,7 +259,7 @@ export function validateStockBook(
       !ids.has(e.instrument_id) ||
       !versionString(e.version) ||
       !versionString(e.sequence) ||
-      !["buy", "sell", "dividend", "tax"].includes(e.kind) ||
+      !["buy", "sell", "dividend", "tax", "closed"].includes(e.kind) ||
       (e.channel !== undefined && typeof e.channel !== "string") ||
       !validDay(e.date) ||
       !number(e.quantity, 6) ||
@@ -208,6 +269,7 @@ export function validateStockBook(
       !number(e.fx, 8) ||
       typeof e.voided !== "boolean" ||
       typeof e.note !== "string" ||
+      (e.kind === "closed" && !validClosed(e.closed)) ||
       (e.event &&
         (!opaqueID(e.event.id) ||
           !validDay(e.event.ex_date) ||
@@ -216,6 +278,22 @@ export function validateStockBook(
     )
       throw new LedgerError("invalid_response");
     entryIDs.add(e.id);
+  }
+  if (b.closed !== undefined && !Array.isArray(b.closed))
+    throw new LedgerError("invalid_response");
+  for (const c of b.closed ?? []) {
+    if (
+      !c ||
+      !c.instrument ||
+      !opaqueID(c.instrument.id) ||
+      typeof c.instrument.market !== "string" ||
+      typeof c.instrument.code !== "string" ||
+      typeof c.instrument.name !== "string" ||
+      !["CNY", "HKD", "USD"].includes(c.instrument.currency) ||
+      c.kind !== "closed" ||
+      !validClosed(c.closed)
+    )
+      throw new LedgerError("invalid_response");
   }
   return b;
 }

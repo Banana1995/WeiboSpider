@@ -158,7 +158,10 @@ it("sorts mixed currencies by account value and keeps unavailable conversions la
     complete: false,
     total_assets: null,
   });
-  await wrapper.get(".stock-list-toolbar select").setValue("all");
+  const allButton = wrapper
+    .findAll(".stock-filter button")
+    .find((b) => b.text() === "全部")!;
+  await allButton.trigger("click");
   const sort = wrapper
     .findAll(".stock-list-labels button")
     .find((b) => b.text().includes("市值 / 数量"))!;

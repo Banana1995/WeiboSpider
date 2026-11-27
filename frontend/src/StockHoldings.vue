@@ -517,7 +517,10 @@ defineExpose({ load });
               ><small
                 ><span class="stock-market">{{ row.instrument.market }}</span>
                 {{ row.instrument.code }}
-                <span class="stock-closed-badge">已清仓</span></small
+                <span class="stock-closed-badge">已清仓</span>
+                <span v-if="row.closed.new_stock" class="stock-new-badge"
+                  >新股</span
+                ></small
               ></span
             >
             <span

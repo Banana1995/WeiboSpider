@@ -63,6 +63,8 @@ type StockClosed struct {
 	Profit      Money             `json:"profit"`
 	ProfitRate  string            `json:"profit_rate"`
 	HoldingDays int               `json:"holding_days,omitempty"`
+	NewStock    bool              `json:"new_stock,omitempty"`
+	Currency    Currency          `json:"currency,omitempty"`
 	Flows       []StockClosedFlow `json:"flows"`
 	Source      string            `json:"source,omitempty"`
 }

@@ -188,6 +188,9 @@ func (c StockClosed) valid() bool {
 	if !validDate(c.OpenedOn) || !validDate(c.ClosedOn) || c.OpenedOn > c.ClosedOn || c.Quantity < 0 || c.Income < 0 || c.Expense < 0 || c.Fees < 0 || c.HoldingDays < 0 {
 		return false
 	}
+	if c.Currency != "" && !c.Currency.valid() {
+		return false
+	}
 	if c.ProfitRate == "" || len(c.ProfitRate) > 24 {
 		return false
 	}
@@ -208,6 +211,10 @@ func (c StockClosed) valid() bool {
 			}
 		case "dividend":
 			if f.Quantity != 0 {
+				return false
+			}
+		case "tax":
+			if f.Quantity != 0 || f.Price != 0 || f.Fee != 0 || f.Amount <= 0 {
 				return false
 			}
 		default:

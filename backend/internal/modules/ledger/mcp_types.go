@@ -116,6 +116,7 @@ type MCPClosedInput struct {
 	Profit      string                `json:"profit"`
 	ProfitRate  string                `json:"profit_rate"`
 	HoldingDays int                   `json:"holding_days,omitempty"`
+	NewStock    bool                  `json:"new_stock,omitempty"`
 	Currency    Currency              `json:"currency"`
 	Flows       []MCPClosedFlowInput  `json:"flows"`
 	Source      string                `json:"source,omitempty"`
@@ -255,8 +256,8 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		closed := &StockClosed{
 			OpenedOn: v.OpenedOn, ClosedOn: v.ClosedOn, Quantity: Quantity(mcpFixed(quantity, 6)),
 			Income: Money(mcpFixed(income, 2)), Expense: Money(mcpFixed(expense, 2)), Fees: Money(mcpFixed(fees, 2)),
-			Profit: Money(profit), ProfitRate: v.ProfitRate, HoldingDays: v.HoldingDays,
-			Source: strings.TrimSpace(v.Source),
+			Profit: Money(profit), ProfitRate: v.ProfitRate, HoldingDays: v.HoldingDays, NewStock: v.NewStock,
+			Currency: v.Currency, Source: strings.TrimSpace(v.Source),
 		}
 		for _, f := range v.Flows {
 			if !validDate(f.Date) || f.Date < v.OpenedOn || f.Date > v.ClosedOn || !mcpText(f.Note, 500, false) {
@@ -286,13 +287,16 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 				}
 				fx = Rate(mcpFixed(rate, 8))
 			}
-			if f.Kind != "buy" && f.Kind != "sell" && f.Kind != "dividend" {
+			if f.Kind != "buy" && f.Kind != "sell" && f.Kind != "dividend" && f.Kind != "tax" {
 				return in, mcpInvalid("flows.kind")
 			}
-			if f.Kind == "dividend" && mcpFixed(flowQty, 6) != 0 {
+			if (f.Kind == "dividend" || f.Kind == "tax") && mcpFixed(flowQty, 6) != 0 {
 				return in, mcpInvalid("flows.quantity")
 			}
-			if f.Kind != "dividend" && (mcpFixed(flowQty, 6) == 0 || mcpFixed(price, 6) == 0) {
+			if f.Kind == "tax" && (mcpFixed(price, 6) != 0 || mcpFixed(fee, 2) != 0 || mcpFixed(amount, 2) <= 0) {
+				return in, mcpInvalid("flows.price", "flows.fee", "flows.amount")
+			}
+			if (f.Kind == "buy" || f.Kind == "sell") && (mcpFixed(flowQty, 6) == 0 || mcpFixed(price, 6) == 0) {
 				return in, mcpInvalid("flows.quantity", "flows.price")
 			}
 			closed.Flows = append(closed.Flows, StockClosedFlow{

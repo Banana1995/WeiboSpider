@@ -362,6 +362,8 @@ it("lists recorded closed rounds under 已清仓 without mixing them into curren
       fees: "112.99",
       profit: "2813.71",
       profit_rate: "1.97",
+      new_stock: true,
+      currency: "HKD",
       flows: [
         {
           kind: "buy",
@@ -370,6 +372,15 @@ it("lists recorded closed rounds under 已清仓 without mixing them into curren
           quantity: "100",
           fee: "20.71",
           amount: "142466.71",
+          fx: "1",
+        },
+        {
+          kind: "tax",
+          date: "2026-01-04",
+          price: "0",
+          quantity: "0",
+          fee: "0",
+          amount: "10.00",
           fx: "1",
         },
       ],
@@ -387,8 +398,11 @@ it("lists recorded closed rounds under 已清仓 without mixing them into curren
   await closedButton.trigger("click");
   expect(wrapper.findAll(".stock-closed-row")).toHaveLength(1);
   expect(wrapper.get(".stock-closed-row").text()).toContain("+2,813.71");
+  expect(wrapper.get(".stock-closed-row").text()).toContain("新股");
   await wrapper.get(".stock-closed-row").trigger("click");
   const dialog = wrapper.get("dialog");
   expect(dialog.text()).toContain("2025-12-05 ~ 2026-01-05");
   expect(dialog.text()).toContain("流水明细");
+  expect(dialog.text()).toContain("HKD");
+  expect(dialog.text()).toContain("红利税");
 });

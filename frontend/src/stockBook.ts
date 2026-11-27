@@ -46,7 +46,7 @@ export interface StockEntry {
   updated_at: string;
 }
 export interface ClosedFlow {
-  kind: "buy" | "sell" | "dividend";
+  kind: "buy" | "sell" | "dividend" | "tax";
   date: string;
   price: string;
   quantity: string;
@@ -65,6 +65,8 @@ export interface ClosedRecord {
   profit: string;
   profit_rate: string;
   holding_days?: number;
+  new_stock?: boolean;
+  currency?: Currency;
   flows: ClosedFlow[];
   source?: string;
 }
@@ -160,12 +162,15 @@ function validClosed(c: unknown): c is ClosedRecord {
     number(r.profit, 2, true) &&
     typeof r.profit_rate === "string" &&
     /^-?\d{1,20}(\.\d{1,2})?$/.test(r.profit_rate) &&
+    (r.currency === undefined ||
+      r.currency === null ||
+      ["CNY", "HKD", "USD"].includes(r.currency)) &&
     Array.isArray(r.flows) &&
     r.flows.length <= 1000 &&
     r.flows.every(
       (f) =>
         f &&
-        ["buy", "sell", "dividend"].includes(f.kind) &&
+        ["buy", "sell", "dividend", "tax"].includes(f.kind) &&
         validDay(f.date) &&
         number(f.price, 6) &&
         number(f.quantity, 6) &&

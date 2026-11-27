@@ -47,7 +47,7 @@ func (s MCPService) Write(ctx context.Context, tool string, args any) (MCPStockW
 			openings = append(openings, *resolved)
 		}
 	} else if in.Action == "create" {
-		identity, err = s.resolveInstrument(ctx, in.Write.AccountID, in.Instrument, in.Value.Kind == "buy" || in.Value.Kind == "sell")
+		identity, err = s.resolveInstrument(ctx, in.Write.AccountID, in.Instrument, in.Value.Kind == "buy" || in.Value.Kind == "sell" || in.Closed != nil)
 		if err != nil {
 			return result, err
 		}
@@ -119,8 +119,8 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 		return c, e
 	}
 	if in.Closed != nil {
-		if in.Value.Currency != st.account.Currency {
-			return c, mcpIssue("currency_mismatch", "历史已清仓汇总金额必须使用账户币种", "fix_input", "currency")
+		if in.Value.Currency != st.account.Currency && in.Value.Currency != identity.Currency {
+			return c, mcpIssue("currency_mismatch", "历史已清仓汇总金额必须使用账户币种或证券币种", "fix_input", "currency")
 		}
 		if identity == nil {
 			return c, ErrCorrupt

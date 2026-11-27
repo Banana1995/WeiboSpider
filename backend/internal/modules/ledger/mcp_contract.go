@@ -74,13 +74,14 @@ func mcpWriteSchema(tool string) mcpSchema {
 		p["fees"] = mcpFinancial("2", false, "券商页面累计交易费用，账户币种，最多2位小数", "交易费用", "账户币种", "券商页面显示的交易费用合计是多少？")
 		p["profit"] = mcpField(mcpSchema{"type": "string", "pattern": `^-?[0-9]+(?:\.[0-9]{1,2})?$`, "description": "券商页面总盈亏，账户币种，可负，最多2位小数", "maxLength": 32}, "总盈亏", "账户币种", "user", "券商页面显示的总盈亏是多少？亏损用负数。")
 		p["profit_rate"] = mcpField(mcpSchema{"type": "string", "pattern": `^-?[0-9]{1,20}(?:\.[0-9]{1,2})?$`, "description": "券商页面收益率百分数，最多2位小数，不带百分号", "maxLength": 24}, "收益率", "%", "user", "券商页面显示的收益率是多少？例如6.26。")
-		p["currency"] = mcpField(mcpEnum("CNY", "HKD", "USD"), "账户币种", "ISO 4217", "ledger", "调用ledger_list_accounts确认账户币种；汇总金额用它计价。")
+		p["currency"] = mcpField(mcpEnum("CNY", "HKD", "USD"), "汇总币种", "ISO 4217", "ledger", "使用账户币种或证券币种；汇总金额用它计价。")
 		p["holding_days"] = mcpField(mcpSchema{"type": "integer", "minimum": 0, "description": "券商页面持仓天数，可选"}, "持仓天数", "天", "user", "券商页面显示的持仓天数是多少？")
+		p["new_stock"] = mcpField(mcpSchema{"type": "boolean", "description": "新股中签/新股入账的轮次；收益率以中签缴款金额为成本"}, "新股", "", "user", "这一轮是否来自新股中签入账？")
 		flow := mcpObject(mcpSchema{
-			"kind":     mcpField(mcpEnum("buy", "sell", "dividend"), "流水类型", "", "user", "这笔流水是买入、卖出还是股息入账？"),
+			"kind":     mcpField(mcpEnum("buy", "sell", "dividend", "tax"), "流水类型", "", "user", "这笔流水是买入、卖出、股息入账还是红利税？"),
 			"date":     mcpDate("流水实际发生日期"),
-			"price":    mcpFinancial("6", false, "成交价或每股股息，证券币种，最多6位小数", "价格", "证券币种", "这笔流水的成交价或每股股息是多少？"),
-			"quantity": mcpFinancial("6", false, "成交股数；股息入账填0，最多6位小数", "数量", "股", "这笔流水成交了多少股？股息入账填0。"),
+			"price":    mcpFinancial("6", false, "成交价或每股股息，证券币种，最多6位小数；红利税填0", "价格", "证券币种", "这笔流水的成交价或每股股息是多少？红利税填0。"),
+			"quantity": mcpFinancial("6", false, "成交股数；股息入账和红利税填0，最多6位小数", "数量", "股", "这笔流水成交了多少股？股息入账和红利税填0。"),
 			"fee":      mcpFinancial("2", false, "这笔流水的交易费用，账户币种，最多2位小数", "费用", "账户币种", "这笔流水的交易费用是多少？"),
 			"amount":   mcpFinancial("2", false, "这笔流水的发生金额，账户币种，最多2位小数", "发生金额", "账户币种", "这笔流水的发生金额是多少？"),
 			"fx":       mcpField(mcpNumber("8"), "结算汇率", "账户币种/证券币种", "user", "如果这笔流水跨币种，实际结算汇率是多少？"),

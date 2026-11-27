@@ -92,6 +92,36 @@ type MCPOpeningsInput struct {
 	Positions []MCPOpeningPosition `json:"positions"`
 }
 
+type MCPClosedFlowInput struct {
+	Kind     string `json:"kind"`
+	Date     string `json:"date"`
+	Price    string `json:"price"`
+	Quantity string `json:"quantity"`
+	Fee      string `json:"fee"`
+	Amount   string `json:"amount"`
+	FX       string `json:"fx,omitempty"`
+	Note     string `json:"note,omitempty"`
+}
+
+type MCPClosedInput struct {
+	MCPWriteFields
+	Instrument  MCPInstrumentSelector `json:"instrument"`
+	Channel     string                `json:"channel,omitempty"`
+	OpenedOn    string                `json:"opened_on"`
+	ClosedOn    string                `json:"closed_on"`
+	Quantity    string                `json:"quantity"`
+	Income      string                `json:"income"`
+	Expense     string                `json:"expense"`
+	Fees        string                `json:"fees"`
+	Profit      string                `json:"profit"`
+	ProfitRate  string                `json:"profit_rate"`
+	HoldingDays int                   `json:"holding_days,omitempty"`
+	Currency    Currency              `json:"currency"`
+	Flows       []MCPClosedFlowInput  `json:"flows"`
+	Source      string                `json:"source,omitempty"`
+	Note        string                `json:"note,omitempty"`
+}
+
 type MCPOpeningPosition struct {
 	Instrument MCPInstrumentSelector `json:"instrument"`
 	Channel    string                `json:"channel,omitempty"`
@@ -112,9 +142,12 @@ type mcpStockIntent struct {
 	Reason        string                `json:"reason"`
 	Value         MCPReplacement        `json:"value"`
 	Openings      []MCPOpeningPosition  `json:"openings,omitempty"`
+	Closed        *StockClosed          `json:"closed,omitempty"`
 }
 
 var mcpUnsignedDecimal = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
+var mcpSignedDecimal = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
+var mcpRateString = regexp.MustCompile(`^-?[0-9]{1,20}(?:\.[0-9]{1,2})?$`)
 
 // mcpChannel is the broker account a trade belongs to. It is data, not an
 // instruction, and an empty value keeps entries recorded before channels existed.
@@ -137,6 +170,11 @@ func mcpDecimal(s string, digits int, positive bool) (string, error) {
 		return "", ErrPrecision
 	}
 	return formatFixed(v, digits), nil
+}
+
+func mcpFixed(s string, digits int) int64 {
+	v, _ := parseFixed(s, digits)
+	return v
 }
 
 func (i MCPInstrumentSelector) valid() bool {
@@ -177,6 +215,94 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 		}
 		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
 		in.Value = MCPReplacement{Kind: "tax", Channel: v.Channel, Date: v.Date, Amount: v.Amount, Currency: v.Currency, FX: v.FX, Note: v.Note}
+	case MCPClosedInput:
+		if tool != "ledger_record_closed" || !validDate(v.OpenedOn) || !validDate(v.ClosedOn) || v.OpenedOn > v.ClosedOn || len(v.Flows) == 0 || len(v.Flows) > 1000 {
+			return in, mcpInvalid("opened_on", "closed_on", "flows")
+		}
+		if !v.Instrument.valid() || !v.Currency.valid() || !mcpText(v.Source, 200, false) || !mcpText(v.Note, 2000, false) || v.HoldingDays < 0 {
+			return in, mcpInvalid("instrument", "currency", "source", "note", "holding_days")
+		}
+		channel, ok := mcpChannel(v.Channel)
+		if !ok {
+			return in, mcpInvalid("channel")
+		}
+		quantity, err := mcpDecimal(v.Quantity, 6, true)
+		if err != nil {
+			return in, mcpIssue("invalid_precision", "股数格式或范围不合法", "fix_input", "quantity")
+		}
+		income, err := mcpDecimal(v.Income, 2, false)
+		if err != nil {
+			return in, mcpIssue("invalid_precision", "累计收入格式或范围不合法", "fix_input", "income")
+		}
+		expense, err := mcpDecimal(v.Expense, 2, false)
+		if err != nil {
+			return in, mcpIssue("invalid_precision", "累计支出格式或范围不合法", "fix_input", "expense")
+		}
+		fees, err := mcpDecimal(v.Fees, 2, false)
+		if err != nil {
+			return in, mcpIssue("invalid_precision", "费用格式或范围不合法", "fix_input", "fees")
+		}
+		if !mcpSignedDecimal.MatchString(v.Profit) {
+			return in, mcpIssue("invalid_precision", "总盈亏格式不合法", "fix_input", "profit")
+		}
+		profit, err := parseFixed(v.Profit, 2)
+		if err != nil {
+			return in, mcpIssue("invalid_precision", "总盈亏格式不合法", "fix_input", "profit")
+		}
+		if !mcpRateString.MatchString(v.ProfitRate) {
+			return in, mcpIssue("invalid_precision", "收益率格式不合法", "fix_input", "profit_rate")
+		}
+		closed := &StockClosed{
+			OpenedOn: v.OpenedOn, ClosedOn: v.ClosedOn, Quantity: Quantity(mcpFixed(quantity, 6)),
+			Income: Money(mcpFixed(income, 2)), Expense: Money(mcpFixed(expense, 2)), Fees: Money(mcpFixed(fees, 2)),
+			Profit: Money(profit), ProfitRate: v.ProfitRate, HoldingDays: v.HoldingDays,
+			Source: strings.TrimSpace(v.Source),
+		}
+		for _, f := range v.Flows {
+			if !validDate(f.Date) || f.Date < v.OpenedOn || f.Date > v.ClosedOn || !mcpText(f.Note, 500, false) {
+				return in, mcpInvalid("flows.date", "flows.note")
+			}
+			price, err := mcpDecimal(f.Price, 6, false)
+			if err != nil {
+				return in, mcpIssue("invalid_precision", "流水价格格式或范围不合法", "fix_input", "flows.price")
+			}
+			flowQty, err := mcpDecimal(f.Quantity, 6, false)
+			if err != nil {
+				return in, mcpIssue("invalid_precision", "流水股数格式或范围不合法", "fix_input", "flows.quantity")
+			}
+			fee, err := mcpDecimal(f.Fee, 2, false)
+			if err != nil {
+				return in, mcpIssue("invalid_precision", "流水费用格式或范围不合法", "fix_input", "flows.fee")
+			}
+			amount, err := mcpDecimal(f.Amount, 2, false)
+			if err != nil {
+				return in, mcpIssue("invalid_precision", "流水金额格式或范围不合法", "fix_input", "flows.amount")
+			}
+			fx := Rate(0)
+			if f.FX != "" {
+				rate, err := mcpDecimal(f.FX, 8, true)
+				if err != nil {
+					return in, mcpIssue("invalid_precision", "流水汇率格式或范围不合法", "fix_input", "flows.fx")
+				}
+				fx = Rate(mcpFixed(rate, 8))
+			}
+			if f.Kind != "buy" && f.Kind != "sell" && f.Kind != "dividend" {
+				return in, mcpInvalid("flows.kind")
+			}
+			if f.Kind == "dividend" && mcpFixed(flowQty, 6) != 0 {
+				return in, mcpInvalid("flows.quantity")
+			}
+			if f.Kind != "dividend" && (mcpFixed(flowQty, 6) == 0 || mcpFixed(price, 6) == 0) {
+				return in, mcpInvalid("flows.quantity", "flows.price")
+			}
+			closed.Flows = append(closed.Flows, StockClosedFlow{
+				Kind: f.Kind, Date: f.Date, Price: Price(mcpFixed(price, 6)), Quantity: Quantity(mcpFixed(flowQty, 6)),
+				Fee: Money(mcpFixed(fee, 2)), Amount: Money(mcpFixed(amount, 2)), FX: fx, Note: strings.TrimSpace(f.Note),
+			})
+		}
+		in.Write, in.Instrument, in.Action = v.MCPWriteFields, v.Instrument, "create"
+		in.Value = MCPReplacement{Channel: channel, Currency: v.Currency, Note: strings.TrimSpace(v.Note)}
+		in.Closed = closed
 	case MCPEditInput:
 		if tool != "ledger_edit_entry" || !validID(v.EntryID) || !mcpText(v.Reason, 512, true) {
 			return in, mcpInvalid("entry_id", "reason")
@@ -233,6 +359,11 @@ func normalizeMCPWrite(tool string, input any) (mcpStockIntent, error) {
 			}
 			in.Openings[n].Channel = channel
 		}
+		return in, nil
+	}
+	if in.Closed != nil {
+		// Closed history is an immutable broker snapshot. It has no trade
+		// replacement fields and never touches current quantity or cash.
 		return in, nil
 	}
 	channel, ok := mcpChannel(in.Value.Channel)

@@ -108,6 +108,11 @@ func registerLedgerTools(server *mcp.Server, s MCPService, logger *slog.Logger) 
 		func(ctx context.Context, in MCPTaxInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_record_dividend_tax", in)
 		})
+	addLedgerTool(server, logger, "ledger_record_closed", "补录一笔已经清仓的历史轮次，来自券商历史已清仓页面。它是独立的历史快照，不改变当前持仓、当前轮成本、现金或账户资金流；同一证券仍有当前持仓时也可以记录。汇总金额使用账户币种，流水价格为证券币种。",
+		mcpWriteSchema("ledger_record_closed"), false, false,
+		func(ctx context.Context, in MCPClosedInput) (MCPStockWriteResult, error) {
+			return s.Write(ctx, "ledger_record_closed", in)
+		})
 	addLedgerTool(server, logger, "ledger_edit_entry", "按准确entry_id完整更正或作废流水，保留原因和历史。事实不明确时必须调用question补问，拒绝响应给出具体问句。replace必须提供完整replacement；void不提供replacement。自动分红日期保留除息日。历史回放失败全量回滚。",
 		mcpWriteSchema("ledger_edit_entry"), false, false, func(ctx context.Context, in MCPEditInput) (MCPStockWriteResult, error) {
 			return s.Write(ctx, "ledger_edit_entry", in)

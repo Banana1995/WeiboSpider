@@ -118,6 +118,30 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 		e.Details["observed_version"] = st.version()
 		return c, e
 	}
+	if in.Closed != nil {
+		if in.Value.Currency != st.account.Currency {
+			return c, mcpIssue("currency_mismatch", "历史已清仓汇总金额必须使用账户币种", "fix_input", "currency")
+		}
+		if identity == nil {
+			return c, ErrCorrupt
+		}
+		if _, code := quoteSymbol(*identity); code != "" {
+			return c, mcpIssue(code, "现有证券身份不符合当前支持的市场和币种规则", "fix_input", "instrument")
+		}
+		today, _, err := s.Store.cutoff()
+		if err != nil {
+			return c, err
+		}
+		if in.Closed.ClosedOn > today {
+			return c, mcpInvalid("closed_on")
+		}
+		c.ID = "mcp-entry-" + receiptDigest(mcpWriteKey(in.Write.AccountID, in.Write.RequestID))
+		c.Entry = &StockInput{InstrumentID: identity.ID, Channel: in.Value.Channel, Kind: "closed", Date: in.Closed.ClosedOn, Closed: in.Closed, Note: in.Value.Note}
+		if _, exists := st.instruments[identity.ID]; !exists {
+			c.Security = &instrumentJSON{identity.ID, identity.Market, identity.Code, identity.Name, identity.Currency}
+		}
+		return c, nil
+	}
 	today, _, err := s.Store.cutoff()
 	if err != nil {
 		return c, err

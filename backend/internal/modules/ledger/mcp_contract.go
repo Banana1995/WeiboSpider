@@ -63,6 +63,33 @@ func mcpWriteSchema(tool string) mcpSchema {
 		p["amount"] = mcpFinancial("2", true, "实际扣缴的股息红利税金额，证券币种，正数，最多2位小数；账本按现金扣除处理", "扣缴金额", "证券币种", "这笔股息红利税实际扣了多少？请填正数，方向由账本按扣除处理。")
 		p["instrument"] = mcpInstrumentSchema()
 		return mcpObject(p, append(required, "instrument", "date", "amount", "currency")...)
+	case "ledger_record_closed":
+		p["instrument"] = mcpInstrumentSchema()
+		p["channel"] = mcpField(mcpString("券商账户（渠道）名称，最多128字节；历史已清仓所属渠道", 128), "券商渠道", "", "user", "这笔历史已清仓记录属于哪个券商账户？")
+		p["opened_on"] = mcpDate("该轮次首次买入日期，YYYY-MM-DD")
+		p["closed_on"] = mcpDate("该轮次清仓完成日期，YYYY-MM-DD，不能晚于当前业务日")
+		p["quantity"] = mcpFinancial("6", true, "该轮次累计买入并已全部卖出的股数，正数，最多6位小数", "清仓股数", "股", "这一轮累计成交了多少股？")
+		p["income"] = mcpFinancial("2", false, "券商页面累计收入，账户币种，最多2位小数", "累计收入", "账户币种", "券商页面显示的累计收入是多少？")
+		p["expense"] = mcpFinancial("2", false, "券商页面累计支出，账户币种，最多2位小数", "累计支出", "账户币种", "券商页面显示的累计支出是多少？")
+		p["fees"] = mcpFinancial("2", false, "券商页面累计交易费用，账户币种，最多2位小数", "交易费用", "账户币种", "券商页面显示的交易费用合计是多少？")
+		p["profit"] = mcpField(mcpSchema{"type": "string", "pattern": `^-?[0-9]+(?:\.[0-9]{1,2})?$`, "description": "券商页面总盈亏，账户币种，可负，最多2位小数", "maxLength": 32}, "总盈亏", "账户币种", "user", "券商页面显示的总盈亏是多少？亏损用负数。")
+		p["profit_rate"] = mcpField(mcpSchema{"type": "string", "pattern": `^-?[0-9]{1,20}(?:\.[0-9]{1,2})?$`, "description": "券商页面收益率百分数，最多2位小数，不带百分号", "maxLength": 24}, "收益率", "%", "user", "券商页面显示的收益率是多少？例如6.26。")
+		p["currency"] = mcpField(mcpEnum("CNY", "HKD", "USD"), "账户币种", "ISO 4217", "ledger", "调用ledger_list_accounts确认账户币种；汇总金额用它计价。")
+		p["holding_days"] = mcpField(mcpSchema{"type": "integer", "minimum": 0, "description": "券商页面持仓天数，可选"}, "持仓天数", "天", "user", "券商页面显示的持仓天数是多少？")
+		flow := mcpObject(mcpSchema{
+			"kind":     mcpField(mcpEnum("buy", "sell", "dividend"), "流水类型", "", "user", "这笔流水是买入、卖出还是股息入账？"),
+			"date":     mcpDate("流水实际发生日期"),
+			"price":    mcpFinancial("6", false, "成交价或每股股息，证券币种，最多6位小数", "价格", "证券币种", "这笔流水的成交价或每股股息是多少？"),
+			"quantity": mcpFinancial("6", false, "成交股数；股息入账填0，最多6位小数", "数量", "股", "这笔流水成交了多少股？股息入账填0。"),
+			"fee":      mcpFinancial("2", false, "这笔流水的交易费用，账户币种，最多2位小数", "费用", "账户币种", "这笔流水的交易费用是多少？"),
+			"amount":   mcpFinancial("2", false, "这笔流水的发生金额，账户币种，最多2位小数", "发生金额", "账户币种", "这笔流水的发生金额是多少？"),
+			"fx":       mcpField(mcpNumber("8"), "结算汇率", "账户币种/证券币种", "user", "如果这笔流水跨币种，实际结算汇率是多少？"),
+			"note":     mcpField(mcpString("可选流水备注，最多500字节", 500), "流水备注", "", "optional", ""),
+		}, "kind", "date", "price", "quantity", "fee", "amount")
+		p["flows"] = mcpField(mcpSchema{"type": "array", "minItems": 1, "maxItems": 1000, "items": flow, "description": "券商流水明细，按券商页面逐笔记录；缺失行不要补造"}, "流水明细", "", "user", "请提供这一轮的逐笔流水；没有逐笔数据时至少提供汇总。")
+		p["source"] = mcpField(mcpString("来源说明，最多200字节", 200), "来源", "", "optional", "")
+		p["note"] = mcpField(mcpString("可选备注，最多2000字节", 2000), "备注", "", "optional", "")
+		return mcpObject(p, append(required, "instrument", "opened_on", "closed_on", "quantity", "income", "expense", "fees", "profit", "profit_rate", "currency", "flows")...)
 	case "ledger_set_cash_balance":
 		p["observed_date"] = mcpField(mcpDate("当前实际现金的北京时间日期，首次提交必须为当前业务日"), "余额观测日", "Asia/Shanghai", "user", "请确认当前业务日的实际余额，不能把过去余额当作当前余额。")
 		p["amount"] = mcpFinancial("2", false, "当前实际剩余现金，账户币种，非负，最多2位小数；不是入金；明确零余额合法", "实际现金余额", "账户币种", "当前实际剩余现金是多少？如果余额确实为零，请明确为零。")
@@ -116,7 +143,7 @@ type MCPContractQuery struct {
 
 func mcpContractQuerySchema() mcpSchema {
 	return mcpObject(mcpSchema{
-		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions", "ledger_record_dividend_tax", flowCreateTool, flowEditTool),
+		"tool_name":  mcpEnum("ledger_record_trade", "ledger_record_dividend", "ledger_edit_entry", "ledger_set_cash_balance", "ledger_set_opening_positions", "ledger_record_dividend_tax", "ledger_record_closed", flowCreateTool, flowEditTool),
 		"record_id":  mcpID("要更正的账户资金流水ID"),
 		"account_id": mcpID("可选准确账户ID，用于解释当前上下文；不提供则显示尚未确定的规则"),
 		"instrument": mcpInstrumentSchema(), "entry_id": mcpID("更正或作废的原流水ID"),
@@ -221,7 +248,7 @@ func (q MCPContractQuery) valid() bool {
 		return q.Instrument == nil && q.EntryID == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_record_trade":
 		return q.EntryID == "" && q.Action == "" && q.ReplacementKind == "" && (q.Mode == "" || q.Mode == "trade" || q.Mode == "complete_opening")
-	case "ledger_record_dividend", "ledger_record_dividend_tax":
+	case "ledger_record_dividend", "ledger_record_dividend_tax", "ledger_record_closed":
 		return q.EntryID == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
 	case "ledger_set_cash_balance":
 		return q.Instrument == nil && q.EntryID == "" && q.Date == "" && q.Mode == "" && q.Action == "" && q.ReplacementKind == ""
@@ -439,6 +466,16 @@ func mcpContractExample(q MCPContractQuery) map[string]any {
 		in["instrument"], in["date"], in["amount"], in["currency"] = MCPInstrumentSelector{"SH", "600036"}, "2026-09-06", "100.00", "CNY"
 	case "ledger_record_dividend_tax":
 		in["instrument"], in["date"], in["amount"], in["currency"], in["note"] = MCPInstrumentSelector{"SH", "600036"}, "2026-09-06", "20.00", "CNY", "股息红利税补缴"
+	case "ledger_record_closed":
+		in["instrument"], in["channel"] = MCPInstrumentSelector{"HK", "00700"}, "华泰满意"
+		in["opened_on"], in["closed_on"] = "2024-01-02", "2024-06-03"
+		in["quantity"], in["income"], in["expense"], in["fees"] = "100", "1200.00", "1000.00", "5.00"
+		in["profit"], in["profit_rate"], in["currency"] = "195.00", "19.50", "CNY"
+		in["flows"] = []map[string]any{
+			{"kind": "buy", "date": "2024-01-02", "price": "10.00", "quantity": "100", "fee": "5.00", "amount": "1005.00", "fx": "1"},
+			{"kind": "sell", "date": "2024-06-03", "price": "12.00", "quantity": "100", "fee": "5.00", "amount": "1195.00", "fx": "1"},
+		}
+		in["source"] = "合成示例"
 	case "ledger_set_cash_balance":
 		in["observed_date"], in["amount"], in["currency"] = "2026-09-06", "1000.00", "CNY"
 	case "ledger_set_opening_positions":

@@ -275,3 +275,51 @@ func TestMCPEditsEnforceInstrumentRangeForLegacyEntries(t *testing.T) {
 	require.Equal(t, "unsupported_instrument", mcpToolFailure(err).Code)
 	require.Equal(t, before, auditCount(t, s.Store))
 }
+
+func TestMCPClosedHistoryIsIndependentOfLivePosition(t *testing.T) {
+	s, _ := mcpFixture(t)
+	buy := mcpTrade("live-buy", "0")
+	buy.Quantity = "100"
+	live, err := s.Write(t.Context(), "ledger_record_trade", buy)
+	require.NoError(t, err)
+
+	closed := MCPClosedInput{
+		MCPWriteFields: MCPWriteFields{RequestID: "history", AccountID: "a", ExpectedVersion: live.VersionAfter},
+		Instrument:     MCPInstrumentSelector{"SH", "600036"},
+		Channel:        "华泰满意",
+		OpenedOn:       "2025-01-02",
+		ClosedOn:       "2025-06-03",
+		Quantity:       "100",
+		Income:         "1200.00",
+		Expense:        "1000.00",
+		Fees:           "5.00",
+		Profit:         "195.00",
+		ProfitRate:     "19.50",
+		Currency:       CNY,
+		Source:         "synthetic",
+		Flows: []MCPClosedFlowInput{
+			{Kind: "buy", Date: "2025-01-02", Price: "10", Quantity: "100", Fee: "5.00", Amount: "1005.00"},
+			{Kind: "sell", Date: "2025-06-03", Price: "12", Quantity: "100", Fee: "5.00", Amount: "1195.00"},
+		},
+	}
+	out, err := s.Write(t.Context(), "ledger_record_closed", closed)
+	require.NoError(t, err)
+	require.Empty(t, out.PositionsChanged)
+	require.Zero(t, out.Cash.Delta)
+
+	book := readBook(t, s.Store)
+	require.Len(t, book.Items, 1)
+	require.Equal(t, Quantity(100*1000000), book.Items[0].Quantity)
+	require.NotNil(t, book.Items[0].Metrics.Cost)
+	require.Equal(t, Price(10*1000000), *book.Items[0].Metrics.Cost)
+	require.Len(t, book.Closed, 1)
+	require.Equal(t, "华泰满意", book.Closed[0].Channel)
+	require.Equal(t, Money(19500), book.Closed[0].Closed.Profit)
+
+	// The same business request is a receipt replay, not a second record.
+	again, err := s.Write(t.Context(), "ledger_record_closed", closed)
+	require.NoError(t, err)
+	require.Equal(t, out.ReceiptID, again.ReceiptID)
+	book = readBook(t, s.Store)
+	require.Len(t, book.Closed, 1)
+}

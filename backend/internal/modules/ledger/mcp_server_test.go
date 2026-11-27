@@ -47,7 +47,7 @@ func TestMCPProtocolToolsThroughSDK(t *testing.T) {
 	c, _ := mcpClient(t, s)
 	list, err := c.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 14)
+	require.Len(t, list.Tools, 15)
 	for _, tool := range list.Tools {
 		require.NotNil(t, tool.InputSchema)
 		require.NotNil(t, tool.OutputSchema)

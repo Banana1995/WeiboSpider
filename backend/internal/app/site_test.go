@@ -42,9 +42,11 @@ func TestSiteOwnsLegacyDataAndSeparatesNewUsers(t *testing.T) {
 		a.Handler.ServeHTTP(w, r)
 		return w
 	}
-	for _, p := range []string{"/api/platform/ledger/accounts", "/api/platform/ledger/mcp", "/api/platform/options/status", "/api/platform/tax/state", "/api/platform/liquor/latest", accounts.Prefix + "owner"} {
+	for _, p := range []string{"/api/platform/ledger/accounts", "/api/platform/options/status", "/api/platform/tax/state", "/api/platform/liquor/latest", accounts.Prefix + "owner"} {
 		require.Equal(t, 401, call("GET", p, nil, nil, nil).Code, p)
 	}
+	mcp := call("POST", "/api/platform/ledger/mcp", map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": map[string]any{}}, nil, map[string]string{"Accept": "application/json, text/event-stream", "X-Ledger-MCP-Token": cfg.APIToken})
+	require.NotEqual(t, 401, mcp.Code, "service token may reach the owner ledger MCP without a site session")
 	activate := func(name string) *http.Cookie {
 		link, e := accounts.Issue(t.Context(), cfg.DataDir, name, false)
 		require.NoError(t, e)

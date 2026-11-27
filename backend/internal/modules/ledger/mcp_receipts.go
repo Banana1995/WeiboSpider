@@ -47,6 +47,12 @@ func readMCPReceipt(ctx context.Context, tx *sql.Tx, account, requestID, expecte
 	if _, err := time.Parse(time.RFC3339Nano, out.RecordedAt); err != nil {
 		return out, true, ErrCorrupt
 	}
+	if in.Closed != nil {
+		if out.Entry == nil || out.Entry.Kind != "closed" || !validStockEntry(*out.Entry) || out.Entry.Closed == nil || !reflect.DeepEqual(*out.Entry.Closed, *in.Closed) {
+			return out, true, ErrCorrupt
+		}
+		return out, true, nil
+	}
 	if out.Action == "cash" {
 		if out.Entry != nil || out.CashAnchorAfter == nil || out.Cash.After.String() != in.Value.Amount || out.BusinessDate != in.ObservedDate || out.Cash.Currency != in.Value.Currency || out.CashAnchorAfter.Amount != out.Cash.After || out.CashAnchorAfter.Date != out.BusinessDate {
 			return out, true, ErrCorrupt
@@ -158,6 +164,8 @@ func validMCPIntent(in mcpStockIntent) bool {
 		args = MCPCashInput{MCPWriteFields: in.Write, ObservedDate: in.ObservedDate, Amount: v.Amount, Currency: v.Currency}
 	case "ledger_set_opening_positions":
 		args = MCPOpeningsInput{in.Write, in.Openings}
+	case "ledger_record_closed":
+		return in.Closed != nil && in.Action == "create" && in.Closed.valid()
 	case "ledger_edit_entry":
 		var replacement *MCPReplacement
 		if in.Action == "replace" {

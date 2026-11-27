@@ -4,11 +4,11 @@
 
 ## 启用和连接
 
-传输：**remote Streamable HTTP**，服务名 `investment-ledger`，版本 1.5.0，共十四个工具。
+传输：**remote Streamable HTTP**，服务名 `investment-ledger`，版本 1.5.0，共十五个工具。
 
 - 本地入口：`http://127.0.0.1:5051/api/platform/ledger/mcp`。
-- 公网入口：`http://43.130.247.183:5052/api/platform/ledger/mcp`（2026-11-06 已部署验证）。
-- 账本沿用公开共享授权，MCP 不要求 OAuth 或账本令牌；跨站浏览器写保护仍有效。
+- 公网入口：`https://gaomanyi.site/api/platform/ledger/mcp`（旧 `5052` 仅绑定回环，不再是公网入口）。
+- 浏览器访问仍需站点登录。机器客户端可在请求头带 `X-Ledger-MCP-Token: <BACKEND_API_TOKEN>`，只对站主的账本 MCP 生效；其他账本 API 仍需站点会话。该令牌是高权限密钥，只放在服务器环境或私有客户端配置中。
 - `LEDGER_MCP_ENABLED=true` 且 `LEDGER_ENABLED=true` 时注册路由。本地默认关闭，目标 Compose 已配置开启。
 - 回执与客户端会话无关；不需要保存 Mcp-Session-Id。
 
@@ -55,9 +55,10 @@ go run ./cmd/server
 | `ledger_set_cash_balance` | `observed_date`、`amount`、`currency` |
 | `ledger_set_opening_positions` | `positions[].instrument.market`、`positions[].instrument.code`、`positions[].quantity`（可选 `positions[].channel`，同一证券可按渠道分行） |
 | `ledger_record_dividend_tax` | `instrument.market`、`instrument.code`、`date`、`amount`、`currency` |
+| `ledger_record_closed` | `instrument.market`、`instrument.code`、`opened_on`、`closed_on`、`quantity`、`income`、`expense`、`fees`、`profit`、`profit_rate`、`currency`、`flows` |
 | `ledger_edit_entry` | `entry_id`、`action`、`reason`；replace 还要求完整 `replacement`，void 禁止该字段 |
 
-同一只证券分散在不同券商账户时，`ledger_record_trade`、`ledger_record_dividend`、`ledger_record_dividend_tax` 和 `ledger_set_opening_positions` 都可带 `channel`（券商账户名，最多 128 字节）。账本按渠道分别累计股数，卖出只扣减该渠道；不带 channel 的流水计入未标注渠道。`ledger_get_stock_book` 的每个持仓会返回 `channels: [{channel, quantity}]`。
+同一只证券分散在不同券商账户时，`ledger_record_trade`、`ledger_record_dividend`、`ledger_record_dividend_tax`、`ledger_record_closed` 和 `ledger_set_opening_positions` 都可带 `channel`（券商账户名，最多 128 字节）。账本按渠道分别累计股数，卖出只扣减该渠道；不带 channel 的流水计入未标注渠道。`ledger_get_stock_book` 的每个持仓会返回 `channels: [{channel, quantity}]`。
 
 买卖更正的 replacement 必填 `kind`、`date`、`quantity`、`price`、`fee`、`currency`；分红更正必填 `kind`、`date`、`amount`、`currency`。跨币种需要现金结算时 `fx` 条件必填，同币种省略确定为 1；具体现金基准覆盖与分红规则由字段查询解释，写入事务重新验证。
 

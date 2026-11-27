@@ -96,7 +96,7 @@ const signed = (s: string | null) =>
     <p class="lp-reference">
       金额按账户币种；价格为{{
         props.item.instrument.currency
-      }}计价。这条记录来自券商历史已清仓页面，只做历史归因，不进入当前持仓、当前轮成本或账户资金流。
+      }}计价。汇总字段按券商页面原值展示，累计收入/支出与总盈亏不一定是简单相减关系，以券商总盈亏为准。这条记录来自券商历史已清仓页面，只做历史归因，不进入当前持仓、当前轮成本或账户资金流。
     </p>
   </LedgerDialog>
 </template>

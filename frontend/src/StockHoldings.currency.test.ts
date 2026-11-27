@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import StockHoldings from "./StockHoldings.vue";
 import { emptyStockBook, stockItem } from "./stockBook.testHelpers";
-import type { StockBook, StockItem } from "./stockBook";
+import type { ClosedItem, StockBook, StockItem } from "./stockBook";
 import type { Account, FXQuote } from "./ledger";
 import {
   createLedgerWorkspace,
@@ -335,4 +335,60 @@ it("identifies a partial subtotal and explains unavailable weights without inven
   for (const row of wrapper.findAll(".stock-row")) {
     expect(row.get("span:nth-child(3) > strong").text()).toBe("—");
   }
+});
+
+it("lists recorded closed rounds under 已清仓 without mixing them into current holdings", async () => {
+  const item = domestic();
+  const closed: ClosedItem = {
+    id: "closed-1",
+    version: "1",
+    sequence: "1",
+    instrument_id: item.instrument.id,
+    kind: "closed",
+    date: "2026-01-05",
+    quantity: "0.000000",
+    price: "0.000000",
+    fee: "0.00",
+    amount: "0.00",
+    fx: "0.00000000",
+    note: "历史补录",
+    voided: false,
+    closed: {
+      opened_on: "2025-12-05",
+      closed_on: "2026-01-05",
+      quantity: "100.000000",
+      income: "145280.42",
+      expense: "142466.71",
+      fees: "112.99",
+      profit: "2813.71",
+      profit_rate: "1.97",
+      flows: [
+        {
+          kind: "buy",
+          date: "2025-12-05",
+          price: "1424.46",
+          quantity: "100",
+          fee: "20.71",
+          amount: "142466.71",
+          fx: "1",
+        },
+      ],
+      source: "synthetic",
+    },
+    instrument: item.instrument,
+    created_at: "2026-01-05T00:00:00Z",
+    updated_at: "2026-01-05T00:00:00Z",
+  };
+  await start({ ...book([item]), closed: [closed] });
+  expect(wrapper.findAll(".stock-closed-row")).toHaveLength(0);
+  const closedButton = wrapper
+    .findAll(".stock-filter button")
+    .find((b) => b.text() === "已清仓")!;
+  await closedButton.trigger("click");
+  expect(wrapper.findAll(".stock-closed-row")).toHaveLength(1);
+  expect(wrapper.get(".stock-closed-row").text()).toContain("+2,813.71");
+  await wrapper.get(".stock-closed-row").trigger("click");
+  const dialog = wrapper.get("dialog");
+  expect(dialog.text()).toContain("2025-12-05 ~ 2026-01-05");
+  expect(dialog.text()).toContain("流水明细");
 });

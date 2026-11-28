@@ -21,6 +21,7 @@ type MCPFlowInput struct {
 	RecordID        string   `json:"record_id,omitempty"`
 	ExpectedVersion string   `json:"expected_version,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
+	Action          string   `json:"action,omitempty"`
 	Date            string   `json:"date,omitempty"`
 	Direction       string   `json:"direction,omitempty"`
 	Amount          string   `json:"amount,omitempty"`
@@ -75,7 +76,14 @@ func (i mcpFlowIntent) check() error {
 		if _, err := positiveInteger(in.ExpectedVersion); err != nil {
 			return mcpInvalid("expected_version")
 		}
-		if in.Date == "" && in.Amount == "" && in.Note == nil && in.Channel == nil {
+		if in.Action != "" && in.Action != "void" {
+			return mcpInvalid("action")
+		}
+		if in.Action == "void" {
+			if in.Date != "" || in.Amount != "" || in.Note != nil || in.Channel != nil {
+				return mcpInvalid("date", "amount", "note", "channel")
+			}
+		} else if in.Date == "" && in.Amount == "" && in.Note == nil && in.Channel == nil {
 			return mcpInvalid("date", "amount", "note", "channel")
 		}
 	default:
@@ -101,6 +109,10 @@ func (i mcpFlowIntent) command(key string, previous *AccountRecord) (AccountReco
 			return c, ErrVoided
 		}
 		c.Action, c.ID, c.ExpectedVersion = ReplaceOperation, in.RecordID, in.ExpectedVersion
+		if in.Action == "void" {
+			c.Action, c.Entry = VoidOperation, nil
+			return c, nil
+		}
 		entry = previous.AccountEntry
 	}
 	if in.Date != "" {

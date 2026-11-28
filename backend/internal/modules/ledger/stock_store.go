@@ -601,7 +601,7 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				next.Note = strings.TrimSpace(in.Note)
 				next.Closed = in.Closed
 				if in.Kind == "dividend" {
-					if in.Amount <= 0 || in.Fee != 0 || in.Quantity != 0 || in.Price != 0 {
+					if in.Amount <= 0 || in.Fee != 0 || in.Price != 0 || in.Quantity != 0 && (previous == nil || !previous.Override) {
 						return ErrOperation
 					}
 					next.Amount = in.Amount
@@ -645,7 +645,9 @@ func (s *Store) applyStockCommandTx(ctx context.Context, tx *sql.Tx, account, ke
 				if next.Event != nil {
 					next.Override = true
 					next.SettlementFX = nil
-					next.Quantity = previous.Quantity
+					if in.Quantity == 0 {
+						next.Quantity = previous.Quantity
+					}
 					next.Price = previous.Price
 				}
 				if c.ReplaceOpening {

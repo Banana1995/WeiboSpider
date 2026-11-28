@@ -42,6 +42,7 @@ func mcpWriteSchema(tool string) mcpSchema {
 			return mcpObject(p, "request_id", "account_id", "currency", "date", "direction", "amount")
 		}
 		p["record_id"] = mcpField(mcpID("目标账户资金流水ID"), "账户流水ID", "", "ledger", "用ledger_list_account_cash_flows定位准确记录。")
+		p["action"] = mcpField(mcpEnum("replace", "void"), "操作", "", "user", "保留并修改用replace；作废这笔流水用void。")
 		p["expected_version"] = mcpField(mcpSchema{"type": "string", "pattern": "^[1-9][0-9]{0,18}$"}, "流水版本", "", "ledger", "读取该笔账户流水的version。不要使用持仓版本。")
 		p["reason"] = mcpField(mcpSchema{"type": "string", "minLength": 1, "maxLength": 512, "x-ledger-nonblank": true}, "更正原因", "", "user", "为什么需要更正这笔转账？")
 		schema := mcpObject(p, "request_id", "account_id", "currency", "record_id", "expected_version", "reason")
@@ -115,6 +116,7 @@ func mcpWriteSchema(tool string) mcpSchema {
 		trade, div := mcpValueProperties(false), mcpValueProperties(true)
 		trade["kind"] = mcpField(mcpEnum("buy", "sell"), "交易类型", "", "user", "更正后的交易是买入还是卖出？")
 		div["kind"] = mcpField(mcpEnum("dividend"), "分红类型", "", "ledger", "从原流水确认是否为分红；不能将买卖转换成分红。")
+		div["quantity"] = mcpField(mcpFinancial("6", true, "本账户分红股数；仅用于更正历史手工金额时同步数量字段", "本账户股数", "股", "这次分红对应本账户多少股？"), "本账户股数", "股", "user", "这次分红对应本账户多少股？")
 		p["replacement"] = mcpField(mcpSchema{"type": "object", "x-ledger-discriminator": "kind", "oneOf": []any{
 			mcpObject(trade, "kind", "date", "quantity", "price", "fee", "currency"),
 			mcpObject(div, "kind", "date", "amount", "currency"),

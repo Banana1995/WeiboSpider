@@ -220,6 +220,9 @@ func (s MCPService) prepareCommand(ctx context.Context, tx *sql.Tx, in mcpStockI
 	e := &StockInput{InstrumentID: identity.ID, Channel: v.Channel, Kind: v.Kind, Date: v.Date, Note: v.Note}
 	if v.Kind == "dividend" || v.Kind == "tax" {
 		e.Amount, err = ParseMoney(v.Amount)
+		if err == nil && v.Kind == "dividend" && v.Quantity != "" {
+			e.Quantity, err = ParseQuantity(v.Quantity)
+		}
 	} else {
 		var qErr, pErr, fErr error
 		e.Quantity, qErr = ParseQuantity(v.Quantity)

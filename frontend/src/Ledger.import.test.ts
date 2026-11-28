@@ -793,7 +793,7 @@ it.each([
     fetcher.mockResolvedValueOnce(response(invalid));
     await importFile();
     expect(commits).toHaveLength(0);
-    expect(wrapper.text()).toContain("无法确认服务响应");
+    expect(wrapper.text()).toContain("服务返回的数据格式无法识别");
     expect(
       wrapper.get('[data-test="import-submit"]').attributes("disabled"),
     ).toBeUndefined();

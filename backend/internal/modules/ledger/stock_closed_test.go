@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,4 +59,16 @@ func TestClosedHistoryWithoutLivePositionIsListedButHasNoPosition(t *testing.T) 
 	book := readBook(t, s)
 	require.Len(t, book.Items, 1)
 	require.Len(t, book.Closed, 2)
+	// The REST payload shares the lowercase instrument contract with positions;
+	// capitalized storage field names make the browser reject the whole book.
+	raw, err := json.Marshal(book)
+	require.NoError(t, err)
+	var wire struct {
+		Closed []struct {
+			Instrument instrumentJSON `json:"instrument"`
+		} `json:"closed"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &wire))
+	require.Equal(t, instrumentJSON{"j", "SH", "600519", "History", CNY}, wire.Closed[0].Instrument)
+	require.NotContains(t, string(raw), `"instrument":{"ID"`)
 }

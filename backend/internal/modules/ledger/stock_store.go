@@ -700,7 +700,7 @@ type StockItem struct {
 // ClosedItem is a historical closed round that does not participate in the
 // current position, cost, cycle or cash calculations.
 type ClosedItem struct {
-	Instrument Instrument `json:"instrument"`
+	Instrument instrumentJSON `json:"instrument"`
 	StockEntry
 }
 
@@ -764,7 +764,7 @@ func (h Handler) pricedStockBook(ctx context.Context, id string, refresh bool) (
 		if !ok {
 			continue
 		}
-		out.Closed = append(out.Closed, ClosedItem{Instrument: i, StockEntry: e})
+		out.Closed = append(out.Closed, ClosedItem{instrumentJSON{i.ID, i.Market, i.Code, i.Name, i.Currency}, e})
 	}
 	slices.SortFunc(out.Closed, func(a, b ClosedItem) int {
 		if a.Closed.ClosedOn != b.Closed.ClosedOn {

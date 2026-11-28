@@ -247,6 +247,22 @@ const signed = (s: string | null) =>
     ? "—"
     : `${stockTone(s) === "stock-gain" ? "+" : ""}${holdingMoney(s)}`;
 const percent = (s: string | null) => (s == null ? "—" : `${s}%`);
+// Auto dividends keep the whole-position quantity while a manual amount may
+// cover only this account's shares. Derive the amount-implied shares so the
+// display never pairs 700 shares with a 600-share amount.
+function dividendShares(e: StockEntry): string | null {
+  if (!e.event || !e.event.per_share) return null;
+  const amount = e.amount.replace(".", "");
+  const per = e.event.per_share.replace(".", "");
+  if (!/^\d+$/.test(amount) || !/^\d+$/.test(per)) return null;
+  const a = BigInt(amount);
+  const p = BigInt(per);
+  if (p === 0n) return null;
+  const scaled = (a * 10_000_000_000n) / p;
+  return `${scaled / 1_000_000n}.${(scaled % 1_000_000n)
+    .toString()
+    .padStart(6, "0")}`;
+}
 const settlement = (e: StockEntry) =>
   !e.event
     ? ""
@@ -771,7 +787,7 @@ defineExpose({ load });
                       e.kind === "tax" ? "股息红利税扣款" : "现金分红"
                     }}</strong
                     ><small v-if="e.event"
-                      >{{ holdingNumber(e.quantity) }} 股 ×
+                      >{{ holdingNumber(dividendShares(e) ?? e.quantity) }} 股 ×
                       {{ holdingNumber(e.event.per_share) }} ·
                       {{ e.override ? "已手工更正" : "公告金额" }}</small
                     ><small v-if="e.event"

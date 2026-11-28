@@ -60,16 +60,17 @@ type MCPTaxInput struct {
 }
 
 type MCPReplacement struct {
-	Kind     string   `json:"kind"`
-	Channel  string   `json:"channel,omitempty"`
-	Date     string   `json:"date"`
-	Quantity string   `json:"quantity,omitempty"`
-	Price    string   `json:"price,omitempty"`
-	Fee      string   `json:"fee,omitempty"`
-	Amount   string   `json:"amount,omitempty"`
-	Currency Currency `json:"currency"`
-	FX       string   `json:"fx,omitempty"`
-	Note     string   `json:"note,omitempty"`
+	Kind             string   `json:"kind"`
+	Channel          string   `json:"channel,omitempty"`
+	Date             string   `json:"date"`
+	Quantity         string   `json:"quantity,omitempty"`
+	DividendQuantity string   `json:"dividend_quantity,omitempty"`
+	Price            string   `json:"price,omitempty"`
+	Fee              string   `json:"fee,omitempty"`
+	Amount           string   `json:"amount,omitempty"`
+	Currency         Currency `json:"currency"`
+	FX               string   `json:"fx,omitempty"`
+	Note             string   `json:"note,omitempty"`
 }
 
 type MCPEditInput struct {

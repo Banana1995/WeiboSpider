@@ -116,7 +116,7 @@ func mcpWriteSchema(tool string) mcpSchema {
 		trade, div := mcpValueProperties(false), mcpValueProperties(true)
 		trade["kind"] = mcpField(mcpEnum("buy", "sell"), "交易类型", "", "user", "更正后的交易是买入还是卖出？")
 		div["kind"] = mcpField(mcpEnum("dividend"), "分红类型", "", "ledger", "从原流水确认是否为分红；不能将买卖转换成分红。")
-		div["quantity"] = mcpField(mcpFinancial("6", true, "本账户分红股数；仅用于更正历史手工金额时同步数量字段", "本账户股数", "股", "这次分红对应本账户多少股？"), "本账户股数", "股", "user", "这次分红对应本账户多少股？")
+		div["dividend_quantity"] = mcpField(mcpFinancial("6", true, "本账户分红股数；仅用于更正历史手工金额时同步数量字段", "本账户股数", "股", "这次分红对应本账户多少股？"), "本账户股数", "股", "user", "这次分红对应本账户多少股？")
 		p["replacement"] = mcpField(mcpSchema{"type": "object", "x-ledger-discriminator": "kind", "oneOf": []any{
 			mcpObject(trade, "kind", "date", "quantity", "price", "fee", "currency"),
 			mcpObject(div, "kind", "date", "amount", "currency"),
